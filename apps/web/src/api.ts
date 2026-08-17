@@ -61,12 +61,12 @@ async function requestDingTalkAuthCode(corpId: string): Promise<string> {
   if (!getAuthCode) throw new Error("dingtalk_jsapi_get_auth_code_unavailable_open_this_page_inside_dingtalk");
   return new Promise<string>((resolve, reject) => {
     let settled = false;
-    const finish = (callback: (value: string) => void, value: string) => {
+    const finish = <T>(callback: (value: T) => void, value: T) => {
       if (settled) return;
       settled = true;
       callback(value);
     };
-    const fail = (reason: unknown) => finish(reject, reason instanceof Error ? reason.message : "dingtalk_auth_code_request_failed");
+    const fail = (reason: unknown) => finish(reject, toError(reason, "dingtalk_auth_code_request_failed"));
     let result: unknown;
     try {
       result = getAuthCode({
@@ -96,6 +96,17 @@ async function requestDingTalkAuthCode(corpId: string): Promise<string> {
 
 function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
   return typeof value === "object" && value !== null && "then" in value && typeof (value as { then?: unknown }).then === "function";
+}
+
+function toError(reason: unknown, fallback: string): Error {
+  if (reason instanceof Error) return reason;
+  if (typeof reason === "string" && reason.trim()) return new Error(reason);
+  if (typeof reason === "object" && reason !== null) {
+    const value = reason as { code?: unknown; errorCode?: unknown; message?: unknown };
+    const message = value.code ?? value.errorCode ?? value.message;
+    if (typeof message === "string" && message.trim()) return new Error(message);
+  }
+  return new Error(fallback);
 }
 
 export interface Batch {

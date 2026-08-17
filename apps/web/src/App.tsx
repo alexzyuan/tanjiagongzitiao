@@ -182,4 +182,8 @@ function FullError({ message }: { message: string }) { return <div className="fu
 function currentMonth() { const date = new Date(); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`; }
 function formatDate(value: string) { return new Intl.DateTimeFormat("zh-CN", { dateStyle: "short", timeStyle: "short" }).format(new Date(value)); }
 function formatMoney(value: number) { return value.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
-function errorText(reason: unknown) { return reason instanceof Error ? reason.message : "unknown_error"; }
+function errorText(reason: unknown) {
+  const error = reason instanceof Error ? reason : new Error(typeof reason === "string" ? reason : "unknown_error");
+  console.error("salary_ui_error", error.message);
+  return error.message;
+}
