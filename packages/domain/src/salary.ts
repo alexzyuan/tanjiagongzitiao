@@ -12,7 +12,7 @@ const transitions: Record<SalaryBatchState, readonly SalaryBatchState[]> = {
   scheduled: ["sending", "withdrawn"],
   sending: ["sent", "partially_failed"],
   sent: ["sending", "withdrawn", "archived"],
-  partially_failed: ["sending", "withdrawn"],
+  partially_failed: ["sending", "withdrawn", "archived"],
   withdrawn: ["sending", "archived"],
   archived: []
 };

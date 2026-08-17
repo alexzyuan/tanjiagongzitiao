@@ -36,6 +36,16 @@ export interface DeliveryRecord {
   createdAt: string;
 }
 
+export interface PaymentEvidenceRecord {
+  id: string;
+  batchId: string;
+  employeeUserId: string;
+  eventType: "notification_sent" | "viewed" | "confirmed" | "withdrawn";
+  fingerprint: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
 export interface StoredBatch extends SalaryBatchSummary {
   items: StoredItem[];
   createdAt: string;
@@ -59,6 +69,7 @@ export class MemorySalaryStore {
   private readonly batches = new Map<string, StoredEncryptedBatch>();
   private readonly audits: AuditRecord[] = [];
   private readonly deliveries: DeliveryRecord[] = [];
+  private readonly evidence: PaymentEvidenceRecord[] = [];
   private readonly settings: AppSettings = {
     employeeVisibilityMonths: 12,
     passwordVerification: false,
@@ -159,6 +170,25 @@ export class MemorySalaryStore {
   }
   listDeliveries(batchId?: string): DeliveryRecord[] {
     return structuredClone(batchId ? this.deliveries.filter(event => event.batchId === batchId) : this.deliveries);
+  }
+  recordEvidence(input: Omit<PaymentEvidenceRecord, "id" | "createdAt">): PaymentEvidenceRecord {
+    const record = { ...input, id: randomUUID(), createdAt: new Date().toISOString() };
+    this.evidence.push(record);
+    return structuredClone(record);
+  }
+  listEvidence(batchId?: string): PaymentEvidenceRecord[] {
+    return structuredClone(batchId ? this.evidence.filter(event => event.batchId === batchId) : this.evidence);
+  }
+  archiveExpired(cutoffPayrollMonth: string): string[] {
+    const archived: string[] = [];
+    for (const batch of this.batches.values()) {
+      if (batch.payrollMonth >= cutoffPayrollMonth || !["sent", "partially_failed", "withdrawn"].includes(batch.state)) continue;
+      assertTransition(batch.state, "archived");
+      batch.state = "archived";
+      batch.archivedAt = new Date().toISOString();
+      archived.push(batch.id);
+    }
+    return archived;
   }
   getSettings(): AppSettings { return structuredClone(this.settings); }
   setSettings(patch: Partial<AppSettings>): AppSettings { Object.assign(this.settings, patch); return this.getSettings(); }
