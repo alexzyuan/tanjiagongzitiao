@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import * as XLSX from "xlsx";
 import { buildApp } from "../src/server.js";
-import { previewRows } from "../src/modules/salary/import.js";
+import { parseWorkbook, previewRows } from "../src/modules/salary/import.js";
 
 async function cookieFor(app: ReturnType<typeof buildApp>["app"]) {
   const response = await app.inject({ method: "POST", url: "/v1/auth/dev" });
@@ -8,6 +9,26 @@ async function cookieFor(app: ReturnType<typeof buildApp>["app"]) {
 }
 
 describe("salary draft routes", () => {
+  it("parses a merged two-row header workbook without treating the title as a header", () => {
+    const worksheet = XLSX.utils.aoa_to_sheet([
+      ["2026年7月工资表"],
+      ["姓名", "应发工资", null, "实发工资"],
+      [null, "基本工资", "奖金", null],
+      ["员工A", 10000, 1000, 9000]
+    ]);
+    worksheet["!merges"] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
+      { s: { r: 1, c: 1 }, e: { r: 1, c: 2 } },
+      { s: { r: 1, c: 0 }, e: { r: 2, c: 0 } },
+      { s: { r: 1, c: 3 }, e: { r: 2, c: 3 } }
+    ];
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "工资表");
+    const rows = parseWorkbook(XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }));
+
+    expect(rows).toEqual([{ 姓名: "员工A", 基本工资: 10000, 奖金: 1000, 实发工资: 9000 }]);
+  });
+
   it("returns row-level errors and keeps invalid imports unsendable", async () => {
     const { app } = buildApp();
     const cookie = await cookieFor(app);

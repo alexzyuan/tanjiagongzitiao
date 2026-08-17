@@ -143,7 +143,7 @@ export class HttpDingTalkClient implements DingTalkClient {
         });
         assertDingTalkSuccess(response, "directory.department_users");
         const result = objectValue(response, "result") ?? response;
-        const pageUserIds = stringArray(result, "list");
+        const pageUserIds = stringArray(result, "userid_list");
         for (const userId of pageUserIds) userIds.add(userId);
         const hasMore = booleanValue(result, "has_more", "hasMore") ?? false;
         const nextCursor = numberValue(result, "next_cursor", "nextCursor") ?? cursor + 100;

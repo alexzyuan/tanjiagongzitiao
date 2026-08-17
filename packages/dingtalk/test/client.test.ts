@@ -47,7 +47,7 @@ describe("HTTP DingTalk client", () => {
       if (url.includes("/topapi/v2/department/listsubid")) return json({ errcode: 0, result: { dept_id_list: [2] } });
       if (url.includes("/topapi/user/listid")) {
         const body = JSON.parse(String(init.body)) as { dept_id: number };
-        return json({ errcode: 0, result: { has_more: false, list: body.dept_id === 1 ? ["employee-a"] : ["employee-b"] } });
+        return json({ errcode: 0, result: { has_more: false, userid_list: body.dept_id === 1 ? ["employee-a"] : ["employee-b"] } });
       }
       if (url.includes("/topapi/v2/user/get")) {
         const body = JSON.parse(String(init.body)) as { userid: string };

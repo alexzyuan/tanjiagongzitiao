@@ -128,5 +128,30 @@ export function parseWorkbook(buffer: Buffer): RawRow[] {
   if (!firstSheet) throw new Error("salary_workbook_sheet_missing");
   const sheet = workbook.Sheets[firstSheet];
   if (!sheet) throw new Error("salary_workbook_sheet_missing");
-  return XLSX.utils.sheet_to_json<RawRow>(sheet, { defval: null });
+  const values = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: null });
+  const headerRowIndex = values.findIndex(row => row.some(cell => typeof cell === "string" && hasAlias(cell, ["姓名", "name", "工号", "employeeNo", "userId", "钉钉用户ID", "钉钉UserID", "员工UserID", "员工userId"])));
+  if (headerRowIndex < 0) throw new Error("salary_workbook_header_missing");
+
+  const firstHeaderRow = values[headerRowIndex] ?? [];
+  const nextRow = values[headerRowIndex + 1] ?? [];
+  const hasMergedHeader = (sheet["!merges"] ?? []).some(merge => merge.s.r === headerRowIndex && (merge.e.r > merge.s.r || merge.e.c > merge.s.c));
+  const hasSecondHeaderRow = hasMergedHeader && nextRow.some(cell => typeof cell === "string" && cell.trim());
+  const headers = firstHeaderRow.map((cell, index) => {
+    const lowerHeader = hasSecondHeaderRow ? stringCell(nextRow[index]) : undefined;
+    return lowerHeader ?? stringCell(cell);
+  });
+  const seenHeaders = new Set<string>();
+  for (const header of headers) {
+    if (!header) continue;
+    if (seenHeaders.has(header)) throw new Error(`salary_workbook_duplicate_header:${header}`);
+    seenHeaders.add(header);
+  }
+  const firstDataRow = headerRowIndex + (hasSecondHeaderRow ? 2 : 1);
+  return values.slice(firstDataRow)
+    .filter(row => row.some(cell => cell !== null && cell !== undefined && cell !== ""))
+    .map(row => Object.fromEntries(headers.flatMap((header, index) => header ? [[header, row[index] ?? null]] : [])));
+}
+
+function stringCell(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
