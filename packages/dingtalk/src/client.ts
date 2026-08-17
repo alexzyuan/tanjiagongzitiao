@@ -143,9 +143,11 @@ export class HttpDingTalkClient implements DingTalkClient {
         });
         assertDingTalkSuccess(response, "directory.department_users");
         const result = objectValue(response, "result") ?? response;
-        for (const userId of stringArray(result, "list")) userIds.add(userId);
+        const pageUserIds = stringArray(result, "list");
+        for (const userId of pageUserIds) userIds.add(userId);
         const hasMore = booleanValue(result, "has_more", "hasMore") ?? false;
         const nextCursor = numberValue(result, "next_cursor", "nextCursor") ?? cursor + 100;
+        this.trace("directory.department_users.listed", { departmentId, cursor, count: pageUserIds.length, hasMore });
         if (!hasMore) break;
         cursor = nextCursor;
       } while (true);
@@ -194,7 +196,9 @@ export class HttpDingTalkClient implements DingTalkClient {
         if (!visited.has(childId)) { visited.add(childId); queue.push(childId); }
       }
     }
-    return [...visited];
+    const departmentIds = [...visited];
+    this.trace("directory.departments.listed", { count: departmentIds.length });
+    return departmentIds;
   }
 
   private async getAppToken(): Promise<string> {
