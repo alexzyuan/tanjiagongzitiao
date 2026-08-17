@@ -1,9 +1,9 @@
 import type { Access } from "@salary/domain";
-import type { MemorySalaryStore } from "@salary/db";
+import type { SalaryStore } from "@salary/db";
 import { config } from "../../config.js";
 
 export class AuthorizationService {
-  constructor(private readonly store: MemorySalaryStore) {}
+  constructor(private readonly store: SalaryStore) {}
 
   accessFor(userId: string): Access {
     if (userId === config.MAIN_ADMIN_USER_ID) return { kind: "main_admin", userId };

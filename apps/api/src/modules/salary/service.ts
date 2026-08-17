@@ -1,12 +1,12 @@
 import type { DingTalkClient } from "@salary/dingtalk";
 import type { Access, SalaryBatchState, SalaryItemInput } from "@salary/domain";
 import { canManageBatch, canReadEmployeeItem } from "@salary/domain";
-import { fingerprintSalaryPayload, type MemorySalaryStore } from "@salary/db";
+import { fingerprintSalaryPayload, type SalaryStore } from "@salary/db";
 import type { AuditService } from "../audit/service.js";
 import { validateRows } from "./import.js";
 
 export class SalaryService {
-  constructor(private readonly store: MemorySalaryStore, private readonly dingtalk: DingTalkClient, private readonly audit: AuditService, private readonly appBaseUrl: string) {}
+  constructor(private readonly store: SalaryStore, private readonly dingtalk: DingTalkClient, private readonly audit: AuditService, private readonly appBaseUrl: string) {}
 
   createDraft(actorUserId: string, input: { payrollMonth: string; title: string; rows: Record<string, unknown>[] }): { batchId?: string; errors: ReturnType<typeof validateRows>["errors"] } {
     const parsed = validateRows(input.rows);
@@ -171,7 +171,7 @@ export class SalaryService {
   }
 }
 
-function summary(batch: ReturnType<MemorySalaryStore["getBatch"]>) {
+function summary(batch: ReturnType<SalaryStore["getBatch"]>) {
   const { items: _items, ...value } = batch;
   return value;
 }

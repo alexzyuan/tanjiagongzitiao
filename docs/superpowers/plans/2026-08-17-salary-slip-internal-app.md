@@ -6,7 +6,11 @@
 
 **Architecture:** A pnpm TypeScript monorepo contains a React/Vite internal web app, a Fastify API, a BullMQ worker, and shared domain/database packages. The API resolves a DingTalk auth code to a server-side session, applies batch-scoped authorization before every data operation, encrypts salary payloads, and emits append-only audit events. The worker owns scheduled sends, notification retries, and the active-to-archive transition.
 
-**Tech Stack:** Node.js 22, pnpm workspaces, React, Vite, TanStack Router/Query, Fastify, Zod, Prisma, PostgreSQL, Redis/BullMQ, DingTalk JSAPI/OpenAPI, Vitest, React Testing Library, Playwright, Docker Compose.
+**Tech Stack:** Node.js 22, pnpm workspaces, React, Vite, TanStack Router/Query, Fastify, Zod, SQLite via `better-sqlite3`, DingTalk JSAPI/OpenAPI, Vitest, React Testing Library, Playwright.
+
+## SQLite Persistence Amendment
+
+This implementation replaces the temporary in-memory salary store with an independent SQLite/WAL store. It retains the existing service and route contracts so DingTalk auth and the UI do not change. The API opens a single configured `SALARY_DATABASE_PATH`, enables foreign keys and WAL, records every state mutation transactionally, and has no in-memory fallback.
 
 ---
 

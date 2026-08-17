@@ -2,13 +2,13 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { SessionService } from "../auth/session.js";
 import type { AuthorizationService } from "../authorization/service.js";
-import type { MemorySalaryStore } from "@salary/db";
+import type { SalaryStore } from "@salary/db";
 import type { AuditService } from "../audit/service.js";
 import { ReportService } from "./service.js";
 
 function identity(request: FastifyRequest, sessions: SessionService) { return sessions.read(request.cookies.salary_session); }
 
-export function registerReportRoutes(app: FastifyInstance, deps: { sessions: SessionService; authz: AuthorizationService; store: MemorySalaryStore; audit: AuditService }): void {
+export function registerReportRoutes(app: FastifyInstance, deps: { sessions: SessionService; authz: AuthorizationService; store: SalaryStore; audit: AuditService }): void {
   const reports = new ReportService(deps.store);
   app.get("/v1/reports/summary", async request => {
     const actor = identity(request, deps.sessions);

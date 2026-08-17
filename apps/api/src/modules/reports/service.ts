@@ -1,9 +1,9 @@
 import type { Access } from "@salary/domain";
-import type { MemorySalaryStore } from "@salary/db";
+import type { SalaryStore } from "@salary/db";
 import { canManageBatch } from "@salary/domain";
 
 export class ReportService {
-  constructor(private readonly store: MemorySalaryStore) {}
+  constructor(private readonly store: SalaryStore) {}
 
   summary(access: Access, payrollMonth?: string) {
     if (access.kind === "employee") throw new Error("admin_identity_required");

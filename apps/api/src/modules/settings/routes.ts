@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { SessionService } from "../auth/session.js";
 import type { AuthorizationService } from "../authorization/service.js";
-import type { AppSettings, MemorySalaryStore } from "@salary/db";
+import type { AppSettings, SalaryStore } from "@salary/db";
 import type { AuditService } from "../audit/service.js";
 
 const SettingsPatch = z.object({
@@ -20,7 +20,7 @@ function actor(request: FastifyRequest, sessions: SessionService, authz: Authori
   return identity;
 }
 
-export function registerSettingsRoutes(app: FastifyInstance, deps: { sessions: SessionService; authz: AuthorizationService; store: MemorySalaryStore; audit: AuditService }): void {
+export function registerSettingsRoutes(app: FastifyInstance, deps: { sessions: SessionService; authz: AuthorizationService; store: SalaryStore; audit: AuditService }): void {
   app.get("/v1/settings", async request => {
     actor(request, deps.sessions, deps.authz);
     return deps.store.getSettings();

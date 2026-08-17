@@ -1,6 +1,6 @@
-import type { MemorySalaryStore } from "@salary/db";
+import type { SalaryStore } from "@salary/db";
 
-export function archiveExpiredSalarySlips(store: MemorySalaryStore, now = new Date()): { cutoffPayrollMonth: string; archivedBatchIds: string[] } {
+export function archiveExpiredSalarySlips(store: SalaryStore, now = new Date()): { cutoffPayrollMonth: string; archivedBatchIds: string[] } {
   const months = store.getSettings().employeeVisibilityMonths;
   if (!Number.isInteger(months) || months < 1) throw new Error("employee_visibility_months_invalid");
   const cutoff = monthOffset(now, -(months - 1));

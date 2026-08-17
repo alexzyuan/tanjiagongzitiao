@@ -65,7 +65,34 @@ export interface AppSettings {
   employeeOnlyView: boolean;
 }
 
-export class MemorySalaryStore {
+export interface SalaryStore {
+  createBatch(input: { payrollMonth: string; title: string; createdById: string; items: SalaryItemInput[] }): StoredBatch;
+  listBatches(): StoredBatch[];
+  getBatch(id: string): StoredBatch;
+  setState(id: string, state: SalaryBatchState): StoredBatch;
+  schedule(id: string, scheduledAt: string): StoredBatch;
+  listScheduledDue(now?: Date): string[];
+  assignAdmin(id: string, userId: string): StoredBatch;
+  removeAdmin(id: string, userId: string): StoredBatch;
+  assignSubAdmin(userId: string): string[];
+  removeSubAdmin(userId: string): string[];
+  listSubAdmins(): string[];
+  markSent(id: string, employeeUserId: string): StoredBatch;
+  markViewed(id: string, employeeUserId: string): StoredItem;
+  markConfirmed(id: string, employeeUserId: string): StoredItem;
+  getEmployeeItem(id: string, employeeUserId: string): StoredItem;
+  recordAudit(input: Omit<AuditRecord, "id" | "createdAt">): AuditRecord;
+  listAudits(): AuditRecord[];
+  recordDelivery(input: Omit<DeliveryRecord, "id" | "createdAt">): DeliveryRecord;
+  listDeliveries(batchId?: string): DeliveryRecord[];
+  recordEvidence(input: Omit<PaymentEvidenceRecord, "id" | "createdAt">): PaymentEvidenceRecord;
+  listEvidence(batchId?: string): PaymentEvidenceRecord[];
+  archiveExpired(cutoffPayrollMonth: string): string[];
+  getSettings(): AppSettings;
+  setSettings(patch: Partial<AppSettings>): AppSettings;
+}
+
+export class MemorySalaryStore implements SalaryStore {
   private readonly batches = new Map<string, StoredEncryptedBatch>();
   private readonly audits: AuditRecord[] = [];
   private readonly deliveries: DeliveryRecord[] = [];

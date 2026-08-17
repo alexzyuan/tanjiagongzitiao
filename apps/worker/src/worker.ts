@@ -1,7 +1,7 @@
-import type { MemorySalaryStore } from "@salary/db";
+import type { SalaryStore } from "@salary/db";
 import { archiveExpiredSalarySlips } from "./archive.js";
 
-export function runArchiveJob(store: MemorySalaryStore, now = new Date()) {
+export function runArchiveJob(store: SalaryStore, now = new Date()) {
   return archiveExpiredSalarySlips(store, now);
 }
 

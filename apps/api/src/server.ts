@@ -6,7 +6,7 @@ import multipart from "@fastify/multipart";
 import sensible from "@fastify/sensible";
 import { ZodError } from "zod";
 import { MockDingTalkClient, HttpDingTalkClient } from "@salary/dingtalk";
-import { MemorySalaryStore } from "@salary/db";
+import { SqliteSalaryStore } from "@salary/db";
 import { config } from "./config.js";
 import { SessionService } from "./modules/auth/session.js";
 import { registerAuthRoutes } from "./modules/auth/routes.js";
@@ -17,9 +17,9 @@ import { registerSalaryRoutes } from "./modules/salary/routes.js";
 import { registerReportRoutes } from "./modules/reports/routes.js";
 import { registerSettingsRoutes } from "./modules/settings/routes.js";
 
-export function buildApp() {
+export function buildApp(options: { databasePath?: string } = {}) {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" }, genReqId: () => randomUUID() });
-  const store = new MemorySalaryStore(Buffer.from(config.SALARY_ENCRYPTION_KEY, "hex"));
+  const store = new SqliteSalaryStore(options.databasePath ?? config.SALARY_DATABASE_PATH, Buffer.from(config.SALARY_ENCRYPTION_KEY, "hex"));
   const dingtalk = config.DINGTALK_MODE === "mock" ? new MockDingTalkClient() : new HttpDingTalkClient({
     clientId: config.DINGTALK_CLIENT_ID,
     clientSecret: config.DINGTALK_CLIENT_SECRET,
@@ -49,6 +49,7 @@ export function buildApp() {
     if (statusCode >= 500) request.log.error({ err: error }, "unhandled_salary_api_error");
     return reply.code(statusCode).send({ code: message, requestId: request.id });
   });
+  app.addHook("onClose", () => store.close());
   app.get("/healthz", async () => ({ ok: true, service: "salary-api" }));
   registerAuthRoutes(app, {
     dingtalk,

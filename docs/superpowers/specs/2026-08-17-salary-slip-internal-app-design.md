@@ -97,6 +97,16 @@ Core records:
 
 Salary amounts and salary field payloads are encrypted at rest. Access to decrypted detail is limited by the role and batch scope above.
 
+## SQLite Persistence Decision
+
+This first production deployment uses one dedicated SQLite database because the application runs as a single API process on the existing 2 GiB Alibaba Cloud host. The database is not shared with the BI application.
+
+- The database path is supplied by `SALARY_DATABASE_PATH` and must be outside the deployed release directory.
+- SQLite runs in WAL mode with foreign keys enabled and a bounded busy timeout. A second application process against the same database is unsupported and must fail at startup.
+- Salary field payloads remain AES-256-GCM encrypted before persistence. The database file, encryption key, and backup directory use separate service-account permissions from BI.
+- Each write is a SQLite transaction. Storage errors are logged with the request correlation ID and returned as failures; no memory fallback is allowed.
+- The server creates a timestamped encrypted backup before the daily retention job. Uploading backups to OSS is a separate deployment task because it requires the organization’s OSS bucket and credentials.
+
 ## State and Delivery Flow
 
 ```mermaid
