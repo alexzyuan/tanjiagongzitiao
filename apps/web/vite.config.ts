@@ -8,5 +8,5 @@ export default defineConfig({
     allowedHosts: [".trycloudflare.com", ".loca.lt"],
     proxy: { "/v1": "http://localhost:3000" }
   },
-  test: { environment: "jsdom", setupFiles: ["./src/test-setup.ts"] }
+  test: { globals: true, environment: "jsdom", setupFiles: ["./src/test-setup.ts"] }
 });

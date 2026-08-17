@@ -11,7 +11,7 @@ interface DingTalkAuthConfig {
 }
 
 interface DingTalkAuthResponse {
-  code?: string;
+  code?: string | number;
   authCode?: string;
 }
 
@@ -72,7 +72,7 @@ async function requestDingTalkAuthCode(corpId: string): Promise<string> {
       result = getAuthCode({
         corpId,
         success: response => {
-          const code = response.code ?? response.authCode;
+          const code = extractDingTalkAuthCode(response);
           if (!code) return fail("dingtalk_auth_code_missing");
           finish(resolve, code);
         },
@@ -84,14 +84,19 @@ async function requestDingTalkAuthCode(corpId: string): Promise<string> {
       return;
     }
     if (isPromiseLike(result)) result.then(response => {
-      const code = response && typeof response === "object"
-        ? String((response as { code?: unknown; authCode?: unknown }).code ?? (response as { authCode?: unknown }).authCode ?? "")
-        : "";
+      const code = response && typeof response === "object" ? extractDingTalkAuthCode(response as DingTalkAuthResponse) : "";
       if (!code) return fail("dingtalk_auth_code_missing");
       finish(resolve, code);
     }, fail);
     window.setTimeout(() => fail("dingtalk_auth_code_timeout"), 15_000);
   });
+}
+
+export function extractDingTalkAuthCode(response: DingTalkAuthResponse): string {
+  if (typeof response.authCode === "string" && response.authCode.trim()) return response.authCode.trim();
+  if (typeof response.code === "string" && response.code.trim()) return response.code.trim();
+  if (typeof response.code === "number" && Number.isFinite(response.code) && response.code !== 0) return String(response.code);
+  return "";
 }
 
 function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
