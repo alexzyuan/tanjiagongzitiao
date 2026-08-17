@@ -49,28 +49,30 @@ export class HttpDingTalkClient implements DingTalkClient {
     this.legacyApiBaseUrl = trimBaseUrl(config.legacyApiBaseUrl ?? DEFAULT_LEGACY_API_BASE_URL);
   }
 
+  // H5 micro-app codes use the app token plus the legacy user-info endpoint.
   async exchangeAuthCode(code: string): Promise<DingTalkIdentity> {
     if (!code) throw new Error("dingtalk_auth_code_missing");
     this.trace("identity.auth_code.received", {
       length: code.length,
       fingerprint: createHash("sha256").update(code).digest("hex").slice(0, 12)
     });
-    const token = await this.getUserToken(code);
-    const user = await this.requestJson("identity.lookup", `${this.apiBaseUrl}/v1.0/contact/users/me`, {
-      method: "GET",
-      headers: { "x-acs-dingtalk-access-token": token.accessToken }
+    const appToken = await this.getAppToken();
+    const response = await this.requestJson("identity.lookup", `${this.legacyApiBaseUrl}/topapi/v2/user/getuserinfo?access_token=${encodeURIComponent(appToken)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code })
     });
-    const userId = stringValue(user, "userId", "userid", "user_id", "openId", "openid");
+    assertDingTalkSuccess(response, "identity.lookup");
+    const user = isObject(response.result) ? response.result : response;
+    const userId = stringValue(user, "userid", "userId", "user_id", "openId", "openid");
     if (!userId) throw new Error("dingtalk_identity_user_id_missing");
-    const unionId = stringValue(user, "unionId", "unionid");
+    const unionId = stringValue(user, "unionid", "unionId");
     if (!unionId) throw new Error("dingtalk_identity_union_id_missing");
     const identity: DingTalkIdentity = {
       userId,
       corpId: stringValue(user, "corpId", "corpid") ?? this.config.corpId,
       name: stringValue(user, "name", "nick", "nickname") ?? userId
     };
-    this.userTokens.set(identity.userId, { ...token, unionId });
-    this.userTokens.set(unionId, { ...token, unionId });
     this.trace("identity.exchanged", { userId: identity.userId, corpId: identity.corpId });
     return identity;
   }
@@ -125,18 +127,6 @@ export class HttpDingTalkClient implements DingTalkClient {
     if (!todoId) throw new Error("dingtalk_todo_id_missing");
     this.trace("todo.created", { userId: input.userId, todoId });
     return { todoId };
-  }
-
-  private async getUserToken(code: string): Promise<CachedToken> {
-    const response = await this.requestJson("identity.token", `${this.apiBaseUrl}/v1.0/oauth2/userAccessToken`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ clientId: this.config.clientId, clientSecret: this.config.clientSecret, code, grantType: "authorization_code" })
-    });
-    const accessToken = stringValue(response, "accessToken", "access_token");
-    const expireIn = numberValue(response, "expireIn", "expiresIn", "expires_in") ?? 7200;
-    if (!accessToken) throw new Error("dingtalk_user_access_token_missing");
-    return { accessToken, expiresAt: Date.now() + Math.max(1, expireIn) * 1000 - TOKEN_SKEW_MS };
   }
 
   private async getAppToken(): Promise<string> {
