@@ -5,9 +5,18 @@ export interface ImportError { row: number; field: string; code: string; message
 
 type RawRow = Record<string, unknown>;
 
+function normalizedKey(value: string): string {
+  return value.trim().toLowerCase().replace(/[\s_\-:：]/g, "");
+}
+
+function hasAlias(key: string, aliases: string[]): boolean {
+  const normalized = normalizedKey(key);
+  return aliases.some(alias => normalizedKey(alias) === normalized);
+}
+
 function text(row: RawRow, keys: string[]): string | undefined {
-  for (const key of keys) {
-    const value = row[key];
+  for (const [header, value] of Object.entries(row)) {
+    if (!hasAlias(header, keys)) continue;
     if (typeof value === "string" && value.trim()) return value.trim();
     if (typeof value === "number") return String(value);
   }
@@ -16,8 +25,9 @@ function text(row: RawRow, keys: string[]): string | undefined {
 
 function normalizedFields(row: RawRow): Record<string, string | number | null> {
   const fields: Record<string, string | number | null> = {};
+  const metadataAliases = ["userId", "钉钉用户ID", "钉钉UserID", "员工userId", "员工UserID", "employeeUserId", "employeeNo", "工号", "name", "姓名", "department", "部门", "position", "职位"];
   for (const [key, value] of Object.entries(row)) {
-    if (["userId", "钉钉用户ID", "员工userId", "employeeUserId", "employeeNo", "工号", "name", "姓名", "department", "部门", "position", "职位"].includes(key)) continue;
+    if (hasAlias(key, metadataAliases)) continue;
     if (value === undefined || value === null || value === "") { fields[key] = null; continue; }
     if (typeof value === "number") { fields[key] = value; continue; }
     const numeric = Number(String(value).replaceAll(",", ""));
@@ -32,7 +42,7 @@ export function validateRows(rows: RawRow[]): { items: SalaryItemInput[]; errors
   const seen = new Set<string>();
   rows.forEach((row, index) => {
     const rowNumber = index + 2;
-    const employeeUserId = text(row, ["userId", "钉钉用户ID", "员工userId", "employeeUserId"]);
+    const employeeUserId = text(row, ["userId", "钉钉用户ID", "钉钉UserID", "员工userId", "员工UserID", "employeeUserId"]);
     const employeeName = text(row, ["name", "姓名"]);
     const employeeNo = text(row, ["employeeNo", "工号"]);
     if (!employeeUserId) errors.push({ row: rowNumber, field: "userId", code: "employee_not_found", message: "必须提供钉钉用户 ID" });

@@ -25,4 +25,15 @@ describe("salary draft routes", () => {
     expect(response.json().batchId).toMatch(/^batch-/);
     await app.close();
   });
+
+  it("accepts the official workbook header casing", async () => {
+    const { app } = buildApp();
+    const cookie = await cookieFor(app);
+    const row = { 姓名: "徐智远", 基本工资: "10000", 实发金额: "8888", ["员工UserID"]: "024662116226579969999" };
+    const response = await app.inject({ method: "POST", url: "/v1/salary-batches", headers: { cookie }, payload: { payrollMonth: "2026-08", title: "2026年08月工资条", rows: [row] } });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().batchId).toMatch(/^batch-/);
+    expect(response.json().errors).toEqual([]);
+    await app.close();
+  });
 });
