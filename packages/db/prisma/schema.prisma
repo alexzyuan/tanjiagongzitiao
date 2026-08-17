@@ -1,0 +1,117 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SalaryBatchState {
+  draft
+  scheduled
+  sending
+  sent
+  partially_failed
+  withdrawn
+  archived
+}
+
+model Employee {
+  userId      String       @id
+  name        String
+  employeeNo  String?
+  department  String?
+  position    String?
+  employment  String       @default("active")
+  items       SalaryItem[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model SalaryBatch {
+  id               String             @id @default(cuid())
+  payrollMonth     DateTime
+  title            String
+  state            SalaryBatchState   @default(draft)
+  createdById      String
+  scheduledAt      DateTime?
+  archivedAt       DateTime?
+  items            SalaryItem[]
+  admins           SalaryBatchAdmin[]
+  deliveryEvents   DeliveryEvent[]
+  evidenceEvents   PaymentEvidence[]
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  @@index([payrollMonth])
+  @@index([state])
+}
+
+model SalaryItem {
+  id          String       @id @default(cuid())
+  batchId     String
+  employeeId  String
+  ciphertext  Bytes
+  iv          Bytes
+  authTag     Bytes
+  viewedAt    DateTime?
+  confirmedAt DateTime?
+  batch       SalaryBatch  @relation(fields: [batchId], references: [id])
+  employee    Employee     @relation(fields: [employeeId], references: [userId])
+  @@unique([batchId, employeeId])
+  @@index([employeeId])
+}
+
+model SalaryBatchAdmin {
+  batchId   String
+  userId    String
+  batch     SalaryBatch @relation(fields: [batchId], references: [id])
+  @@id([batchId, userId])
+}
+
+model DeliveryEvent {
+  id            String      @id @default(cuid())
+  batchId       String
+  employeeId    String
+  kind          String
+  status        String
+  upstreamId    String?
+  errorCode     String?
+  errorMessage  String?
+  createdAt     DateTime    @default(now())
+  batch         SalaryBatch @relation(fields: [batchId], references: [id])
+  @@index([batchId, employeeId])
+}
+
+model PaymentEvidence {
+  id           String      @id @default(cuid())
+  batchId      String
+  employeeId   String
+  eventType    String
+  fingerprint  String
+  metadata     Json
+  createdAt    DateTime    @default(now())
+  batch        SalaryBatch @relation(fields: [batchId], references: [id])
+  @@index([batchId, employeeId])
+}
+
+model AuditEvent {
+  id            String   @id @default(cuid())
+  correlationId String
+  actorUserId   String?
+  action        String
+  targetType    String
+  targetId      String
+  outcome       String
+  metadata      Json
+  createdAt     DateTime @default(now())
+  @@index([targetType, targetId])
+  @@index([createdAt])
+}
+
+model AppSetting {
+  key       String   @id
+  value     Json
+  updatedBy String
+  updatedAt DateTime @updatedAt
+}

@@ -5,6 +5,7 @@
   "engines": { "node": ">=22" },
   "devDependencies": {
     "@playwright/test": "^1.52.0",
+    "@types/node": "^22.13.4",
     "prettier": "^3.5.0",
     "typescript": "^5.7.0"
   },
