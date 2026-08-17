@@ -71,6 +71,13 @@ export class SalaryService {
     return batch;
   }
 
+  removeAdmin(actor: Access, batchId: string, userId: string) {
+    if (actor.kind !== "main_admin") throw new Error("main_admin_required");
+    const batch = this.store.removeAdmin(batchId, userId);
+    this.audit.record({ correlationId: `batch:${batchId}`, actorUserId: actor.userId, action: "salary_batch.remove_admin", targetType: "salary_batch", targetId: batchId, outcome: "completed", metadata: { userId } });
+    return batch;
+  }
+
   async send(actor: Access, batchId: string, scheduledAt?: string) {
     if (!canManageBatch(actor, batchId)) throw new Error("salary_batch_access_denied");
     if (scheduledAt) {

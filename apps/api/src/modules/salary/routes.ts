@@ -54,6 +54,11 @@ export function registerSalaryRoutes(app: FastifyInstance, deps: { sessions: Ses
     const body = z.object({ userId: z.string().min(1) }).parse(request.body);
     return deps.salary.assignAdmin(deps.authz.accessFor(identity.userId), (request.params as { batchId: string }).batchId, body.userId);
   });
+  app.delete("/v1/salary-batches/:batchId/admins/:userId", async request => {
+    const identity = user(request, deps.sessions);
+    const params = request.params as { batchId: string; userId: string };
+    return deps.salary.removeAdmin(deps.authz.accessFor(identity.userId), params.batchId, params.userId);
+  });
   app.get("/v1/sub-admins", async request => {
     const identity = user(request, deps.sessions);
     if (deps.authz.accessFor(identity.userId).kind !== "main_admin") throw new Error("main_admin_required");

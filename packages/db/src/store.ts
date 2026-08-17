@@ -136,6 +136,14 @@ export class MemorySalaryStore {
     return this.publicBatch(current);
   }
 
+  removeAdmin(id: string, userId: string): StoredBatch {
+    const current = this.batches.get(id);
+    if (!current) throw new Error(`salary_batch_not_found:${id}`);
+    if (!current.assignedAdminIds.includes(userId)) throw new Error("salary_batch_admin_not_found");
+    current.assignedAdminIds = current.assignedAdminIds.filter(candidate => candidate !== userId);
+    return this.publicBatch(current);
+  }
+
   assignSubAdmin(userId: string): string[] {
     if (!userId.trim()) throw new Error("sub_admin_user_id_required");
     this.subAdminIds.add(userId);
