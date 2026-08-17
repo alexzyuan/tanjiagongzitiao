@@ -18,7 +18,23 @@ const ConfigSchema = z.object({
 });
 
 const parsed = ConfigSchema.parse(process.env);
-if (parsed.NODE_ENV === "production" && parsed.DINGTALK_MODE === "mock") throw new Error("production_requires_real_dingtalk_mode");
-if (parsed.NODE_ENV === "production" && !process.env.SALARY_DATABASE_PATH) throw new Error("production_requires_salary_database_path");
+if (parsed.NODE_ENV === "production") {
+  const required = [
+    "APP_BASE_URL",
+    "DINGTALK_MODE",
+    "DINGTALK_CLIENT_ID",
+    "DINGTALK_CLIENT_SECRET",
+    "DINGTALK_CORP_ID",
+    "DINGTALK_AGENT_ID",
+    "MAIN_ADMIN_USER_ID",
+    "SESSION_SIGNING_KEY",
+    "SALARY_ENCRYPTION_KEY",
+    "SALARY_DATABASE_PATH"
+  ];
+  for (const variable of required) {
+    if (!process.env[variable]) throw new Error(`production_requires_${variable.toLowerCase()}`);
+  }
+  if (parsed.DINGTALK_MODE === "mock") throw new Error("production_requires_real_dingtalk_mode");
+}
 if (parsed.DINGTALK_MODE === "http" && !parsed.DINGTALK_AGENT_ID) throw new Error("dingtalk_agent_id_required_for_http_mode");
 export const config = parsed;

@@ -11,7 +11,9 @@
   },
   "scripts": {
     "dev": "pnpm --parallel --stream --filter @salary/api --filter @salary/web dev",
-    "test": "pnpm -r test",
+    "build:packages": "pnpm --filter @salary/domain build && pnpm --filter @salary/dingtalk build && pnpm --filter @salary/db build",
+    "build": "pnpm build:packages && pnpm --filter @salary/api build && pnpm --filter @salary/web build",
+    "test": "pnpm build:packages && pnpm --filter @salary/api build && pnpm -r test",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "test:e2e": "playwright test"
