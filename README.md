@@ -11,7 +11,9 @@ pnpm dev
 
 管理端地址：`http://localhost:5173/`
 
-本地默认使用 `DINGTALK_MODE=mock`，管理员为 `dev-admin`。员工页面可用 `/employee/salary-slips/<batchId>?as=<userId>` 模拟钉钉身份。生产环境必须切换到正式钉钉适配器，并配置 32 字节十六进制工资加密密钥；开发登录接口在生产环境会返回 404。
+本地默认使用 `DINGTALK_MODE=mock`，管理员为 `dev-admin`。员工页面可用 `/employee/salary-slips/<batchId>?as=<userId>` 模拟钉钉身份。正式接入时设置 `DINGTALK_MODE=http`、`DINGTALK_CLIENT_ID`（AppKey）、`DINGTALK_CLIENT_SECRET`（AppSecret）、`DINGTALK_CORP_ID` 和数字 `DINGTALK_AGENT_ID`，并使用 HTTPS 的 `APP_BASE_URL`。网页必须在钉钉客户端内打开，前端通过官方 JSAPI `dd.getAuthCode` 登录；HTTP 模式会关闭开发登录接口，缺少 JSAPI、AgentId 或接口权限时直接返回明确错误。
+
+当前本地演示使用内存仓储，重启 API 会清空工资数据；临时 HTTPS 隧道也只适合联调。上线前需要稳定 HTTPS 域名、持久化数据库和独立的密钥管理。
 
 ## 权限规则
 

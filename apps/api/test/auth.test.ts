@@ -12,6 +12,14 @@ describe("auth", () => {
     await app.close();
   });
 
+  it("exposes non-secret DingTalk client configuration", async () => {
+    const { app } = buildApp();
+    const response = await app.inject({ method: "GET", url: "/v1/auth/config" });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ mode: "mock", corpId: "dev-corp", clientId: "local-development-client" });
+    await app.close();
+  });
+
   it("rejects a missing session", async () => {
     const { app } = buildApp();
     const response = await app.inject({ method: "GET", url: "/v1/auth/session" });

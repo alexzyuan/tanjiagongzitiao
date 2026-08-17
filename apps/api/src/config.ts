@@ -7,6 +7,10 @@ const ConfigSchema = z.object({
   DINGTALK_MODE: z.enum(["mock", "http"]).default("mock"),
   DINGTALK_CLIENT_ID: z.string().min(1).default("local-development-client"),
   DINGTALK_CLIENT_SECRET: z.string().min(1).default("local-development-secret"),
+  DINGTALK_CORP_ID: z.string().min(1).default("dev-corp"),
+  DINGTALK_AGENT_ID: z.coerce.number().int().positive().optional(),
+  DINGTALK_API_BASE_URL: z.string().url().default("https://api.dingtalk.com"),
+  DINGTALK_LEGACY_API_BASE_URL: z.string().url().default("https://oapi.dingtalk.com"),
   MAIN_ADMIN_USER_ID: z.string().min(1).default("dev-admin"),
   SESSION_SIGNING_KEY: z.string().min(16).default("local-development-session-signing-key"),
   SALARY_ENCRYPTION_KEY: z.string().regex(/^[0-9a-fA-F]{64}$/).default("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
@@ -14,4 +18,5 @@ const ConfigSchema = z.object({
 
 const parsed = ConfigSchema.parse(process.env);
 if (parsed.NODE_ENV === "production" && parsed.DINGTALK_MODE === "mock") throw new Error("production_requires_real_dingtalk_mode");
+if (parsed.DINGTALK_MODE === "http" && !parsed.DINGTALK_AGENT_ID) throw new Error("dingtalk_agent_id_required_for_http_mode");
 export const config = parsed;
