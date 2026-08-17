@@ -48,7 +48,7 @@ export class SalaryService {
       targetType: "salary_import_preview",
       targetId: previewId,
       outcome: "completed",
-      metadata: { strategy: input.strategy, rows: preview.rows.length, matched: preview.matched, unmatched: preview.unmatched, ambiguous: preview.ambiguous }
+      metadata: { strategy: input.strategy, rows: preview.rows.length, ignoredSummaryRows: preview.ignoredSummaryRows, matched: preview.matched, unmatched: preview.unmatched, ambiguous: preview.ambiguous }
     });
     return { ...preview, previewId, expiresAt: new Date(expiresAt).toISOString() };
   }

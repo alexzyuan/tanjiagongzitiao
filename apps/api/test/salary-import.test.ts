@@ -81,6 +81,14 @@ describe("directory matching", () => {
     expect(previewRows([{ 工号: "C001", 姓名: "任意", 实发工资: 9000 }], directory, "employeeNo").rows[0]?.user?.userId).toBe("employee-c");
     expect(previewRows([{ 员工UserID: "employee-a", 姓名: "任意", 实发工资: 9000 }], directory, "userId").rows[0]?.user?.userId).toBe("employee-a");
   });
+
+  it("excludes summary rows before matching employees", () => {
+    const preview = previewRows([{ 姓名: "员工A", 实发工资: 9000 }, { 姓名: "合计", 实发工资: 9000 }], [{ userId: "employee-a", name: "员工A", departmentIds: [1] }], "name");
+
+    expect(preview.rows).toHaveLength(1);
+    expect(preview.rows[0]?.user?.userId).toBe("employee-a");
+    expect((preview as typeof preview & { ignoredSummaryRows?: number }).ignoredSummaryRows).toBe(1);
+  });
 });
 
 describe("directory matched import workflow", () => {

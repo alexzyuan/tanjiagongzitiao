@@ -21,6 +21,7 @@ export interface ImportPreviewRow {
 export interface ImportPreview {
   strategy: EmployeeMatchStrategy;
   rows: ImportPreviewRow[];
+  ignoredSummaryRows: number;
   matched: number;
   unmatched: number;
   ambiguous: number;
@@ -102,8 +103,11 @@ export function previewRows(rows: RawRow[], directory: DirectoryUser[], strategy
     : strategy === "employeeNo"
       ? ["employeeNo", "工号"]
       : ["name", "姓名"];
-  const previewRows = rows.map((source, index): ImportPreviewRow => {
+  const rowsForMatching = rows.flatMap((source, index) => {
     const value = text(source, aliases);
+    return isSummaryLabel(value) ? [] : [{ source, index, value }];
+  });
+  const previewRows = rowsForMatching.map(({ source, index, value }): ImportPreviewRow => {
     const candidates = value
       ? directory.filter(user => strategy === "userId" ? user.userId === value : strategy === "employeeNo" ? user.employeeNo === value : user.name === value)
       : [];
@@ -115,10 +119,15 @@ export function previewRows(rows: RawRow[], directory: DirectoryUser[], strategy
   return {
     strategy,
     rows: previewRows,
+    ignoredSummaryRows: rows.length - previewRows.length,
     matched: previewRows.filter(row => row.status === "matched").length,
     unmatched: previewRows.filter(row => row.status === "unmatched").length,
     ambiguous: previewRows.filter(row => row.status === "ambiguous").length
   };
+}
+
+function isSummaryLabel(value: string | undefined): boolean {
+  return Boolean(value && /^(合计|汇总|总计)/.test(value.trim()));
 }
 
 export function parseWorkbook(buffer: Buffer): RawRow[] {

@@ -170,6 +170,7 @@ export interface SalaryImportPreview {
   expiresAt: string;
   strategy: EmployeeMatchStrategy;
   rows: SalaryImportPreviewRow[];
+  ignoredSummaryRows: number;
   matched: number;
   unmatched: number;
   ambiguous: number;
