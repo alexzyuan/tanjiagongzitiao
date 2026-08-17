@@ -12,6 +12,13 @@ export class ReportService {
       .filter(batch => !payrollMonth || batch.payrollMonth === payrollMonth);
     const deliveries = this.store.listDeliveries();
     const evidence = this.store.listEvidence();
+    const salaryTotals = batches.flatMap(batch => batch.items).reduce((total, item) => {
+      total.gross += numberField(item.fields, ["应发合计", "应发工资", "基本工资"]);
+      total.net += numberField(item.fields, ["实发金额", "实发", "到手工资"]);
+      total.tax += numberField(item.fields, ["个人所得税", "个税"]);
+      total.socialInsurance += numberField(item.fields, ["社保扣款", "社保"]);
+      return total;
+    }, { gross: 0, net: 0, tax: 0, socialInsurance: 0 });
     return {
       filter: { payrollMonth: payrollMonth ?? null },
       totals: {
@@ -21,7 +28,8 @@ export class ReportService {
         viewed: batches.reduce((sum, batch) => sum + batch.viewed, 0),
         confirmed: batches.reduce((sum, batch) => sum + batch.confirmed, 0),
         failedDeliveries: deliveries.filter(event => batches.some(batch => batch.id === event.batchId) && event.status === "failed").length,
-        evidenceEvents: evidence.filter(event => batches.some(batch => batch.id === event.batchId)).length
+        evidenceEvents: evidence.filter(event => batches.some(batch => batch.id === event.batchId)).length,
+        salaryTotals
       },
       batches: batches.map(batch => ({ ...batch, deliveryFailures: deliveries.filter(event => event.batchId === batch.id && event.status === "failed").length, evidenceEvents: evidence.filter(event => event.batchId === batch.id).length }))
     };
@@ -33,6 +41,14 @@ export class ReportService {
     const rows = report.batches.map(batch => [batch.payrollMonth, batch.title, batch.state, batch.total, batch.sent, batch.viewed, batch.confirmed, batch.deliveryFailures, batch.evidenceEvents].map(csvCell).join(","));
     return [headers.join(","), ...rows].join("\n") + "\n";
   }
+}
+
+function numberField(fields: Record<string, string | number | null>, keys: string[]): number {
+  for (const key of keys) {
+    const value = fields[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return 0;
 }
 
 function csvCell(value: string | number): string {

@@ -16,6 +16,24 @@ export class SalaryService {
     return { batchId: batch.id, errors: [] };
   }
 
+  assignSubAdmin(actor: Access, userId: string) {
+    if (actor.kind !== "main_admin") throw new Error("main_admin_required");
+    const subAdmins = this.store.assignSubAdmin(userId);
+    this.audit.record({ correlationId: `role:${userId}`, actorUserId: actor.userId, action: "role.sub_admin.add", targetType: "user", targetId: userId, outcome: "completed" });
+    return subAdmins;
+  }
+
+  listSubAdmins() {
+    return this.store.listSubAdmins();
+  }
+
+  removeSubAdmin(actor: Access, userId: string) {
+    if (actor.kind !== "main_admin") throw new Error("main_admin_required");
+    const subAdmins = this.store.removeSubAdmin(userId);
+    this.audit.record({ correlationId: `role:${userId}`, actorUserId: actor.userId, action: "role.sub_admin.remove", targetType: "user", targetId: userId, outcome: "completed" });
+    return subAdmins;
+  }
+
   list(access: Access) {
     const batches = this.store.listBatches();
     if (access.kind === "main_admin") return batches;
@@ -56,11 +74,21 @@ export class SalaryService {
   async send(actor: Access, batchId: string, scheduledAt?: string) {
     if (!canManageBatch(actor, batchId)) throw new Error("salary_batch_access_denied");
     if (scheduledAt) {
-      const batch = this.store.setState(batchId, "scheduled");
+      const batch = this.store.schedule(batchId, scheduledAt);
       this.audit.record({ correlationId: `batch:${batchId}`, actorUserId: actor.userId, action: "salary_batch.schedule", targetType: "salary_batch", targetId: batchId, outcome: "completed", metadata: { scheduledAt } });
       return { batch, scheduled: true };
     }
     return { batch: await this.deliver(actor.userId, batchId), scheduled: false };
+  }
+
+  async processScheduled(actor: Access, now = new Date()) {
+    if (actor.kind !== "main_admin") throw new Error("main_admin_required");
+    const processed: string[] = [];
+    for (const batchId of this.store.listScheduledDue(now)) {
+      await this.deliver(actor.userId, batchId);
+      processed.push(batchId);
+    }
+    return { processedBatchIds: processed };
   }
 
   async resend(actor: Access, batchId: string) {

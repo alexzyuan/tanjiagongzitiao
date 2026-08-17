@@ -19,13 +19,13 @@ export function registerSalaryRoutes(app: FastifyInstance, deps: { sessions: Ses
   app.post("/v1/salary-batches", async request => {
     const identity = user(request, deps.sessions);
     const access = deps.authz.accessFor(identity.userId);
-    if (access.kind !== "main_admin" && access.kind !== "sub_admin" && access.kind !== "batch_admin") throw new Error("salary_admin_required");
+    if (access.kind !== "main_admin") throw new Error("salary_admin_required");
     return deps.salary.createDraft(identity.userId, DraftSchema.parse(request.body));
   });
   app.post("/v1/salary-batches/import", async request => {
     const identity = user(request, deps.sessions);
     const access = deps.authz.accessFor(identity.userId);
-    if (access.kind !== "main_admin" && access.kind !== "sub_admin" && access.kind !== "batch_admin") throw new Error("salary_admin_required");
+    if (access.kind !== "main_admin") throw new Error("salary_admin_required");
     const part = await request.file();
     if (!part) throw new Error("salary_workbook_file_required");
     const payrollMonth = multipartText(part.fields.payrollMonth);
@@ -53,6 +53,24 @@ export function registerSalaryRoutes(app: FastifyInstance, deps: { sessions: Ses
     const identity = user(request, deps.sessions);
     const body = z.object({ userId: z.string().min(1) }).parse(request.body);
     return deps.salary.assignAdmin(deps.authz.accessFor(identity.userId), (request.params as { batchId: string }).batchId, body.userId);
+  });
+  app.get("/v1/sub-admins", async request => {
+    const identity = user(request, deps.sessions);
+    if (deps.authz.accessFor(identity.userId).kind !== "main_admin") throw new Error("main_admin_required");
+    return deps.salary.listSubAdmins();
+  });
+  app.post("/v1/sub-admins", async request => {
+    const identity = user(request, deps.sessions);
+    const body = z.object({ userId: z.string().min(1) }).parse(request.body);
+    return deps.salary.assignSubAdmin(deps.authz.accessFor(identity.userId), body.userId);
+  });
+  app.delete("/v1/sub-admins/:userId", async request => {
+    const identity = user(request, deps.sessions);
+    return deps.salary.removeSubAdmin(deps.authz.accessFor(identity.userId), (request.params as { userId: string }).userId);
+  });
+  app.post("/v1/admin/scheduled/run", async request => {
+    const identity = user(request, deps.sessions);
+    return deps.salary.processScheduled(deps.authz.accessFor(identity.userId));
   });
   app.get("/v1/me/salary-slips", async request => deps.salary.listEmployeeSlips(employeeAccess(request, deps.sessions)));
   app.get("/v1/me/salary-slips/:batchId", async request => deps.salary.readEmployeeItem(employeeAccess(request, deps.sessions), (request.params as { batchId: string }).batchId));

@@ -58,7 +58,7 @@ export interface SalaryItem {
 }
 
 export interface ReportSummary {
-  totals: { batches: number; recipients: number; sent: number; viewed: number; confirmed: number; failedDeliveries: number; evidenceEvents: number };
+  totals: { batches: number; recipients: number; sent: number; viewed: number; confirmed: number; failedDeliveries: number; evidenceEvents: number; salaryTotals: { gross: number; net: number; tax: number; socialInsurance: number } };
   batches: Array<Batch & { deliveryFailures: number; evidenceEvents: number }>;
 }
 

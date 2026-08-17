@@ -29,6 +29,12 @@ model Employee {
   updatedAt   DateTime     @updatedAt
 }
 
+model SubAdministrator {
+  userId    String   @id
+  addedById String
+  createdAt DateTime @default(now())
+}
+
 model SalaryBatch {
   id               String             @id @default(cuid())
   payrollMonth     DateTime

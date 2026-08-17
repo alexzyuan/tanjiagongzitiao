@@ -70,6 +70,7 @@ export class MemorySalaryStore {
   private readonly audits: AuditRecord[] = [];
   private readonly deliveries: DeliveryRecord[] = [];
   private readonly evidence: PaymentEvidenceRecord[] = [];
+  private readonly subAdminIds = new Set<string>();
   private readonly settings: AppSettings = {
     employeeVisibilityMonths: 12,
     passwordVerification: false,
@@ -113,12 +114,38 @@ export class MemorySalaryStore {
     return this.publicBatch(current);
   }
 
+  schedule(id: string, scheduledAt: string): StoredBatch {
+    const current = this.batches.get(id);
+    if (!current) throw new Error(`salary_batch_not_found:${id}`);
+    assertTransition(current.state, "scheduled");
+    current.state = "scheduled";
+    current.scheduledAt = scheduledAt;
+    return this.publicBatch(current);
+  }
+
+  listScheduledDue(now = new Date()): string[] {
+    return [...this.batches.values()]
+      .filter(batch => batch.state === "scheduled" && batch.scheduledAt && new Date(batch.scheduledAt).getTime() <= now.getTime())
+      .map(batch => batch.id);
+  }
+
   assignAdmin(id: string, userId: string): StoredBatch {
     const current = this.batches.get(id);
     if (!current) throw new Error(`salary_batch_not_found:${id}`);
     if (!current.assignedAdminIds.includes(userId)) current.assignedAdminIds.push(userId);
     return this.publicBatch(current);
   }
+
+  assignSubAdmin(userId: string): string[] {
+    if (!userId.trim()) throw new Error("sub_admin_user_id_required");
+    this.subAdminIds.add(userId);
+    return this.listSubAdmins();
+  }
+  removeSubAdmin(userId: string): string[] {
+    this.subAdminIds.delete(userId);
+    return this.listSubAdmins();
+  }
+  listSubAdmins(): string[] { return [...this.subAdminIds].sort(); }
 
   markSent(id: string, employeeUserId: string): StoredBatch {
     const current = this.batches.get(id);

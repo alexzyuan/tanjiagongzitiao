@@ -43,7 +43,7 @@ export function buildApp() {
   app.get("/healthz", async () => ({ ok: true, service: "salary-api" }));
   registerAuthRoutes(app, { dingtalk, sessions });
   registerSalaryRoutes(app, { sessions, authz, salary });
-  registerReportRoutes(app, { sessions, authz, store });
+  registerReportRoutes(app, { sessions, authz, store, audit });
   registerSettingsRoutes(app, { sessions, authz, store, audit });
   return { app, store, dingtalk, sessions, audit, authz, salary };
 }
