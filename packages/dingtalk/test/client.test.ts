@@ -39,6 +39,29 @@ describe("HTTP DingTalk client", () => {
     const client = new HttpDingTalkClient({ clientId: "app-key", clientSecret: "app-secret", corpId: "corp-1", fetchImpl: async () => json({}) });
     await expect(client.sendWorkNotification({ userId: "employee-a", title: "工资条", body: "查看明细", url: "https://salary.example" })).rejects.toThrow("dingtalk_agent_id_missing");
   });
+
+  it("lists active organization users with employee numbers", async () => {
+    const fetchImpl: typeof fetch = async (input, init = {}) => {
+      const url = String(input);
+      if (url.includes("/gettoken")) return json({ errcode: 0, access_token: "app-token", expires_in: 7200 });
+      if (url.includes("/topapi/v2/department/listsubid")) return json({ errcode: 0, result: { dept_id_list: [2] } });
+      if (url.includes("/topapi/user/listid")) {
+        const body = JSON.parse(String(init.body)) as { dept_id: number };
+        return json({ errcode: 0, result: { has_more: false, list: body.dept_id === 1 ? ["employee-a"] : ["employee-b"] } });
+      }
+      if (url.includes("/topapi/v2/user/get")) {
+        const body = JSON.parse(String(init.body)) as { userid: string };
+        return json({ errcode: 0, result: body.userid === "employee-a" ? { userid: "employee-a", name: "员工A", job_number: "A001", title: "财务", dept_id_list: [1], active: true } : { userid: "employee-b", name: "员工B", job_number: "B001", title: "运营", dept_id_list: [2], active: true } });
+      }
+      throw new Error(`unexpected_url:${url}`);
+    };
+    const client = new HttpDingTalkClient({ clientId: "app-key", clientSecret: "app-secret", corpId: "corp-1", fetchImpl });
+
+    await expect(client.listDirectoryUsers()).resolves.toEqual([
+      { userId: "employee-a", name: "员工A", employeeNo: "A001", position: "财务", departmentIds: [1] },
+      { userId: "employee-b", name: "员工B", employeeNo: "B001", position: "运营", departmentIds: [2] }
+    ]);
+  });
 });
 
 function json(value: unknown, status = 200): Response {

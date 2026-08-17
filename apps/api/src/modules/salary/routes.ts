@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
+import type { DingTalkClient } from "@salary/dingtalk";
 import type { SessionService } from "../auth/session.js";
 import type { AuthorizationService } from "../authorization/service.js";
 import { SalaryService } from "./service.js";
@@ -7,6 +8,8 @@ import { parseWorkbook } from "./import.js";
 
 const DraftSchema = z.object({ payrollMonth: z.string().regex(/^\d{4}-\d{2}$/), title: z.string().min(1), rows: z.array(z.record(z.unknown())).min(1) });
 const ScheduleSchema = z.object({ scheduledAt: z.string().datetime().optional() });
+const ImportCommitSchema = z.object({ previewId: z.string().min(1), resolutions: z.array(z.object({ row: z.number().int().min(2), userId: z.string().min(1) })) });
+const MatchStrategySchema = z.enum(["userId", "employeeNo", "name"]);
 
 function user(request: FastifyRequest, sessions: SessionService) { return sessions.read(request.cookies.salary_session); }
 
@@ -14,7 +17,7 @@ function employeeAccess(request: FastifyRequest, sessions: SessionService) {
   return { kind: "employee" as const, userId: user(request, sessions).userId };
 }
 
-export function registerSalaryRoutes(app: FastifyInstance, deps: { sessions: SessionService; authz: AuthorizationService; salary: SalaryService }): void {
+export function registerSalaryRoutes(app: FastifyInstance, deps: { sessions: SessionService; authz: AuthorizationService; salary: SalaryService; dingtalk: DingTalkClient }): void {
   app.get("/v1/salary-batches", async request => deps.salary.list(deps.authz.accessFor(user(request, deps.sessions).userId)));
   app.post("/v1/salary-batches", async request => {
     const identity = user(request, deps.sessions);
@@ -32,6 +35,31 @@ export function registerSalaryRoutes(app: FastifyInstance, deps: { sessions: Ses
     const title = multipartText(part.fields.title);
     if (!payrollMonth || !title) throw new Error("salary_workbook_metadata_required");
     return deps.salary.createDraft(identity.userId, { payrollMonth, title, rows: parseWorkbook(await part.toBuffer()) });
+  });
+  app.post("/v1/salary-batches/import/preview", async request => {
+    const identity = user(request, deps.sessions);
+    if (deps.authz.accessFor(identity.userId).kind !== "main_admin") throw new Error("salary_admin_required");
+    const part = await request.file();
+    if (!part) throw new Error("salary_workbook_file_required");
+    const payrollMonth = multipartText(part.fields.payrollMonth);
+    const title = multipartText(part.fields.title);
+    const strategyValue = multipartText(part.fields.matchStrategy);
+    if (!payrollMonth || !title || !strategyValue) throw new Error("salary_workbook_metadata_required");
+    const strategy = MatchStrategySchema.parse(strategyValue);
+    const [rows, directory] = await Promise.all([parseWorkbook(await part.toBuffer()), deps.dingtalk.listDirectoryUsers()]);
+    return deps.salary.previewImport(identity.userId, { payrollMonth, title, strategy, rows, directory });
+  });
+  app.post("/v1/salary-batches/import/commit", async request => {
+    const identity = user(request, deps.sessions);
+    if (deps.authz.accessFor(identity.userId).kind !== "main_admin") throw new Error("salary_admin_required");
+    const body = ImportCommitSchema.parse(request.body);
+    return deps.salary.commitImport(identity.userId, body.previewId, body.resolutions);
+  });
+  app.get("/v1/salary-batches/import/previews/:previewId/users", async request => {
+    const identity = user(request, deps.sessions);
+    if (deps.authz.accessFor(identity.userId).kind !== "main_admin") throw new Error("salary_admin_required");
+    const query = z.object({ query: z.string().min(1) }).parse(request.query).query;
+    return deps.salary.searchPreviewDirectory(identity.userId, (request.params as { previewId: string }).previewId, query);
   });
   app.get("/v1/salary-batches/:batchId", async request => {
     const identity = user(request, deps.sessions);

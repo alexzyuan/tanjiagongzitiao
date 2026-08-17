@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { DingTalkClient, DingTalkIdentity, TodoTask, WorkNotification } from "./types.js";
+import type { DingTalkClient, DingTalkIdentity, DirectoryUser, TodoTask, WorkNotification } from "./types.js";
 
 export class MockDingTalkClient implements DingTalkClient {
   readonly notifications: WorkNotification[] = [];
@@ -18,5 +18,12 @@ export class MockDingTalkClient implements DingTalkClient {
   async createTodo(input: TodoTask): Promise<{ todoId: string }> {
     this.todos.push(input);
     return { todoId: `mock-todo-${randomUUID()}` };
+  }
+
+  async listDirectoryUsers(): Promise<DirectoryUser[]> {
+    return [
+      { userId: "employee-a", name: "员工A", employeeNo: "A001", position: "财务", departmentIds: [1] },
+      { userId: "employee-b", name: "员工B", employeeNo: "B001", position: "运营", departmentIds: [1] }
+    ];
   }
 }

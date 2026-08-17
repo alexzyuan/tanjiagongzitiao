@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { api, ensureSession, type Batch, type Identity, type ReportSummary, type SalaryItem, type Settings } from "./api";
+import { api, ensureSession, type Batch, type DirectoryUser, type EmployeeMatchStrategy, type Identity, type ReportSummary, type SalaryImportPreview, type SalaryItem, type Settings } from "./api";
 import { Icon } from "./icons";
 
 type Module = "salary" | "evidence" | "reports" | "permissions" | "settings";
@@ -165,10 +165,47 @@ function ImportPanel({ onClose, onCreated }: { onClose: () => void; onCreated: (
   const [month, setMonth] = useState(currentMonth());
   const [title, setTitle] = useState(`${currentMonth()} 工资条`);
   const [file, setFile] = useState<File>();
+  const [strategy, setStrategy] = useState<EmployeeMatchStrategy>("name");
+  const [preview, setPreview] = useState<SalaryImportPreview>();
+  const [resolutions, setResolutions] = useState<Record<number, DirectoryUser>>({});
+  const [activeRow, setActiveRow] = useState<number>();
+  const [directoryQuery, setDirectoryQuery] = useState("");
+  const [directoryResults, setDirectoryResults] = useState<DirectoryUser[]>([]);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  async function submit(event: FormEvent) { event.preventDefault(); if (!file) { setError("请选择 Excel 文件"); return; } setError(undefined); const form = new FormData(); form.append("payrollMonth", month); form.append("title", title); form.append("file", file); try { const result = await api<{ errors: Array<{ row: number; message: string }>; batchId?: string }>("/v1/salary-batches/import", { method: "POST", body: form }); if (result.errors.length) throw new Error(result.errors.map(item => `第${item.row}行：${item.message}`).join("；")); onCreated(); } catch (reason) { setError(errorText(reason)); } }
-  return <Modal title="导入 Excel 工资表" onClose={onClose}><form className="form-grid" onSubmit={submit}><Field label="发薪月份"><input value={month} onChange={event => setMonth(event.target.value)} pattern="\d{4}-\d{2}" required /></Field><Field label="工资条标题"><input value={title} onChange={event => setTitle(event.target.value)} required /></Field><Field label="工资表文件" wide><input type="file" accept=".xlsx,.xls,.csv" onChange={event => setFile(event.target.files?.[0])} required /><small className="field-help">首行使用字段名，需包含钉钉用户 ID和员工姓名。</small></Field>{error && <div className="notice error span-2">{error}</div>}<FormActions onClose={onClose} submitLabel="导入并校验" /></form></Modal>;
+  const unresolved = preview?.rows.filter(row => row.status !== "matched" && !resolutions[row.row]) ?? [];
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!file) { setError("请选择 Excel 文件"); return; }
+    setBusy(true); setError(undefined);
+    const form = new FormData();
+    form.append("payrollMonth", month); form.append("title", title); form.append("matchStrategy", strategy); form.append("file", file);
+    try { setPreview(await api<SalaryImportPreview>("/v1/salary-batches/import/preview", { method: "POST", body: form })); setResolutions({}); setActiveRow(undefined); setDirectoryResults([]); }
+    catch (reason) { setError(errorText(reason)); }
+    finally { setBusy(false); }
+  }
+  async function searchDirectory() {
+    if (!preview || !activeRow || !directoryQuery.trim()) return;
+    setBusy(true); setError(undefined);
+    try { setDirectoryResults(await api<DirectoryUser[]>(`/v1/salary-batches/import/previews/${encodeURIComponent(preview.previewId)}/users?query=${encodeURIComponent(directoryQuery.trim())}`)); }
+    catch (reason) { setError(errorText(reason)); }
+    finally { setBusy(false); }
+  }
+  async function commit() {
+    if (!preview || unresolved.length) return;
+    setBusy(true); setError(undefined);
+    try {
+      await api<{ batchId: string }>("/v1/salary-batches/import/commit", { method: "POST", body: JSON.stringify({ previewId: preview.previewId, resolutions: Object.entries(resolutions).map(([row, user]) => ({ row: Number(row), userId: user.userId })) }) });
+      onCreated();
+    } catch (reason) { setError(errorText(reason)); }
+    finally { setBusy(false); }
+  }
+  function selectUser(row: number, user: DirectoryUser) { setResolutions(value => ({ ...value, [row]: user })); setActiveRow(undefined); setDirectoryResults([]); setDirectoryQuery(""); }
+  if (preview) return <Modal title="核对企业通讯录匹配" onClose={onClose}><div className="import-preview"><div className="import-summary"><span>已匹配 <strong>{preview.matched}</strong></span><span>待处理 <strong>{preview.unmatched + preview.ambiguous}</strong></span><small>预览在 {new Date(preview.expiresAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })} 失效，确认后才会创建工资表。</small></div><div className="import-match-list">{preview.rows.map(row => { const resolution = resolutions[row.row]; return <div className={`import-match-row ${row.status}`} key={row.row}><div><strong>第 {row.row} 行</strong><span>{row.value || "未提供匹配字段"}</span></div>{row.status === "matched" && row.user ? <span className="match-success">已匹配：{directoryLabel(row.user)}</span> : resolution ? <span className="match-success">已选择：{directoryLabel(resolution)}</span> : <div className="match-actions">{row.candidates.map(user => <button type="button" className="text-button" key={user.userId} onClick={() => selectUser(row.row, user)}>{directoryLabel(user)}</button>)}<button type="button" className="button secondary" onClick={() => { setActiveRow(row.row); setDirectoryResults([]); }}>选择人员</button></div>}</div>; })}</div>{activeRow && <div className="directory-search"><strong>为第 {activeRow} 行选择企业人员</strong><div><input autoFocus value={directoryQuery} onChange={event => setDirectoryQuery(event.target.value)} placeholder="姓名、工号或钉钉用户 ID" /><button type="button" className="button secondary" disabled={busy || !directoryQuery.trim()} onClick={() => void searchDirectory()}>搜索</button></div>{directoryResults.map(user => <button type="button" className="directory-result" key={user.userId} onClick={() => selectUser(activeRow, user)}>{directoryLabel(user)}</button>)}</div>}{error && <div className="notice error">{error}</div>}<div className="form-actions"><button type="button" className="button secondary" onClick={() => { setPreview(undefined); setError(undefined); }}>重新上传</button><button type="button" className="button primary" disabled={busy || unresolved.length > 0} onClick={() => void commit()}><Icon name="check" size={16} />创建工资条</button></div></div></Modal>;
+  return <Modal title="导入 Excel 工资表" onClose={onClose}><form className="form-grid" onSubmit={submit}><Field label="发薪月份"><input value={month} onChange={event => setMonth(event.target.value)} pattern="\d{4}-\d{2}" required /></Field><Field label="工资条标题"><input value={title} onChange={event => setTitle(event.target.value)} required /></Field><Field label="匹配企业人员" wide><select value={strategy} onChange={event => setStrategy(event.target.value as EmployeeMatchStrategy)}><option value="name">按姓名匹配</option><option value="employeeNo">按工号匹配</option><option value="userId">按钉钉用户 ID 匹配</option></select><small className="field-help">姓名同名时必须人工选择；使用工号或钉钉用户 ID 可避免重名。</small></Field><Field label="工资表文件" wide><input type="file" accept=".xlsx,.xls,.csv" onChange={event => setFile(event.target.files?.[0])} required /><small className="field-help">首行需包含所选匹配字段和至少一个薪资字段。导入前会读取企业通讯录并核对人员。</small></Field>{error && <div className="notice error span-2">{error}</div>}<FormActions onClose={onClose} submitLabel={busy ? "正在核对通讯录" : "导入并核对"} /></form></Modal>;
 }
+
+function directoryLabel(user: DirectoryUser) { return [user.name, user.employeeNo ? `工号 ${user.employeeNo}` : undefined, user.userId].filter(Boolean).join(" · "); }
 
 function EvidenceCenter({ refreshKey }: { refreshKey: number }) {
   const [events, setEvents] = useState<Array<{ id: string; batchId: string; employeeUserId: string; eventType: string; fingerprint: string; createdAt: string }>>([]);

@@ -1,9 +1,32 @@
 import * as XLSX from "xlsx";
 import type { SalaryItemInput } from "@salary/domain";
+import type { DirectoryUser } from "@salary/dingtalk";
 
 export interface ImportError { row: number; field: string; code: string; message: string; }
 
-type RawRow = Record<string, unknown>;
+export type RawRow = Record<string, unknown>;
+
+export type EmployeeMatchStrategy = "userId" | "employeeNo" | "name";
+export type PreviewRowStatus = "matched" | "unmatched" | "ambiguous";
+
+export interface ImportPreviewRow {
+  row: number;
+  status: PreviewRowStatus;
+  source: RawRow;
+  value?: string;
+  user?: DirectoryUser;
+  candidates: DirectoryUser[];
+}
+
+export interface ImportPreview {
+  strategy: EmployeeMatchStrategy;
+  rows: ImportPreviewRow[];
+  matched: number;
+  unmatched: number;
+  ambiguous: number;
+}
+
+const metadataAliases = ["userId", "钉钉用户ID", "钉钉UserID", "员工userId", "员工UserID", "employeeUserId", "employeeNo", "工号", "name", "姓名", "department", "部门", "position", "职位"];
 
 function normalizedKey(value: string): string {
   return value.trim().toLowerCase().replace(/[\s_\-:：]/g, "");
@@ -25,7 +48,6 @@ function text(row: RawRow, keys: string[]): string | undefined {
 
 function normalizedFields(row: RawRow): Record<string, string | number | null> {
   const fields: Record<string, string | number | null> = {};
-  const metadataAliases = ["userId", "钉钉用户ID", "钉钉UserID", "员工userId", "员工UserID", "employeeUserId", "employeeNo", "工号", "name", "姓名", "department", "部门", "position", "职位"];
   for (const [key, value] of Object.entries(row)) {
     if (hasAlias(key, metadataAliases)) continue;
     if (value === undefined || value === null || value === "") { fields[key] = null; continue; }
@@ -34,6 +56,18 @@ function normalizedFields(row: RawRow): Record<string, string | number | null> {
     fields[key] = Number.isFinite(numeric) && String(value).trim() !== "" ? numeric : String(value);
   }
   return fields;
+}
+
+/** Replaces spreadsheet identity columns with the identity from DingTalk. */
+export function resolveDirectoryUser(source: RawRow, user: DirectoryUser): RawRow {
+  const salaryFields = Object.fromEntries(Object.entries(source).filter(([key]) => !hasAlias(key, metadataAliases)));
+  return {
+    userId: user.userId,
+    name: user.name,
+    ...(user.employeeNo ? { employeeNo: user.employeeNo } : {}),
+    ...(user.position ? { position: user.position } : {}),
+    ...salaryFields
+  };
 }
 
 export function validateRows(rows: RawRow[]): { items: SalaryItemInput[]; errors: ImportError[] } {
@@ -60,6 +94,31 @@ export function validateRows(rows: RawRow[]): { items: SalaryItemInput[]; errors
     }
   });
   return { items, errors };
+}
+
+export function previewRows(rows: RawRow[], directory: DirectoryUser[], strategy: EmployeeMatchStrategy): ImportPreview {
+  const aliases = strategy === "userId"
+    ? ["userId", "钉钉用户ID", "钉钉UserID", "员工userId", "员工UserID", "employeeUserId"]
+    : strategy === "employeeNo"
+      ? ["employeeNo", "工号"]
+      : ["name", "姓名"];
+  const previewRows = rows.map((source, index): ImportPreviewRow => {
+    const value = text(source, aliases);
+    const candidates = value
+      ? directory.filter(user => strategy === "userId" ? user.userId === value : strategy === "employeeNo" ? user.employeeNo === value : user.name === value)
+      : [];
+    const base = { row: index + 2, source, ...(value ? { value } : {}), candidates };
+    const [user] = candidates;
+    if (user && candidates.length === 1) return { ...base, status: "matched", user };
+    return { ...base, status: candidates.length ? "ambiguous" : "unmatched" };
+  });
+  return {
+    strategy,
+    rows: previewRows,
+    matched: previewRows.filter(row => row.status === "matched").length,
+    unmatched: previewRows.filter(row => row.status === "unmatched").length,
+    ambiguous: previewRows.filter(row => row.status === "ambiguous").length
+  };
 }
 
 export function parseWorkbook(buffer: Buffer): RawRow[] {

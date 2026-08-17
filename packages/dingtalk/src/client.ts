@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { DingTalkClient, DingTalkIdentity, TodoTask, WorkNotification } from "./types.js";
+import type { DingTalkClient, DingTalkIdentity, DirectoryUser, TodoTask, WorkNotification } from "./types.js";
 
 export interface HttpDingTalkConfig {
   clientId: string;
@@ -129,6 +129,74 @@ export class HttpDingTalkClient implements DingTalkClient {
     return { todoId };
   }
 
+  async listDirectoryUsers(): Promise<DirectoryUser[]> {
+    const accessToken = await this.getAppToken();
+    const departmentIds = await this.listDepartmentIds(accessToken);
+    const userIds = new Set<string>();
+    for (const departmentId of departmentIds) {
+      let cursor = 0;
+      do {
+        const response = await this.requestJson("directory.department_users", `${this.legacyApiBaseUrl}/topapi/user/listid?access_token=${encodeURIComponent(accessToken)}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ dept_id: departmentId, cursor, size: 100 })
+        });
+        assertDingTalkSuccess(response, "directory.department_users");
+        const result = objectValue(response, "result") ?? response;
+        for (const userId of stringArray(result, "list")) userIds.add(userId);
+        const hasMore = booleanValue(result, "has_more", "hasMore") ?? false;
+        const nextCursor = numberValue(result, "next_cursor", "nextCursor") ?? cursor + 100;
+        if (!hasMore) break;
+        cursor = nextCursor;
+      } while (true);
+    }
+    const users: DirectoryUser[] = [];
+    for (const userId of userIds) {
+      const response = await this.requestJson("directory.user", `${this.legacyApiBaseUrl}/topapi/v2/user/get?access_token=${encodeURIComponent(accessToken)}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userid: userId })
+      });
+      assertDingTalkSuccess(response, "directory.user");
+      const result = objectValue(response, "result") ?? response;
+      if (booleanValue(result, "active") === false) continue;
+      const name = stringValue(result, "name");
+      const resolvedUserId = stringValue(result, "userid", "userId") ?? userId;
+      const employeeNo = stringValue(result, "job_number", "jobNumber");
+      const position = stringValue(result, "title", "position");
+      if (!name) throw new Error(`dingtalk_directory_user_name_missing:${resolvedUserId}`);
+      users.push({
+        userId: resolvedUserId,
+        name,
+        ...(employeeNo ? { employeeNo } : {}),
+        ...(position ? { position } : {}),
+        departmentIds: numberArray(result, "dept_id_list", "deptIdList")
+      });
+    }
+    this.trace("directory.listed", { departmentCount: departmentIds.length, userCount: users.length });
+    return users.sort((left, right) => left.userId.localeCompare(right.userId));
+  }
+
+  private async listDepartmentIds(accessToken: string): Promise<number[]> {
+    const visited = new Set<number>([1]);
+    const queue = [1];
+    while (queue.length) {
+      const departmentId = queue.shift();
+      if (departmentId === undefined) continue;
+      const response = await this.requestJson("directory.departments", `${this.legacyApiBaseUrl}/topapi/v2/department/listsubid?access_token=${encodeURIComponent(accessToken)}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ dept_id: departmentId })
+      });
+      assertDingTalkSuccess(response, "directory.departments");
+      const result = objectValue(response, "result") ?? response;
+      for (const childId of numberArray(result, "dept_id_list", "deptIdList")) {
+        if (!visited.has(childId)) { visited.add(childId); queue.push(childId); }
+      }
+    }
+    return [...visited];
+  }
+
   private async getAppToken(): Promise<string> {
     if (this.appToken && this.appToken.expiresAt > Date.now()) return this.appToken.accessToken;
     const url = new URL(`${this.legacyApiBaseUrl}/gettoken`);
@@ -202,6 +270,33 @@ function numberValue(value: JsonObject, ...keys: string[]): number | undefined {
     if (typeof candidate === "string" && candidate.trim() && Number.isFinite(Number(candidate))) return Number(candidate);
   }
   return undefined;
+}
+
+function booleanValue(value: JsonObject, ...keys: string[]): boolean | undefined {
+  for (const key of keys) {
+    const candidate = value[key];
+    if (typeof candidate === "boolean") return candidate;
+  }
+  return undefined;
+}
+
+function objectValue(value: JsonObject, key: string): JsonObject | undefined {
+  const candidate = value[key];
+  return isObject(candidate) ? candidate : undefined;
+}
+
+function stringArray(value: JsonObject, key: string): string[] {
+  const candidate = value[key];
+  return Array.isArray(candidate) ? candidate.flatMap(item => typeof item === "string" && item.trim() ? [item] : []) : [];
+}
+
+function numberArray(value: JsonObject, ...keys: string[]): number[] {
+  for (const key of keys) {
+    const candidate = value[key];
+    if (!Array.isArray(candidate)) continue;
+    return candidate.flatMap(item => typeof item === "number" && Number.isFinite(item) ? [item] : typeof item === "string" && Number.isFinite(Number(item)) ? [Number(item)] : []);
+  }
+  return [];
 }
 
 function assertDingTalkSuccess(value: JsonObject, operation: string): void {

@@ -146,6 +146,35 @@ export interface SalaryItem {
   confirmedAt?: string;
 }
 
+export type EmployeeMatchStrategy = "userId" | "employeeNo" | "name";
+
+export interface DirectoryUser {
+  userId: string;
+  name: string;
+  employeeNo?: string;
+  position?: string;
+  departmentIds: number[];
+}
+
+export interface SalaryImportPreviewRow {
+  row: number;
+  status: "matched" | "unmatched" | "ambiguous";
+  source: Record<string, unknown>;
+  value?: string;
+  user?: DirectoryUser;
+  candidates: DirectoryUser[];
+}
+
+export interface SalaryImportPreview {
+  previewId: string;
+  expiresAt: string;
+  strategy: EmployeeMatchStrategy;
+  rows: SalaryImportPreviewRow[];
+  matched: number;
+  unmatched: number;
+  ambiguous: number;
+}
+
 export interface ReportSummary {
   totals: { batches: number; recipients: number; sent: number; viewed: number; confirmed: number; failedDeliveries: number; evidenceEvents: number; salaryTotals: { gross: number; net: number; tax: number; socialInsurance: number } };
   batches: Array<Batch & { deliveryFailures: number; evidenceEvents: number }>;

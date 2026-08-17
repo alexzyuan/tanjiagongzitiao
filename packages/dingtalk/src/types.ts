@@ -17,8 +17,17 @@ export interface TodoTask {
   url: string;
 }
 
+export interface DirectoryUser {
+  userId: string;
+  name: string;
+  employeeNo?: string;
+  position?: string;
+  departmentIds: number[];
+}
+
 export interface DingTalkClient {
   exchangeAuthCode(code: string): Promise<DingTalkIdentity>;
   sendWorkNotification(input: WorkNotification): Promise<{ taskId: string }>;
   createTodo(input: TodoTask): Promise<{ todoId: string }>;
+  listDirectoryUsers(): Promise<DirectoryUser[]>;
 }

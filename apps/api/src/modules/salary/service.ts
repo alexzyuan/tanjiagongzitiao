@@ -1,11 +1,30 @@
 import type { DingTalkClient } from "@salary/dingtalk";
+import type { DirectoryUser } from "@salary/dingtalk";
 import type { Access, SalaryBatchState, SalaryItemInput } from "@salary/domain";
 import { canManageBatch, canReadEmployeeItem } from "@salary/domain";
 import { fingerprintSalaryPayload, type SalaryStore } from "@salary/db";
 import type { AuditService } from "../audit/service.js";
-import { validateRows } from "./import.js";
+import { previewRows, resolveDirectoryUser, validateRows, type EmployeeMatchStrategy, type ImportPreview, type RawRow } from "./import.js";
+
+const IMPORT_PREVIEW_TTL_MS = 15 * 60 * 1000;
+
+interface StoredImportPreview {
+  actorUserId: string;
+  expiresAt: number;
+  payrollMonth: string;
+  title: string;
+  preview: ImportPreview;
+  directory: DirectoryUser[];
+}
+
+export interface ImportPreviewResult extends ImportPreview {
+  previewId: string;
+  expiresAt: string;
+}
 
 export class SalaryService {
+  private readonly importPreviews = new Map<string, StoredImportPreview>();
+
   constructor(private readonly store: SalaryStore, private readonly dingtalk: DingTalkClient, private readonly audit: AuditService, private readonly appBaseUrl: string) {}
 
   createDraft(actorUserId: string, input: { payrollMonth: string; title: string; rows: Record<string, unknown>[] }): { batchId?: string; errors: ReturnType<typeof validateRows>["errors"] } {
@@ -14,6 +33,65 @@ export class SalaryService {
     const batch = this.store.createBatch({ payrollMonth: input.payrollMonth, title: input.title, createdById: actorUserId, items: parsed.items });
     this.audit.record({ correlationId: `batch:${batch.id}`, actorUserId, action: "salary_batch.create", targetType: "salary_batch", targetId: batch.id, outcome: "completed", metadata: { rowCount: parsed.items.length } });
     return { batchId: batch.id, errors: [] };
+  }
+
+  previewImport(actorUserId: string, input: { payrollMonth: string; title: string; strategy: EmployeeMatchStrategy; rows: RawRow[]; directory: DirectoryUser[] }): ImportPreviewResult {
+    this.deleteExpiredImportPreviews();
+    const preview = previewRows(input.rows, input.directory, input.strategy);
+    const previewId = `preview-${crypto.randomUUID()}`;
+    const expiresAt = Date.now() + IMPORT_PREVIEW_TTL_MS;
+    this.importPreviews.set(previewId, { actorUserId, expiresAt, payrollMonth: input.payrollMonth, title: input.title, preview, directory: input.directory });
+    this.audit.record({
+      correlationId: previewId,
+      actorUserId,
+      action: "salary_import.preview",
+      targetType: "salary_import_preview",
+      targetId: previewId,
+      outcome: "completed",
+      metadata: { strategy: input.strategy, rows: preview.rows.length, matched: preview.matched, unmatched: preview.unmatched, ambiguous: preview.ambiguous }
+    });
+    return { ...preview, previewId, expiresAt: new Date(expiresAt).toISOString() };
+  }
+
+  commitImport(actorUserId: string, previewId: string, resolutions: Array<{ row: number; userId: string }>): { batchId: string } {
+    const stored = this.importPreviewFor(actorUserId, previewId);
+    const resolutionsByRow = new Map<number, string>();
+    for (const resolution of resolutions) {
+      if (!stored.preview.rows.some(row => row.row === resolution.row)) throw new Error("salary_import_resolution_row_invalid");
+      if (resolutionsByRow.has(resolution.row)) throw new Error("salary_import_duplicate_resolution");
+      resolutionsByRow.set(resolution.row, resolution.userId);
+    }
+
+    const selectedUserIds = new Set<string>();
+    const rows = stored.preview.rows.map(row => {
+      const userId = resolutionsByRow.get(row.row) ?? row.user?.userId;
+      if (!userId) throw new Error("salary_import_unresolved_rows");
+      const user = stored.directory.find(candidate => candidate.userId === userId);
+      if (!user) throw new Error("salary_import_resolution_user_invalid");
+      if (selectedUserIds.has(user.userId)) throw new Error("salary_import_duplicate_employee");
+      selectedUserIds.add(user.userId);
+      return resolveDirectoryUser(row.source, user);
+    });
+    const result = this.createDraft(actorUserId, { payrollMonth: stored.payrollMonth, title: stored.title, rows });
+    if (!result.batchId || result.errors.length) throw new Error("salary_import_commit_validation_failed");
+    this.importPreviews.delete(previewId);
+    this.audit.record({
+      correlationId: `batch:${result.batchId}`,
+      actorUserId,
+      action: "salary_import.commit",
+      targetType: "salary_batch",
+      targetId: result.batchId,
+      outcome: "completed",
+      metadata: { previewId, rowCount: rows.length, manualResolutions: resolutions.length }
+    });
+    return { batchId: result.batchId };
+  }
+
+  searchPreviewDirectory(actorUserId: string, previewId: string, query: string): DirectoryUser[] {
+    const stored = this.importPreviewFor(actorUserId, previewId);
+    const needle = query.trim().toLowerCase();
+    if (!needle) throw new Error("salary_import_directory_query_required");
+    return stored.directory.filter(user => [user.userId, user.name, user.employeeNo, user.position].filter(Boolean).some(value => value?.toLowerCase().includes(needle))).slice(0, 50);
   }
 
   assignSubAdmin(actor: Access, userId: string) {
@@ -168,6 +246,18 @@ export class SalaryService {
     const batch = this.store.setState(batchId, state);
     this.audit.record({ correlationId: `batch:${batchId}`, actorUserId, action: "salary_batch.send", targetType: "salary_batch", targetId: batchId, outcome: failures === 0 ? "completed" : "failed", metadata: { total: existing.items.length, failures } });
     return batch;
+  }
+
+  private importPreviewFor(actorUserId: string, previewId: string): StoredImportPreview {
+    this.deleteExpiredImportPreviews();
+    const stored = this.importPreviews.get(previewId);
+    if (!stored || stored.actorUserId !== actorUserId) throw new Error("salary_import_preview_not_found");
+    return stored;
+  }
+
+  private deleteExpiredImportPreviews(): void {
+    const now = Date.now();
+    for (const [previewId, preview] of this.importPreviews) if (preview.expiresAt <= now) this.importPreviews.delete(previewId);
   }
 }
 

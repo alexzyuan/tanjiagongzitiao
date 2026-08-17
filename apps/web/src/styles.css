@@ -246,6 +246,25 @@ tbody tr:last-child td { border-bottom: 0; }
 .employee-cell strong { color: var(--ink); font-size: 13px; }
 .employee-cell small { color: #8997a6; font-size: 11px; max-width: 125px; overflow: hidden; text-overflow: ellipsis; }
 .money-cell { color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 680; }
+.import-preview { display: grid; gap: 14px; padding: 20px; }
+.import-summary { display: flex; align-items: center; gap: 17px; flex-wrap: wrap; padding: 13px 15px; border: 1px solid #cde2f8; border-radius: 6px; background: #f4f9fe; color: #5b6e82; font-size: 13px; }
+.import-summary strong { color: var(--blue); font-size: 19px; margin-left: 4px; }
+.import-summary small { margin-left: auto; color: #8696a7; }
+.import-match-list { max-height: 360px; overflow-y: auto; border: 1px solid var(--line); border-radius: 6px; }
+.import-match-row { min-height: 60px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border-bottom: 1px solid var(--line); }
+.import-match-row:last-child { border-bottom: 0; }
+.import-match-row > div:first-child { display: grid; gap: 4px; min-width: 130px; }
+.import-match-row > div:first-child strong { font-size: 13px; color: var(--ink); }
+.import-match-row > div:first-child span { color: #8492a1; font-size: 12px; }
+.import-match-row.unmatched, .import-match-row.ambiguous { background: #fffaf5; }
+.match-success { color: #159b68; font-size: 12px; font-weight: 650; }
+.match-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.directory-search { display: grid; gap: 9px; padding: 14px; border: 1px solid #bfdbfb; border-radius: 6px; background: #f8fbff; }
+.directory-search > strong { color: #38536e; font-size: 13px; }
+.directory-search > div { display: flex; gap: 8px; }
+.directory-search input { min-width: 0; flex: 1; }
+.directory-result { border: 1px solid #e0e9f1; border-radius: 5px; background: #fff; padding: 9px 10px; text-align: left; color: #36516b; font-size: 12px; }
+.directory-result:hover { border-color: var(--blue); color: var(--blue); }
 @media (max-width: 700px) {
   .salary-heading { gap: 8px; }
   .salary-heading h2 { font-size: 15px; }

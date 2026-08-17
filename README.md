@@ -11,7 +11,13 @@ pnpm dev
 
 管理端地址：`http://localhost:5173/`
 
-本地默认使用 `DINGTALK_MODE=mock`，管理员为 `dev-admin`。员工页面可用 `/employee/salary-slips/<batchId>?as=<userId>` 模拟钉钉身份。正式接入时设置 `DINGTALK_MODE=http`、`DINGTALK_CLIENT_ID`（AppKey）、`DINGTALK_CLIENT_SECRET`（AppSecret）、`DINGTALK_CORP_ID` 和数字 `DINGTALK_AGENT_ID`，并使用 HTTPS 的 `APP_BASE_URL`。网页必须在钉钉客户端内打开，前端通过 H5 微应用专用的官方 JSAPI `dd.requestAuthCode({ corpId, clientId })` 获取免登码；服务端再用应用 access_token 调用 `topapi/v2/user/getuserinfo` 换取用户身份，不能把该免登码直接提交到 OAuth2 用户 token 接口。HTTP 模式会关闭开发登录接口，缺少 JSAPI、AgentId 或接口权限时直接返回明确错误。
+本地默认使用 `DINGTALK_MODE=mock`，管理员为 `dev-admin`。员工页面可用 `/employee/salary-slips/<batchId>?as=<userId>` 模拟钉钉身份。正式接入时设置 `DINGTALK_MODE=http`、`DINGTALK_CLIENT_ID`（AppKey）、`DINGTALK_CLIENT_SECRET`（AppSecret）、`DINGTALK_CORP_ID` 和数字 `DINGTALK_AGENT_ID`，并使用 HTTPS 的 `APP_BASE_URL`。网页必须在钉钉客户端内打开，前端通过 H5 微应用专用的官方 JSAPI `dd.requestAuthCode({ corpId, clientId })` 获取免登码；服务端再用应用 access-token 调用 `topapi/v2/user/getuserinfo` 换取用户身份，不能把该免登码直接提交到 OAuth2 用户 token 接口。HTTP 模式会关闭开发登录接口，缺少 JSAPI、AgentId 或接口权限时直接返回明确错误。
+
+## Excel 工资表导入
+
+上传文件首行需要包含一个人员匹配字段和至少一个薪资字段。支持 `姓名`、`工号`、`员工UserID`（也兼容 `员工userId`）三种匹配方式；系统先读取企业通讯录进行精确匹配，再显示预览。姓名重名或找不到人员时，主管理员必须在预览中手工选择企业员工，所有行处理完成后才会创建工资表。`员工UserID` 最稳定，建议作为批量工资表的长期标准字段。
+
+导入预览仅保存在服务内存 15 分钟，且绑定发起预览的主管理员；预览、人工选择和最终提交会留下不含薪资值的审计记录。工资数据只有在最终提交后才会写入加密的 SQLite 存储。
 
 工资条使用独立 SQLite/WAL 数据库，工资字段在写入前经过 AES-256-GCM 加密。开发环境默认路径为 `./data/salary-slip.sqlite`；生产环境必须设置绝对 `SALARY_DATABASE_PATH`，且该目录必须位于部署发布目录之外。生产启动必须显式设置钉钉应用凭据、主管理员钉钉用户 ID、会话签名密钥及 64 位十六进制薪资加密密钥，缺少任一项会拒绝启动。SQLite 不与 BI 共享数据库文件、服务账户或密钥。临时 HTTPS 隧道只适合联调；上线需要稳定 HTTPS 域名、数据库备份和独立密钥管理。
 
