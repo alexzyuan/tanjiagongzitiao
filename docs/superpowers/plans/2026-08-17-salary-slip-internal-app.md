@@ -246,7 +246,7 @@ app.post("/v1/auth/dingtalk", async (request, reply) => {
 - [ ] **Step 3: Use the official DingTalk JSAPI `getAuthCode` only in the embedded client and exchange it only with the API.**
 
 ```ts
-const authCode = await dd.runtime.permission.requestAuthCode({ corpId });
+const authCode = await dd.requestAuthCode({ corpId, clientId });
 await api.post("/v1/auth/dingtalk", { authCode: authCode.code });
 ```
 

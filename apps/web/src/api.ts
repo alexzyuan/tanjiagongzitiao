@@ -16,10 +16,13 @@ interface DingTalkAuthResponse {
 }
 
 interface DingTalkJsApi {
-  getAuthCode?: (options: {
+  requestAuthCode?: (options: {
     corpId: string;
+    clientId: string;
     success?: (response: DingTalkAuthResponse) => void;
     fail?: (reason: unknown) => void;
+    onSuccess?: (response: DingTalkAuthResponse) => void;
+    onFail?: (reason: unknown) => void;
     complete?: () => void;
   }) => unknown;
 }
@@ -51,14 +54,14 @@ export async function ensureSession(employeeId?: string): Promise<Identity> {
     if (!(error instanceof Error) || !error.message.startsWith("session_")) throw error;
     const auth = await api<DingTalkAuthConfig>("/v1/auth/config");
     if (auth.mode === "mock") return api<Identity>("/v1/auth/dev", { method: "POST", body: JSON.stringify({}) });
-    const authCode = await requestDingTalkAuthCode(auth.corpId);
+    const authCode = await requestDingTalkAuthCode(auth.corpId, auth.clientId);
     return api<Identity>("/v1/auth/dingtalk", { method: "POST", body: JSON.stringify({ authCode }) });
   }
 }
 
-async function requestDingTalkAuthCode(corpId: string): Promise<string> {
-  const getAuthCode = window.dd?.getAuthCode;
-  if (!getAuthCode) throw new Error("dingtalk_jsapi_get_auth_code_unavailable_open_this_page_inside_dingtalk");
+async function requestDingTalkAuthCode(corpId: string, clientId: string): Promise<string> {
+  const requestAuthCode = window.dd?.requestAuthCode;
+  if (!requestAuthCode) throw new Error("dingtalk_jsapi_request_auth_code_unavailable_open_this_page_inside_dingtalk");
   return new Promise<string>((resolve, reject) => {
     let settled = false;
     const finish = <T>(callback: (value: T) => void, value: T) => {
@@ -69,14 +72,15 @@ async function requestDingTalkAuthCode(corpId: string): Promise<string> {
     const fail = (reason: unknown) => finish(reject, toError(reason, "dingtalk_auth_code_request_failed"));
     let result: unknown;
     try {
-      result = getAuthCode({
+      result = requestAuthCode({
         corpId,
-        success: response => {
+        clientId,
+        onSuccess: response => {
           const code = extractDingTalkAuthCode(response);
           if (!code) return fail("dingtalk_auth_code_missing");
           finish(resolve, code);
         },
-        fail,
+        onFail: fail,
         complete: () => undefined
       });
     } catch (reason) {
@@ -94,7 +98,7 @@ async function requestDingTalkAuthCode(corpId: string): Promise<string> {
 
 export function extractDingTalkAuthCode(response: DingTalkAuthResponse): string {
   if (typeof response.authCode === "string" && response.authCode.trim()) return response.authCode.trim();
-  if (typeof response.code === "string" && response.code.trim()) return response.code.trim();
+  if (typeof response.code === "string" && response.code.trim() && response.code.trim() !== "0") return response.code.trim();
   if (typeof response.code === "number" && Number.isFinite(response.code) && response.code !== 0) return String(response.code);
   return "";
 }

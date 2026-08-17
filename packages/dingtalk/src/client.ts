@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { DingTalkClient, DingTalkIdentity, TodoTask, WorkNotification } from "./types.js";
 
 export interface HttpDingTalkConfig {
@@ -50,6 +51,10 @@ export class HttpDingTalkClient implements DingTalkClient {
 
   async exchangeAuthCode(code: string): Promise<DingTalkIdentity> {
     if (!code) throw new Error("dingtalk_auth_code_missing");
+    this.trace("identity.auth_code.received", {
+      length: code.length,
+      fingerprint: createHash("sha256").update(code).digest("hex").slice(0, 12)
+    });
     const token = await this.getUserToken(code);
     const user = await this.requestJson("identity.lookup", `${this.apiBaseUrl}/v1.0/contact/users/me`, {
       method: "GET",
