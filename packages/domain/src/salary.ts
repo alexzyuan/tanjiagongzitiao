@@ -11,9 +11,9 @@ const transitions: Record<SalaryBatchState, readonly SalaryBatchState[]> = {
   draft: ["scheduled", "sending", "withdrawn"],
   scheduled: ["sending", "withdrawn"],
   sending: ["sent", "partially_failed"],
-  sent: ["withdrawn", "archived"],
+  sent: ["sending", "withdrawn", "archived"],
   partially_failed: ["sending", "withdrawn"],
-  withdrawn: ["archived"],
+  withdrawn: ["sending", "archived"],
   archived: []
 };
 

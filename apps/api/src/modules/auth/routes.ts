@@ -1,0 +1,29 @@
+import type { FastifyInstance } from "fastify";
+import type { DingTalkClient } from "@salary/dingtalk";
+import { z } from "zod";
+import { SessionService } from "./session.js";
+
+const AuthCodeSchema = z.object({ authCode: z.string().min(1) });
+
+export function registerAuthRoutes(app: FastifyInstance, deps: { dingtalk: DingTalkClient; sessions: SessionService }): void {
+  app.post("/v1/auth/dingtalk", async (request, reply) => {
+    const input = AuthCodeSchema.parse(request.body);
+    const identity = await deps.dingtalk.exchangeAuthCode(input.authCode);
+    const token = deps.sessions.create(identity);
+    reply.setCookie("salary_session", token, { httpOnly: true, sameSite: "lax", secure: false, path: "/" });
+    return reply.code(201).send({ userId: identity.userId, name: identity.name, corpId: identity.corpId });
+  });
+
+  app.post("/v1/auth/dev", async (_request, reply) => {
+    if (process.env.NODE_ENV === "production") return reply.code(404).send({ code: "route_not_found" });
+    const identity = await deps.dingtalk.exchangeAuthCode("mock-code");
+    const token = deps.sessions.create(identity);
+    reply.setCookie("salary_session", token, { httpOnly: true, sameSite: "lax", secure: false, path: "/" });
+    return reply.code(201).send({ userId: identity.userId, name: identity.name, corpId: identity.corpId });
+  });
+
+  app.get("/v1/auth/session", async (request) => {
+    const identity = deps.sessions.read(request.cookies.salary_session);
+    return { userId: identity.userId, name: identity.name, corpId: identity.corpId };
+  });
+}

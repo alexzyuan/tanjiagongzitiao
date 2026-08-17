@@ -1,12 +1,17 @@
 import { randomUUID } from "node:crypto";
 import type { SalaryBatchState, SalaryItemInput, SalaryBatchSummary } from "@salary/domain";
 import { assertTransition } from "@salary/domain";
+import { decryptSalaryPayload, encryptSalaryPayload, type EncryptedPayload } from "./crypto.js";
 
 export interface StoredItem extends SalaryItemInput {
   id: string;
   batchId: string;
   viewedAt?: string;
   confirmedAt?: string;
+}
+
+interface StoredEncryptedItem extends Omit<StoredItem, "fields"> {
+  encryptedFields: EncryptedPayload;
 }
 
 export interface AuditRecord {
@@ -21,11 +26,25 @@ export interface AuditRecord {
   createdAt: string;
 }
 
+export interface DeliveryRecord {
+  id: string;
+  batchId: string;
+  employeeUserId: string;
+  status: "delivered" | "failed" | "withdrawn";
+  taskId?: string;
+  error?: string;
+  createdAt: string;
+}
+
 export interface StoredBatch extends SalaryBatchSummary {
   items: StoredItem[];
   createdAt: string;
   scheduledAt?: string;
   archivedAt?: string;
+}
+
+interface StoredEncryptedBatch extends Omit<StoredBatch, "items"> {
+  items: StoredEncryptedItem[];
 }
 
 export interface AppSettings {
@@ -37,8 +56,9 @@ export interface AppSettings {
 }
 
 export class MemorySalaryStore {
-  private readonly batches = new Map<string, StoredBatch>();
+  private readonly batches = new Map<string, StoredEncryptedBatch>();
   private readonly audits: AuditRecord[] = [];
+  private readonly deliveries: DeliveryRecord[] = [];
   private readonly settings: AppSettings = {
     employeeVisibilityMonths: 12,
     passwordVerification: false,
@@ -47,23 +67,30 @@ export class MemorySalaryStore {
     employeeOnlyView: false
   };
 
-  createBatch(input: { payrollMonth: string; title: string; createdById: string; items: SalaryItemInput[] }): StoredBatch {
-    const id = `batch-${randomUUID()}`;
-    const batch: StoredBatch = {
-      id, payrollMonth: input.payrollMonth, title: input.title, state: "draft", total: input.items.length,
-      sent: 0, viewed: 0, confirmed: 0, assignedAdminIds: [], createdById: input.createdById,
-      items: input.items.map(item => ({ ...item, id: randomUUID(), batchId: id })), createdAt: new Date().toISOString()
-    };
-    this.batches.set(id, batch);
-    return structuredClone(batch);
+  constructor(private readonly encryptionKey: Buffer) {
+    if (encryptionKey.length !== 32) throw new Error("salary_encryption_key_must_be_32_bytes");
   }
 
-  listBatches(): StoredBatch[] { return [...this.batches.values()].map(batch => structuredClone(batch)); }
+  createBatch(input: { payrollMonth: string; title: string; createdById: string; items: SalaryItemInput[] }): StoredBatch {
+    const id = `batch-${randomUUID()}`;
+    const batch: StoredEncryptedBatch = {
+      id, payrollMonth: input.payrollMonth, title: input.title, state: "draft", total: input.items.length,
+      sent: 0, viewed: 0, confirmed: 0, assignedAdminIds: [], createdById: input.createdById,
+      items: input.items.map(item => {
+        const { fields, ...metadata } = item;
+        return { ...metadata, id: randomUUID(), batchId: id, encryptedFields: encryptSalaryPayload(fields, this.encryptionKey) };
+      }), createdAt: new Date().toISOString()
+    };
+    this.batches.set(id, batch);
+    return this.publicBatch(batch);
+  }
+
+  listBatches(): StoredBatch[] { return [...this.batches.values()].map(batch => this.publicBatch(batch)); }
 
   getBatch(id: string): StoredBatch {
     const batch = this.batches.get(id);
     if (!batch) throw new Error(`salary_batch_not_found:${id}`);
-    return structuredClone(batch);
+    return this.publicBatch(batch);
   }
 
   setState(id: string, state: SalaryBatchState): StoredBatch {
@@ -72,14 +99,14 @@ export class MemorySalaryStore {
     assertTransition(current.state, state);
     current.state = state;
     if (state === "archived") current.archivedAt = new Date().toISOString();
-    return structuredClone(current);
+    return this.publicBatch(current);
   }
 
   assignAdmin(id: string, userId: string): StoredBatch {
     const current = this.batches.get(id);
     if (!current) throw new Error(`salary_batch_not_found:${id}`);
     if (!current.assignedAdminIds.includes(userId)) current.assignedAdminIds.push(userId);
-    return structuredClone(current);
+    return this.publicBatch(current);
   }
 
   markSent(id: string, employeeUserId: string): StoredBatch {
@@ -88,7 +115,7 @@ export class MemorySalaryStore {
     const item = current.items.find(candidate => candidate.employeeUserId === employeeUserId);
     if (!item) throw new Error(`salary_item_not_found:${employeeUserId}`);
     if (!item.viewedAt && !item.confirmedAt) current.sent += 1;
-    return structuredClone(current);
+    return this.publicBatch(current);
   }
 
   markViewed(id: string, employeeUserId: string): StoredItem {
@@ -97,7 +124,7 @@ export class MemorySalaryStore {
     const item = current.items.find(candidate => candidate.employeeUserId === employeeUserId);
     if (!item) throw new Error(`salary_item_not_found:${employeeUserId}`);
     if (!item.viewedAt) { item.viewedAt = new Date().toISOString(); current.viewed += 1; }
-    return structuredClone(item);
+    return this.publicItem(item);
   }
 
   markConfirmed(id: string, employeeUserId: string): StoredItem {
@@ -106,15 +133,16 @@ export class MemorySalaryStore {
     const item = current.items.find(candidate => candidate.employeeUserId === employeeUserId);
     if (!item) throw new Error(`salary_item_not_found:${employeeUserId}`);
     if (!item.confirmedAt) { item.confirmedAt = new Date().toISOString(); current.confirmed += 1; }
-    return structuredClone(item);
+    return this.publicItem(item);
   }
 
   getEmployeeItem(id: string, employeeUserId: string): StoredItem {
-    const batch = this.getBatch(id);
+    const batch = this.batches.get(id);
+    if (!batch) throw new Error(`salary_batch_not_found:${id}`);
     if (batch.state === "archived") throw new Error("salary_item_archived");
     const item = batch.items.find(candidate => candidate.employeeUserId === employeeUserId);
     if (!item) throw new Error("salary_item_not_found");
-    return item;
+    return this.publicItem(item);
   }
 
   recordAudit(input: Omit<AuditRecord, "id" | "createdAt">): AuditRecord {
@@ -124,6 +152,23 @@ export class MemorySalaryStore {
   }
 
   listAudits(): AuditRecord[] { return structuredClone(this.audits); }
+  recordDelivery(input: Omit<DeliveryRecord, "id" | "createdAt">): DeliveryRecord {
+    const record = { ...input, id: randomUUID(), createdAt: new Date().toISOString() };
+    this.deliveries.push(record);
+    return structuredClone(record);
+  }
+  listDeliveries(batchId?: string): DeliveryRecord[] {
+    return structuredClone(batchId ? this.deliveries.filter(event => event.batchId === batchId) : this.deliveries);
+  }
   getSettings(): AppSettings { return structuredClone(this.settings); }
   setSettings(patch: Partial<AppSettings>): AppSettings { Object.assign(this.settings, patch); return this.getSettings(); }
+
+  private publicBatch(batch: StoredEncryptedBatch): StoredBatch {
+    return { ...structuredClone(batch), items: batch.items.map(item => this.publicItem(item)) };
+  }
+
+  private publicItem(item: StoredEncryptedItem): StoredItem {
+    const { encryptedFields, ...metadata } = item;
+    return { ...structuredClone(metadata), fields: decryptSalaryPayload(encryptedFields, this.encryptionKey) as StoredItem["fields"] };
+  }
 }
