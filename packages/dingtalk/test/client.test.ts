@@ -12,7 +12,7 @@ describe("HTTP DingTalk client", () => {
       if (url.includes("/topapi/message/corpconversation/asyncsend_v2")) return json({ errcode: 0, task_id: "notice-1" });
       throw new Error(`unexpected_url:${url}`);
     };
-    const client = new HttpDingTalkClient({ clientId: "app-key", clientSecret: "app-secret", corpId: "corp-1", agentId: 42, fetchImpl });
+    const client = new HttpDingTalkClient({ clientId: "app-key", clientSecret: "app-secret", corpId: "corp-1", agentId: 42, notificationPicUrl: "https://salary.example/salary-notification.svg", fetchImpl });
 
     await expect(client.exchangeAuthCode("h5-auth-code")).resolves.toEqual({ userId: "employee-a", corpId: "corp-1", name: "员工A" });
     await expect(client.sendWorkNotification({ userId: "employee-a", title: "2026-08工资条", body: "请在钉钉内查看工资明细", url: "https://salary.example/employee/salary-slips/batch-1" })).resolves.toEqual({ taskId: "notice-1" });
@@ -27,6 +27,7 @@ describe("HTTP DingTalk client", () => {
     const noticeBody = String(calls[2]?.init.body);
     expect(noticeBody).toContain("agent_id=42");
     expect(noticeBody).toContain("userid_list=employee-a");
+    expect(decodeURIComponent(noticeBody)).toContain("salary-notification.svg");
     expect(noticeBody).not.toContain("金额");
   });
 

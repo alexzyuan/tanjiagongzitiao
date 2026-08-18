@@ -14,6 +14,7 @@ export interface HttpDingTalkConfig {
   agentId?: number | undefined;
   apiBaseUrl?: string;
   legacyApiBaseUrl?: string;
+  notificationPicUrl?: string;
   fetchImpl?: typeof fetch;
   onEvent?: (event: string, fields: Record<string, unknown>) => void;
 }
@@ -109,7 +110,7 @@ export class HttpDingTalkClient implements DingTalkClient {
       msgtype: "link",
       link: {
         messageUrl: input.url,
-        picUrl: "",
+        picUrl: this.config.notificationPicUrl ?? input.url,
         title: input.title,
         text: input.body,
       },

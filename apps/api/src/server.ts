@@ -36,6 +36,7 @@ export function buildApp(options: { databasePath?: string } = {}) {
           agentId: config.DINGTALK_AGENT_ID,
           apiBaseUrl: config.DINGTALK_API_BASE_URL,
           legacyApiBaseUrl: config.DINGTALK_LEGACY_API_BASE_URL,
+          notificationPicUrl: `${config.APP_BASE_URL}/salary-notification.svg`,
           onEvent: (event, fields) =>
             app.log.info({ integration: "dingtalk", ...fields }, event),
         });
