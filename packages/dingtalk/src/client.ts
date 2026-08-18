@@ -108,14 +108,12 @@ export class HttpDingTalkClient implements DingTalkClient {
     const accessToken = await this.getAppToken();
     const picUrl = this.config.notificationPicUrl ?? input.url;
     const message = JSON.stringify({
-      msgtype: "action_card",
-      action_card: {
+      msgtype: "link",
+      link: {
         title: input.title,
-        markdown: `![工资条](${picUrl})\\n\\n${input.body}`,
-        btn_json: JSON.stringify([
-          { title: "查看明细", action_url: input.url },
-        ]),
-        btn_orientation: "0",
+        text: input.body,
+        messageUrl: input.url,
+        picUrl,
       },
     });
     const response = await this.requestJson(
