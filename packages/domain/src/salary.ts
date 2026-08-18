@@ -29,6 +29,28 @@ export function assertTransition(from: SalaryBatchState, to: SalaryBatchState): 
 
 export type SalaryFieldValue = string | number | null;
 
+export type SalarySlipTheme = "default" | "technology" | "night" | "gold" | "lotus";
+
+export interface SalarySlipDisplaySettings {
+  netAmountField: string;
+  hideEmptyFields: boolean;
+  feedbackEnabled: boolean;
+  confirmationEnabled: boolean;
+  notice: string;
+  greeting: string;
+  theme: SalarySlipTheme;
+}
+
+export const defaultSalarySlipDisplaySettings: SalarySlipDisplaySettings = {
+  netAmountField: "实发金额",
+  hideEmptyFields: true,
+  feedbackEnabled: false,
+  confirmationEnabled: false,
+  notice: "工资条属于敏感信息，请注意保密",
+  greeting: "{name}，工作辛苦啦",
+  theme: "default"
+};
+
 export interface SalaryItemInput {
   employeeUserId: string;
   employeeName: string;
@@ -49,4 +71,5 @@ export interface SalaryBatchSummary {
   confirmed: number;
   assignedAdminIds: string[];
   createdById: string;
+  displaySettings: SalarySlipDisplaySettings;
 }

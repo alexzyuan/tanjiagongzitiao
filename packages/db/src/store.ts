@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { SalaryBatchState, SalaryItemInput, SalaryBatchSummary } from "@salary/domain";
-import { assertTransition } from "@salary/domain";
+import type { SalaryBatchState, SalaryItemInput, SalaryBatchSummary, SalarySlipDisplaySettings } from "@salary/domain";
+import { assertTransition, defaultSalarySlipDisplaySettings } from "@salary/domain";
 import { decryptSalaryPayload, encryptSalaryPayload, type EncryptedPayload } from "./crypto.js";
 
 export interface StoredItem extends SalaryItemInput {
@@ -66,7 +66,7 @@ export interface AppSettings {
 }
 
 export interface SalaryStore {
-  createBatch(input: { payrollMonth: string; title: string; createdById: string; items: SalaryItemInput[] }): StoredBatch;
+  createBatch(input: { payrollMonth: string; title: string; createdById: string; items: SalaryItemInput[]; displaySettings?: SalarySlipDisplaySettings }): StoredBatch;
   listBatches(): StoredBatch[];
   getBatch(id: string): StoredBatch;
   setState(id: string, state: SalaryBatchState): StoredBatch;
@@ -110,11 +110,12 @@ export class MemorySalaryStore implements SalaryStore {
     if (encryptionKey.length !== 32) throw new Error("salary_encryption_key_must_be_32_bytes");
   }
 
-  createBatch(input: { payrollMonth: string; title: string; createdById: string; items: SalaryItemInput[] }): StoredBatch {
+  createBatch(input: { payrollMonth: string; title: string; createdById: string; items: SalaryItemInput[]; displaySettings?: SalarySlipDisplaySettings }): StoredBatch {
     const id = `batch-${randomUUID()}`;
     const batch: StoredEncryptedBatch = {
       id, payrollMonth: input.payrollMonth, title: input.title, state: "draft", total: input.items.length,
       sent: 0, viewed: 0, confirmed: 0, assignedAdminIds: [], createdById: input.createdById,
+      displaySettings: { ...defaultSalarySlipDisplaySettings, ...input.displaySettings },
       items: input.items.map(item => {
         const { fields, ...metadata } = item;
         return { ...metadata, id: randomUUID(), batchId: id, encryptedFields: encryptSalaryPayload(fields, this.encryptionKey) };
