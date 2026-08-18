@@ -1,6 +1,6 @@
 import type { DingTalkClient } from "@salary/dingtalk";
 import type { DirectoryUser } from "@salary/dingtalk";
-import type { Access, SalaryBatchState, SalaryItemInput } from "@salary/domain";
+import type { Access, SalaryBatchState, SalaryItemInput, SalarySlipDisplaySettings } from "@salary/domain";
 import { canManageBatch, canReadEmployeeItem } from "@salary/domain";
 import { fingerprintSalaryPayload, type SalaryStore } from "@salary/db";
 import type { AuditService } from "../audit/service.js";
@@ -27,10 +27,10 @@ export class SalaryService {
 
   constructor(private readonly store: SalaryStore, private readonly dingtalk: DingTalkClient, private readonly audit: AuditService, private readonly appBaseUrl: string) {}
 
-  createDraft(actorUserId: string, input: { payrollMonth: string; title: string; rows: Record<string, unknown>[] }): { batchId?: string; errors: ReturnType<typeof validateRows>["errors"] } {
+  createDraft(actorUserId: string, input: { payrollMonth: string; title: string; rows: Record<string, unknown>[]; displaySettings?: SalarySlipDisplaySettings }): { batchId?: string; errors: ReturnType<typeof validateRows>["errors"] } {
     const parsed = validateRows(input.rows);
     if (parsed.errors.length) return { errors: parsed.errors };
-    const batch = this.store.createBatch({ payrollMonth: input.payrollMonth, title: input.title, createdById: actorUserId, items: parsed.items });
+    const batch = this.store.createBatch({ payrollMonth: input.payrollMonth, title: input.title, createdById: actorUserId, items: parsed.items, ...(input.displaySettings ? { displaySettings: input.displaySettings } : {}) });
     this.audit.record({ correlationId: `batch:${batch.id}`, actorUserId, action: "salary_batch.create", targetType: "salary_batch", targetId: batch.id, outcome: "completed", metadata: { rowCount: parsed.items.length } });
     return { batchId: batch.id, errors: [] };
   }
@@ -48,12 +48,12 @@ export class SalaryService {
       targetType: "salary_import_preview",
       targetId: previewId,
       outcome: "completed",
-      metadata: { strategy: input.strategy, rows: preview.rows.length, ignoredSummaryRows: preview.ignoredSummaryRows, matched: preview.matched, unmatched: preview.unmatched, ambiguous: preview.ambiguous }
+      metadata: { strategy: input.strategy, parsedRows: preview.sourceRows.length, ignoredSummaryRows: preview.ignoredSummaryRows, matchedRows: preview.matched, unmatchedRows: preview.unmatched, ambiguousRows: preview.ambiguous }
     });
     return { ...preview, previewId, expiresAt: new Date(expiresAt).toISOString() };
   }
 
-  commitImport(actorUserId: string, previewId: string, resolutions: Array<{ row: number; userId: string }>): { batchId: string } {
+  commitImport(actorUserId: string, previewId: string, resolutions: Array<{ row: number; userId: string }>, displaySettings?: SalarySlipDisplaySettings): { batchId: string } {
     const stored = this.importPreviewFor(actorUserId, previewId);
     const resolutionsByRow = new Map<number, string>();
     for (const resolution of resolutions) {
@@ -72,7 +72,7 @@ export class SalaryService {
       selectedUserIds.add(user.userId);
       return resolveDirectoryUser(row.source, user);
     });
-    const result = this.createDraft(actorUserId, { payrollMonth: stored.payrollMonth, title: stored.title, rows });
+    const result = this.createDraft(actorUserId, { payrollMonth: stored.payrollMonth, title: stored.title, rows, ...(displaySettings ? { displaySettings } : {}) });
     if (!result.batchId || result.errors.length) throw new Error("salary_import_commit_validation_failed");
     this.importPreviews.delete(previewId);
     this.audit.record({
@@ -82,7 +82,7 @@ export class SalaryService {
       targetType: "salary_batch",
       targetId: result.batchId,
       outcome: "completed",
-      metadata: { previewId, rowCount: rows.length, manualResolutions: resolutions.length }
+      metadata: { previewId, parsedRows: stored.preview.sourceRows.length, ignoredSummaryRows: stored.preview.ignoredSummaryRows, matchedRows: stored.preview.matched, manualResolutions: resolutions.length }
     });
     return { batchId: result.batchId };
   }

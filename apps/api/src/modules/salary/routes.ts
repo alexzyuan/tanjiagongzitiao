@@ -8,7 +8,16 @@ import { parseWorkbook } from "./import.js";
 
 const DraftSchema = z.object({ payrollMonth: z.string().regex(/^\d{4}-\d{2}$/), title: z.string().min(1), rows: z.array(z.record(z.unknown())).min(1) });
 const ScheduleSchema = z.object({ scheduledAt: z.string().datetime().optional() });
-const ImportCommitSchema = z.object({ previewId: z.string().min(1), resolutions: z.array(z.object({ row: z.number().int().min(2), userId: z.string().min(1) })) });
+const SalarySlipDisplaySettingsSchema = z.object({
+  netAmountField: z.string().trim().min(1).max(120),
+  hideEmptyFields: z.boolean(),
+  feedbackEnabled: z.boolean(),
+  confirmationEnabled: z.boolean(),
+  notice: z.string().max(500),
+  greeting: z.string().max(200),
+  theme: z.enum(["default", "technology", "night", "gold", "lotus"])
+}).strict();
+const ImportCommitSchema = z.object({ previewId: z.string().min(1), resolutions: z.array(z.object({ row: z.number().int().min(2), userId: z.string().min(1) })), displaySettings: SalarySlipDisplaySettingsSchema });
 const MatchStrategySchema = z.enum(["userId", "employeeNo", "name"]);
 
 function user(request: FastifyRequest, sessions: SessionService) { return sessions.read(request.cookies.salary_session); }
@@ -53,7 +62,7 @@ export function registerSalaryRoutes(app: FastifyInstance, deps: { sessions: Ses
     const identity = user(request, deps.sessions);
     if (deps.authz.accessFor(identity.userId).kind !== "main_admin") throw new Error("salary_admin_required");
     const body = ImportCommitSchema.parse(request.body);
-    return deps.salary.commitImport(identity.userId, body.previewId, body.resolutions);
+    return deps.salary.commitImport(identity.userId, body.previewId, body.resolutions, body.displaySettings);
   });
   app.get("/v1/salary-batches/import/previews/:previewId/users", async request => {
     const identity = user(request, deps.sessions);

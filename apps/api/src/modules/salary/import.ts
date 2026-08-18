@@ -18,8 +18,15 @@ export interface ImportPreviewRow {
   candidates: DirectoryUser[];
 }
 
+export interface ImportSourceRow {
+  row: number;
+  source: RawRow;
+  kind: "employee" | "summary";
+}
+
 export interface ImportPreview {
   strategy: EmployeeMatchStrategy;
+  sourceRows: ImportSourceRow[];
   rows: ImportPreviewRow[];
   ignoredSummaryRows: number;
   matched: number;
@@ -103,23 +110,25 @@ export function previewRows(rows: RawRow[], directory: DirectoryUser[], strategy
     : strategy === "employeeNo"
       ? ["employeeNo", "工号"]
       : ["name", "姓名"];
-  const rowsForMatching = rows.flatMap((source, index) => {
+  const sourceRows = rows.map((source, index): ImportSourceRow => {
     const value = text(source, aliases);
-    return isSummaryLabel(value) ? [] : [{ source, index, value }];
+    return { row: index + 2, source, kind: isSummaryLabel(value) ? "summary" : "employee" };
   });
-  const previewRows = rowsForMatching.map(({ source, index, value }): ImportPreviewRow => {
+  const previewRows = sourceRows.filter(row => row.kind === "employee").map(({ source, row }): ImportPreviewRow => {
+    const value = text(source, aliases);
     const candidates = value
       ? directory.filter(user => strategy === "userId" ? user.userId === value : strategy === "employeeNo" ? user.employeeNo === value : user.name === value)
       : [];
-    const base = { row: index + 2, source, ...(value ? { value } : {}), candidates };
+    const base = { row, source, ...(value ? { value } : {}), candidates };
     const [user] = candidates;
     if (user && candidates.length === 1) return { ...base, status: "matched", user };
     return { ...base, status: candidates.length ? "ambiguous" : "unmatched" };
   });
   return {
     strategy,
+    sourceRows,
     rows: previewRows,
-    ignoredSummaryRows: rows.length - previewRows.length,
+    ignoredSummaryRows: sourceRows.filter(row => row.kind === "summary").length,
     matched: previewRows.filter(row => row.status === "matched").length,
     unmatched: previewRows.filter(row => row.status === "unmatched").length,
     ambiguous: previewRows.filter(row => row.status === "ambiguous").length

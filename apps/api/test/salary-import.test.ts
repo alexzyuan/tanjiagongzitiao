@@ -87,6 +87,10 @@ describe("directory matching", () => {
 
     expect(preview.rows).toHaveLength(1);
     expect(preview.rows[0]?.user?.userId).toBe("employee-a");
+    expect(preview.sourceRows.map(row => ({ row: row.row, kind: row.kind }))).toEqual([
+      { row: 2, kind: "employee" },
+      { row: 3, kind: "summary" }
+    ]);
     expect((preview as typeof preview & { ignoredSummaryRows?: number }).ignoredSummaryRows).toBe(1);
   });
 });
@@ -126,13 +130,22 @@ describe("directory matched import workflow", () => {
     });
 
     expect(() => salary.commitImport("dev-admin", preview.previewId, [{ row: 3, userId: "outside-directory" }])).toThrow("salary_import_resolution_user_invalid");
-    const result = salary.commitImport("dev-admin", preview.previewId, [{ row: 3, userId: "employee-b" }]);
+    const result = salary.commitImport("dev-admin", preview.previewId, [{ row: 3, userId: "employee-b" }], {
+      netAmountField: "实发工资",
+      hideEmptyFields: true,
+      feedbackEnabled: true,
+      confirmationEnabled: false,
+      notice: "工资条属于敏感信息，请注意保密",
+      greeting: "{name}，工作辛苦啦",
+      theme: "default"
+    });
     expect(result.batchId).toMatch(/^batch-/);
     const batch = salary.getBatch({ kind: "main_admin", userId: "dev-admin" }, result.batchId ?? "");
     expect(batch.items.map(item => ({ userId: item.employeeUserId, name: item.employeeName })).sort((left, right) => left.userId.localeCompare(right.userId))).toEqual([
       { userId: "employee-a", name: "员工A" },
       { userId: "employee-b", name: "员工B" }
     ]);
+    expect(batch.displaySettings.netAmountField).toBe("实发工资");
     await app.close();
   });
 });
