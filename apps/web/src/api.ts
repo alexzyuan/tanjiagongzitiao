@@ -129,8 +129,21 @@ export interface Batch {
   confirmed: number;
   assignedAdminIds: string[];
   createdById: string;
+  displaySettings: SalarySlipDisplaySettings;
   createdAt?: string;
   items?: SalaryItem[];
+}
+
+export type SalarySlipTheme = "default" | "technology" | "night" | "gold" | "lotus";
+
+export interface SalarySlipDisplaySettings {
+  netAmountField: string;
+  hideEmptyFields: boolean;
+  feedbackEnabled: boolean;
+  confirmationEnabled: boolean;
+  notice: string;
+  greeting: string;
+  theme: SalarySlipTheme;
 }
 
 export interface SalaryItem {
@@ -165,10 +178,17 @@ export interface SalaryImportPreviewRow {
   candidates: DirectoryUser[];
 }
 
+export interface SalaryImportSourceRow {
+  row: number;
+  source: Record<string, unknown>;
+  kind: "employee" | "summary";
+}
+
 export interface SalaryImportPreview {
   previewId: string;
   expiresAt: string;
   strategy: EmployeeMatchStrategy;
+  sourceRows: SalaryImportSourceRow[];
   rows: SalaryImportPreviewRow[];
   ignoredSummaryRows: number;
   matched: number;
