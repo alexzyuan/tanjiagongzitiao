@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type { SalaryBatchState, SalaryItemInput, SalarySlipDisplaySettings } from "@salary/domain";
+import type { SalaryBatchState, SalaryItemInput, SalarySlipDisplaySettings, SalarySlipTemplate } from "@salary/domain";
 import { assertTransition, defaultSalarySlipDisplaySettings } from "@salary/domain";
 import { decryptSalaryPayload, encryptSalaryPayload, type EncryptedPayload } from "./crypto.js";
 import type { AppSettings, AuditRecord, DeliveryRecord, PaymentEvidenceRecord, SalaryStore, StoredBatch, StoredItem } from "./store.js";
@@ -124,6 +124,8 @@ export class SqliteSalaryStore implements SalaryStore {
 
   getSettings(): AppSettings { const row = this.db.prepare("SELECT value FROM salary_settings WHERE id = 'default'").get() as { value: string } | undefined; return { ...defaults, ...(row ? JSON.parse(row.value) : {}) }; }
   setSettings(patch: Partial<AppSettings>): AppSettings { const settings = { ...this.getSettings(), ...patch }; this.db.prepare("INSERT INTO salary_settings (id, value) VALUES ('default', ?) ON CONFLICT(id) DO UPDATE SET value = excluded.value").run(JSON.stringify(settings)); return settings; }
+  createSalaryTemplate(input: { name: string; settings: SalarySlipDisplaySettings }): SalarySlipTemplate { const template = { id: randomUUID(), name: input.name, settings: input.settings, createdAt: new Date().toISOString() }; this.db.prepare("INSERT INTO salary_slip_templates (id, name, settings, created_at) VALUES (?, ?, ?, ?)").run(template.id, template.name, JSON.stringify(template.settings), template.createdAt); return template; }
+  listSalaryTemplates(): SalarySlipTemplate[] { return (this.db.prepare("SELECT * FROM salary_slip_templates ORDER BY created_at DESC").all() as Array<{ id: string; name: string; settings: string; created_at: string }>).map(row => ({ id: row.id, name: row.name, settings: { ...defaultSalarySlipDisplaySettings, ...JSON.parse(row.settings) }, createdAt: row.created_at })); }
 
   private markInteraction(batchId: string, employeeUserId: string, kind: "viewed" | "confirmed"): StoredItem {
     const row = this.itemRow(batchId, employeeUserId); const column = kind === "viewed" ? "viewed_at" : "confirmed_at";
@@ -145,6 +147,7 @@ export class SqliteSalaryStore implements SalaryStore {
     CREATE TABLE IF NOT EXISTS salary_items (id TEXT PRIMARY KEY, batch_id TEXT NOT NULL REFERENCES salary_batches(id), employee_user_id TEXT NOT NULL, employee_name TEXT NOT NULL, employee_no TEXT, department TEXT, position TEXT, fields_ciphertext BLOB NOT NULL, fields_iv BLOB NOT NULL, fields_auth_tag BLOB NOT NULL, viewed_at TEXT, confirmed_at TEXT, UNIQUE(batch_id, employee_user_id));
     CREATE TABLE IF NOT EXISTS salary_sub_admins (user_id TEXT PRIMARY KEY);
     CREATE TABLE IF NOT EXISTS salary_settings (id TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS salary_slip_templates (id TEXT PRIMARY KEY, name TEXT NOT NULL, settings TEXT NOT NULL, created_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS salary_audits (id TEXT PRIMARY KEY, correlation_id TEXT NOT NULL, actor_user_id TEXT, action TEXT NOT NULL, target_type TEXT NOT NULL, target_id TEXT NOT NULL, outcome TEXT NOT NULL, metadata TEXT NOT NULL, created_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS salary_deliveries (id TEXT PRIMARY KEY, batch_id TEXT NOT NULL REFERENCES salary_batches(id), employee_user_id TEXT NOT NULL, status TEXT NOT NULL, task_id TEXT, error TEXT, created_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS salary_evidence (id TEXT PRIMARY KEY, batch_id TEXT NOT NULL REFERENCES salary_batches(id), employee_user_id TEXT NOT NULL, event_type TEXT NOT NULL, fingerprint TEXT NOT NULL, metadata TEXT NOT NULL, created_at TEXT NOT NULL);

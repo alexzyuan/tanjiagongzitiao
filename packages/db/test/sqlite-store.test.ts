@@ -27,10 +27,13 @@ describe("SQLite salary store", () => {
           confirmationEnabled: false,
           notice: "工资条属于敏感信息，请注意保密",
           greeting: "{name}，工作辛苦啦",
-          theme: "default"
+          theme: "default",
+          visibleFields: ["基本工资"],
+          fieldGroups: [{ id: "income", name: "应发工资", fieldKeys: ["基本工资"] }]
         }
       });
       first.assignSubAdmin("finance-1");
+      const template = first.createSalaryTemplate({ name: "常规工资条", settings: batch.displaySettings });
       first.setSettings({ passwordVerification: true });
       first.close();
 
@@ -43,10 +46,13 @@ describe("SQLite salary store", () => {
         confirmationEnabled: false,
         notice: "工资条属于敏感信息，请注意保密",
         greeting: "{name}，工作辛苦啦",
-        theme: "default"
+        theme: "default",
+        visibleFields: ["基本工资"],
+        fieldGroups: [{ id: "income", name: "应发工资", fieldKeys: ["基本工资"] }]
       });
       expect(reopened.getBatch(batch.id).items[0]?.fields).toEqual({ 基本工资: 12000 });
       expect(reopened.listSubAdmins()).toEqual(["finance-1"]);
+      expect(reopened.listSalaryTemplates()).toMatchObject([{ id: template.id, name: "常规工资条", settings: batch.displaySettings }]);
       expect(reopened.getSettings().passwordVerification).toBe(true);
       reopened.close();
 

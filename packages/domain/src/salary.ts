@@ -31,6 +31,12 @@ export type SalaryFieldValue = string | number | null;
 
 export type SalarySlipTheme = "default" | "technology" | "night" | "gold" | "lotus";
 
+export interface SalarySlipFieldGroup {
+  id: string;
+  name: string;
+  fieldKeys: string[];
+}
+
 export interface SalarySlipDisplaySettings {
   netAmountField: string;
   hideEmptyFields: boolean;
@@ -39,6 +45,15 @@ export interface SalarySlipDisplaySettings {
   notice: string;
   greeting: string;
   theme: SalarySlipTheme;
+  visibleFields: string[];
+  fieldGroups: SalarySlipFieldGroup[];
+}
+
+export interface SalarySlipTemplate {
+  id: string;
+  name: string;
+  settings: SalarySlipDisplaySettings;
+  createdAt: string;
 }
 
 export const defaultSalarySlipDisplaySettings: SalarySlipDisplaySettings = {
@@ -48,7 +63,9 @@ export const defaultSalarySlipDisplaySettings: SalarySlipDisplaySettings = {
   confirmationEnabled: false,
   notice: "工资条属于敏感信息，请注意保密",
   greeting: "{name}，工作辛苦啦",
-  theme: "default"
+  theme: "default",
+  visibleFields: [],
+  fieldGroups: []
 };
 
 export interface SalaryItemInput {

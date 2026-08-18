@@ -15,9 +15,12 @@ const SalarySlipDisplaySettingsSchema = z.object({
   confirmationEnabled: z.boolean(),
   notice: z.string().max(500),
   greeting: z.string().max(200),
-  theme: z.enum(["default", "technology", "night", "gold", "lotus"])
+  theme: z.enum(["default", "technology", "night", "gold", "lotus"]),
+  visibleFields: z.array(z.string().trim().min(1).max(120)).max(300),
+  fieldGroups: z.array(z.object({ id: z.string().min(1), name: z.string().trim().min(1).max(120), fieldKeys: z.array(z.string().trim().min(1).max(120)).max(300) }).strict()).max(50)
 }).strict();
 const ImportCommitSchema = z.object({ previewId: z.string().min(1), resolutions: z.array(z.object({ row: z.number().int().min(2), userId: z.string().min(1) })), displaySettings: SalarySlipDisplaySettingsSchema });
+const SalaryTemplateSchema = z.object({ name: z.string().trim().min(1).max(120), settings: SalarySlipDisplaySettingsSchema }).strict();
 const MatchStrategySchema = z.enum(["userId", "employeeNo", "name"]);
 
 function user(request: FastifyRequest, sessions: SessionService) { return sessions.read(request.cookies.salary_session); }
@@ -28,6 +31,15 @@ function employeeAccess(request: FastifyRequest, sessions: SessionService) {
 
 export function registerSalaryRoutes(app: FastifyInstance, deps: { sessions: SessionService; authz: AuthorizationService; salary: SalaryService; dingtalk: DingTalkClient }): void {
   app.get("/v1/salary-batches", async request => deps.salary.list(deps.authz.accessFor(user(request, deps.sessions).userId)));
+  app.get("/v1/salary-slip-templates", async request => {
+    const identity = user(request, deps.sessions);
+    if (deps.authz.accessFor(identity.userId).kind !== "main_admin") throw new Error("salary_admin_required");
+    return deps.salary.listTemplates();
+  });
+  app.post("/v1/salary-slip-templates", async request => {
+    const identity = user(request, deps.sessions);
+    return deps.salary.createTemplate(deps.authz.accessFor(identity.userId), SalaryTemplateSchema.parse(request.body));
+  });
   app.post("/v1/salary-batches", async request => {
     const identity = user(request, deps.sessions);
     const access = deps.authz.accessFor(identity.userId);
@@ -77,6 +89,10 @@ export function registerSalaryRoutes(app: FastifyInstance, deps: { sessions: Ses
   app.post("/v1/salary-batches/:batchId/send", async request => {
     const identity = user(request, deps.sessions);
     return deps.salary.send(deps.authz.accessFor(identity.userId), (request.params as { batchId: string }).batchId, ScheduleSchema.parse(request.body).scheduledAt);
+  });
+  app.post("/v1/salary-batches/:batchId/items/:itemId/send", async request => {
+    const identity = user(request, deps.sessions);
+    return deps.salary.sendItem(deps.authz.accessFor(identity.userId), (request.params as { batchId: string; itemId: string }).batchId, (request.params as { batchId: string; itemId: string }).itemId);
   });
   app.post("/v1/salary-batches/:batchId/resend", async request => {
     const identity = user(request, deps.sessions);

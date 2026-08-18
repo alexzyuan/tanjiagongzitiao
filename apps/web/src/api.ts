@@ -136,6 +136,9 @@ export interface Batch {
 
 export type SalarySlipTheme = "default" | "technology" | "night" | "gold" | "lotus";
 
+export interface SalarySlipFieldGroup { id: string; name: string; fieldKeys: string[]; }
+export interface SalarySlipTemplate { id: string; name: string; settings: SalarySlipDisplaySettings; createdAt: string; }
+
 export interface SalarySlipDisplaySettings {
   netAmountField: string;
   hideEmptyFields: boolean;
@@ -144,6 +147,8 @@ export interface SalarySlipDisplaySettings {
   notice: string;
   greeting: string;
   theme: SalarySlipTheme;
+  visibleFields: string[];
+  fieldGroups: SalarySlipFieldGroup[];
 }
 
 export interface SalaryItem {
@@ -157,6 +162,7 @@ export interface SalaryItem {
   fields: Record<string, string | number | null>;
   viewedAt?: string;
   confirmedAt?: string;
+  deliveryStatus?: "delivered" | "failed" | "withdrawn";
 }
 
 export type EmployeeMatchStrategy = "userId" | "employeeNo" | "name";

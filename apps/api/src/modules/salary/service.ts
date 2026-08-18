@@ -105,6 +105,15 @@ export class SalaryService {
     return this.store.listSubAdmins();
   }
 
+  createTemplate(actor: Access, input: { name: string; settings: SalarySlipDisplaySettings }) {
+    if (actor.kind !== "main_admin") throw new Error("salary_admin_required");
+    const template = this.store.createSalaryTemplate(input);
+    this.audit.record({ correlationId: `template:${template.id}`, actorUserId: actor.userId, action: "salary_template.create", targetType: "salary_template", targetId: template.id, outcome: "completed", metadata: { name: template.name, fields: template.settings.visibleFields.length } });
+    return template;
+  }
+
+  listTemplates() { return this.store.listSalaryTemplates(); }
+
   removeSubAdmin(actor: Access, userId: string) {
     if (actor.kind !== "main_admin") throw new Error("main_admin_required");
     const subAdmins = this.store.removeSubAdmin(userId);
@@ -139,7 +148,7 @@ export class SalaryService {
     if (!canManageBatch(access, batchId)) throw new Error("salary_batch_access_denied");
     const batch = this.store.getBatch(batchId);
     if (batch.state === "archived" && access.kind !== "main_admin") throw new Error("salary_archive_access_denied");
-    return batch;
+    return this.withDeliveryStatus(batch);
   }
 
   assignAdmin(actor: Access, batchId: string, userId: string) {
@@ -164,6 +173,41 @@ export class SalaryService {
       return { batch, scheduled: true };
     }
     return { batch: await this.deliver(actor.userId, batchId), scheduled: false };
+  }
+
+  async sendItem(actor: Access, batchId: string, itemId: string) {
+    if (!canManageBatch(actor, batchId)) throw new Error("salary_batch_access_denied");
+    const batch = this.store.getBatch(batchId);
+    const item = batch.items.find(candidate => candidate.id === itemId);
+    if (!item) throw new Error("salary_item_not_found");
+    if (["archived", "sending"].includes(batch.state)) throw new Error(`salary_item_not_sendable:${batch.state}`);
+    const alreadyDelivered = this.store.listDeliveries(batchId).some(delivery => delivery.employeeUserId === item.employeeUserId && delivery.status === "delivered");
+    if (alreadyDelivered) throw new Error("salary_item_already_sent");
+    try {
+      const result = await this.dingtalk.sendWorkNotification({ userId: item.employeeUserId, title: `${batch.payrollMonth}工资条`, body: "请在钉钉内查看工资明细", url: `${this.appBaseUrl}/employee/salary-slips/${batchId}` });
+      let todoId: string | undefined;
+      if (this.store.getSettings().notificationMode === "work_notice_with_todo") {
+        try { ({ todoId } = await this.dingtalk.createTodo({ userId: item.employeeUserId, subject: `${batch.payrollMonth}工资条待查看`, url: `${this.appBaseUrl}/employee/salary-slips/${batchId}` })); }
+        catch (error) { this.audit.record({ correlationId: `item:${item.id}`, actorUserId: actor.userId, action: "salary_item.todo", targetType: "salary_item", targetId: item.id, outcome: "failed", metadata: { error: error instanceof Error ? error.message : "todo_creation_failed" } }); }
+      }
+      this.store.markSent(batchId, item.employeeUserId);
+      this.store.recordDelivery({ batchId, employeeUserId: item.employeeUserId, status: "delivered", taskId: result.taskId });
+      this.store.recordEvidence({ batchId, employeeUserId: item.employeeUserId, eventType: "notification_sent", fingerprint: fingerprintSalaryPayload({ batchId, employeeUserId: item.employeeUserId, taskId: result.taskId }), metadata: { taskId: result.taskId, todoId } });
+      const updated = this.store.getBatch(batchId);
+      const deliveredCount = this.store.listDeliveries(batchId).filter(delivery => delivery.status === "delivered").length;
+      let finalBatch = updated;
+      if (deliveredCount === updated.total && updated.state !== "sent") {
+        this.store.setState(batchId, "sending");
+        finalBatch = this.store.setState(batchId, "sent");
+      }
+      this.audit.record({ correlationId: `item:${item.id}`, actorUserId: actor.userId, action: "salary_item.send", targetType: "salary_item", targetId: item.id, outcome: "completed", metadata: { taskId: result.taskId } });
+      return { batch: this.withDeliveryStatus(finalBatch), itemId: item.id, sent: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "notification_failed";
+      this.store.recordDelivery({ batchId, employeeUserId: item.employeeUserId, status: "failed", error: message });
+      this.audit.record({ correlationId: `item:${item.id}`, actorUserId: actor.userId, action: "salary_item.send", targetType: "salary_item", targetId: item.id, outcome: "failed", metadata: { error: message } });
+      throw error;
+    }
   }
 
   async processScheduled(actor: Access, now = new Date()) {
@@ -253,6 +297,18 @@ export class SalaryService {
     const stored = this.importPreviews.get(previewId);
     if (!stored || stored.actorUserId !== actorUserId) throw new Error("salary_import_preview_not_found");
     return stored;
+  }
+
+  private withDeliveryStatus(batch: ReturnType<SalaryStore["getBatch"]>) {
+    const latestByEmployee = new Map<string, ReturnType<SalaryStore["listDeliveries"]>[number]>();
+    for (const delivery of this.store.listDeliveries(batch.id)) latestByEmployee.set(delivery.employeeUserId, delivery);
+    return {
+      ...batch,
+      items: batch.items.map(item => {
+        const delivery = latestByEmployee.get(item.employeeUserId);
+        return delivery ? { ...item, deliveryStatus: delivery.status } : item;
+      })
+    };
   }
 
   private deleteExpiredImportPreviews(): void {

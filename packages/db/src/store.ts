@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { SalaryBatchState, SalaryItemInput, SalaryBatchSummary, SalarySlipDisplaySettings } from "@salary/domain";
+import type { SalaryBatchState, SalaryItemInput, SalaryBatchSummary, SalarySlipDisplaySettings, SalarySlipTemplate } from "@salary/domain";
 import { assertTransition, defaultSalarySlipDisplaySettings } from "@salary/domain";
 import { decryptSalaryPayload, encryptSalaryPayload, type EncryptedPayload } from "./crypto.js";
 
@@ -8,6 +8,7 @@ export interface StoredItem extends SalaryItemInput {
   batchId: string;
   viewedAt?: string;
   confirmedAt?: string;
+  deliveryStatus?: DeliveryRecord["status"];
 }
 
 interface StoredEncryptedItem extends Omit<StoredItem, "fields"> {
@@ -90,6 +91,8 @@ export interface SalaryStore {
   archiveExpired(cutoffPayrollMonth: string): string[];
   getSettings(): AppSettings;
   setSettings(patch: Partial<AppSettings>): AppSettings;
+  createSalaryTemplate(input: { name: string; settings: SalarySlipDisplaySettings }): SalarySlipTemplate;
+  listSalaryTemplates(): SalarySlipTemplate[];
 }
 
 export class MemorySalaryStore implements SalaryStore {
@@ -98,6 +101,7 @@ export class MemorySalaryStore implements SalaryStore {
   private readonly deliveries: DeliveryRecord[] = [];
   private readonly evidence: PaymentEvidenceRecord[] = [];
   private readonly subAdminIds = new Set<string>();
+  private readonly salaryTemplates: SalarySlipTemplate[] = [];
   private readonly settings: AppSettings = {
     employeeVisibilityMonths: 12,
     passwordVerification: false,
@@ -255,6 +259,8 @@ export class MemorySalaryStore implements SalaryStore {
   }
   getSettings(): AppSettings { return structuredClone(this.settings); }
   setSettings(patch: Partial<AppSettings>): AppSettings { Object.assign(this.settings, patch); return this.getSettings(); }
+  createSalaryTemplate(input: { name: string; settings: SalarySlipDisplaySettings }): SalarySlipTemplate { const template = { id: randomUUID(), name: input.name, settings: structuredClone(input.settings), createdAt: new Date().toISOString() }; this.salaryTemplates.push(template); return structuredClone(template); }
+  listSalaryTemplates(): SalarySlipTemplate[] { return structuredClone(this.salaryTemplates); }
 
   private publicBatch(batch: StoredEncryptedBatch): StoredBatch {
     return { ...structuredClone(batch), items: batch.items.map(item => this.publicItem(item)) };
