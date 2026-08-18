@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import type { DingTalkClient, DingTalkIdentity, DirectoryUser, TodoTask, WorkNotification } from "./types.js";
+import type {
+  DingTalkClient,
+  DingTalkIdentity,
+  DirectoryUser,
+  TodoTask,
+  WorkNotification,
+} from "./types.js";
 
 export class MockDingTalkClient implements DingTalkClient {
   readonly notifications: WorkNotification[] = [];
@@ -10,7 +16,9 @@ export class MockDingTalkClient implements DingTalkClient {
     return { userId: "dev-admin", corpId: "dev-corp", name: "开发管理员" };
   }
 
-  async sendWorkNotification(input: WorkNotification): Promise<{ taskId: string }> {
+  async sendWorkNotification(
+    input: WorkNotification,
+  ): Promise<{ taskId: string }> {
     this.notifications.push(input);
     return { taskId: `mock-task-${randomUUID()}` };
   }
@@ -22,8 +30,27 @@ export class MockDingTalkClient implements DingTalkClient {
 
   async listDirectoryUsers(): Promise<DirectoryUser[]> {
     return [
-      { userId: "employee-a", name: "员工A", employeeNo: "A001", position: "财务", departmentIds: [1] },
-      { userId: "employee-b", name: "员工B", employeeNo: "B001", position: "运营", departmentIds: [1] }
+      {
+        userId: "hr-user",
+        name: "人事管理员",
+        employeeNo: "HR001",
+        position: "人力资源",
+        departmentIds: [2],
+      },
+      {
+        userId: "employee-a",
+        name: "员工A",
+        employeeNo: "A001",
+        position: "财务",
+        departmentIds: [1],
+      },
+      {
+        userId: "employee-b",
+        name: "员工B",
+        employeeNo: "B001",
+        position: "运营",
+        departmentIds: [1],
+      },
     ];
   }
 }

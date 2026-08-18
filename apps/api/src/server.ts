@@ -18,17 +18,27 @@ import { registerReportRoutes } from "./modules/reports/routes.js";
 import { registerSettingsRoutes } from "./modules/settings/routes.js";
 
 export function buildApp(options: { databasePath?: string } = {}) {
-  const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" }, genReqId: () => randomUUID() });
-  const store = new SqliteSalaryStore(options.databasePath ?? config.SALARY_DATABASE_PATH, Buffer.from(config.SALARY_ENCRYPTION_KEY, "hex"));
-  const dingtalk = config.DINGTALK_MODE === "mock" ? new MockDingTalkClient() : new HttpDingTalkClient({
-    clientId: config.DINGTALK_CLIENT_ID,
-    clientSecret: config.DINGTALK_CLIENT_SECRET,
-    corpId: config.DINGTALK_CORP_ID,
-    agentId: config.DINGTALK_AGENT_ID,
-    apiBaseUrl: config.DINGTALK_API_BASE_URL,
-    legacyApiBaseUrl: config.DINGTALK_LEGACY_API_BASE_URL,
-    onEvent: (event, fields) => app.log.info({ integration: "dingtalk", ...fields }, event)
+  const app = Fastify({
+    logger: { level: process.env.LOG_LEVEL ?? "info" },
+    genReqId: () => randomUUID(),
   });
+  const store = new SqliteSalaryStore(
+    options.databasePath ?? config.SALARY_DATABASE_PATH,
+    Buffer.from(config.SALARY_ENCRYPTION_KEY, "hex"),
+  );
+  const dingtalk =
+    config.DINGTALK_MODE === "mock"
+      ? new MockDingTalkClient()
+      : new HttpDingTalkClient({
+          clientId: config.DINGTALK_CLIENT_ID,
+          clientSecret: config.DINGTALK_CLIENT_SECRET,
+          corpId: config.DINGTALK_CORP_ID,
+          agentId: config.DINGTALK_AGENT_ID,
+          apiBaseUrl: config.DINGTALK_API_BASE_URL,
+          legacyApiBaseUrl: config.DINGTALK_LEGACY_API_BASE_URL,
+          onEvent: (event, fields) =>
+            app.log.info({ integration: "dingtalk", ...fields }, event),
+        });
   const sessions = new SessionService(config.SESSION_SIGNING_KEY);
   const audit = new AuditService(store);
   const authz = new AuthorizationService(store);
@@ -39,16 +49,39 @@ export function buildApp(options: { databasePath?: string } = {}) {
   app.register(multipart, { limits: { files: 1, fileSize: 10 * 1024 * 1024 } });
   app.register(sensible);
   app.setErrorHandler((error, request, reply) => {
-    if (error instanceof ZodError) return reply.code(400).send({ code: "invalid_request", issues: error.issues });
+    if (error instanceof ZodError)
+      return reply
+        .code(400)
+        .send({ code: "invalid_request", issues: error.issues });
     const message = error instanceof Error ? error.message : "internal_error";
-    if (message.startsWith("session_")) return reply.code(401).send({ code: message });
-    const statusCode = message === "salary_item_archived" || message.startsWith("salary_batch_not_found") || message.startsWith("salary_item_not_found") || message === "salary_import_preview_not_found" ? 404
-      : message.startsWith("dingtalk_api_error:identity.") || message.startsWith("dingtalk_auth_code") ? 401
-      : message.includes("access_denied") || message.endsWith("_required") ? 403
-      : message.startsWith("salary_import_") || message.startsWith("salary_workbook_") ? 400
-      : error && typeof error === "object" && "statusCode" in error && typeof error.statusCode === "number" ? error.statusCode : 500;
-    if (statusCode >= 500) request.log.error({ err: error }, "unhandled_salary_api_error");
-    return reply.code(statusCode).send({ code: message, requestId: request.id });
+    if (message.startsWith("session_"))
+      return reply.code(401).send({ code: message });
+    const statusCode =
+      message === "salary_item_archived" ||
+      message.startsWith("salary_batch_not_found") ||
+      message.startsWith("salary_item_not_found") ||
+      message === "salary_import_preview_not_found"
+        ? 404
+        : message.startsWith("dingtalk_api_error:identity.") ||
+            message.startsWith("dingtalk_auth_code")
+          ? 401
+          : message.includes("access_denied") || message.endsWith("_required")
+            ? 403
+            : message.startsWith("salary_import_") ||
+                message.startsWith("salary_workbook_") ||
+                message === "directory_user_not_found"
+              ? 400
+              : error &&
+                  typeof error === "object" &&
+                  "statusCode" in error &&
+                  typeof error.statusCode === "number"
+                ? error.statusCode
+                : 500;
+    if (statusCode >= 500)
+      request.log.error({ err: error }, "unhandled_salary_api_error");
+    return reply
+      .code(statusCode)
+      .send({ code: message, requestId: request.id });
   });
   app.addHook("onClose", () => store.close());
   app.get("/healthz", async () => ({ ok: true, service: "salary-api" }));
@@ -58,7 +91,7 @@ export function buildApp(options: { databasePath?: string } = {}) {
     mode: config.DINGTALK_MODE,
     corpId: config.DINGTALK_CORP_ID,
     clientId: config.DINGTALK_CLIENT_ID,
-    secureCookie: config.APP_BASE_URL.startsWith("https://")
+    secureCookie: config.APP_BASE_URL.startsWith("https://"),
   });
   registerSalaryRoutes(app, { sessions, authz, salary, dingtalk });
   registerReportRoutes(app, { sessions, authz, store, audit });
@@ -66,7 +99,13 @@ export function buildApp(options: { databasePath?: string } = {}) {
   return { app, store, dingtalk, sessions, audit, authz, salary };
 }
 
-if (process.argv[1]?.endsWith("server.ts") || process.argv[1]?.endsWith("server.js")) {
+if (
+  process.argv[1]?.endsWith("server.ts") ||
+  process.argv[1]?.endsWith("server.js")
+) {
   const { app } = buildApp();
-  app.listen({ port: config.PORT, host: "0.0.0.0" }).catch(error => { app.log.error(error); process.exitCode = 1; });
+  app.listen({ port: config.PORT, host: "0.0.0.0" }).catch((error) => {
+    app.log.error(error);
+    process.exitCode = 1;
+  });
 }

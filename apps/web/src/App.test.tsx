@@ -37,4 +37,15 @@ describe("salary management", () => {
     expect(formatSalaryValue(23.9333333333333)).toBe("23.93");
     expect(formatSalaryValue(1.005)).toBe("1.01");
   });
+
+  it("labels the per-employee action as a work notification send without DING", async () => {
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/v1/salary-batches") return Promise.resolve([batch]);
+      if (path === "/v1/salary-batches/batch-1") return Promise.resolve({ ...batch, items: [{ id: "item-1", employeeName: "员工A", employeeUserId: "employee-a", fields: { 实发金额: 10000 } }] });
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+    render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
+    await screen.findByRole("button", { name: "单独发送工作通知" });
+    expect(screen.queryByText(/DING/)).not.toBeInTheDocument();
+  });
 });
