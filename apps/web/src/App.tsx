@@ -43,6 +43,7 @@ const stateLabel: Record<string, string> = {
   sending: "发送中",
   sent: "已发送",
   partially_failed: "部分失败",
+  failed: "发送失败",
   withdrawn: "已撤回",
   archived: "已归档",
   viewed: "已查看",

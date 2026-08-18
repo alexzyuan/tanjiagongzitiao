@@ -112,8 +112,9 @@ export class HttpDingTalkClient implements DingTalkClient {
       action_card: {
         title: input.title,
         markdown: `![工资条](${picUrl})\\n\\n${input.body}`,
-        single_title: "查看明细",
-        single_url: input.url,
+        btn_json: JSON.stringify([
+          { title: "查看明细", action_url: input.url },
+        ]),
         btn_orientation: "0",
       },
     });

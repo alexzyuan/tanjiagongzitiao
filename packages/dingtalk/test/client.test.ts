@@ -30,6 +30,8 @@ describe("HTTP DingTalk client", () => {
     expect(decodeURIComponent(noticeBody)).toContain("salary-notification.svg");
     expect(decodeURIComponent(noticeBody)).toContain("action_card");
     expect(decodeURIComponent(noticeBody)).toContain("查看明细");
+    expect(decodeURIComponent(noticeBody)).toContain("btn_json");
+    expect(decodeURIComponent(noticeBody)).not.toContain("single_title");
     expect(noticeBody).not.toContain("金额");
   });
 
