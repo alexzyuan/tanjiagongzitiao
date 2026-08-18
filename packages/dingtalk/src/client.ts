@@ -106,13 +106,15 @@ export class HttpDingTalkClient implements DingTalkClient {
   ): Promise<{ taskId: string }> {
     if (!this.config.agentId) throw new Error("dingtalk_agent_id_missing");
     const accessToken = await this.getAppToken();
+    const picUrl = this.config.notificationPicUrl ?? input.url;
     const message = JSON.stringify({
-      msgtype: "link",
-      link: {
-        messageUrl: input.url,
-        picUrl: this.config.notificationPicUrl ?? input.url,
+      msgtype: "action_card",
+      action_card: {
         title: input.title,
-        text: input.body,
+        markdown: `![工资条](${picUrl})\\n\\n${input.body}`,
+        single_title: "查看明细",
+        single_url: input.url,
+        btn_orientation: "0",
       },
     });
     const response = await this.requestJson(

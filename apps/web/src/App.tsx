@@ -213,6 +213,10 @@ export function SalaryManagement({
   const detailBatch = detailBatchId
     ? batches.find((batch) => batch.id === detailBatchId)
     : undefined;
+  const loadDetail = useCallback(async (batchId: string) => {
+    const next = await api<Batch>(`/v1/salary-batches/${batchId}`);
+    setDetail(next);
+  }, []);
   useEffect(() => {
     setActiveBatchId((current) =>
       monthBatches.some((batch) => batch.id === current)
@@ -226,10 +230,9 @@ export function SalaryManagement({
       setDetail(undefined);
       return;
     }
-    api<Batch>(`/v1/salary-batches/${activeBatch.id}`)
-      .then(setDetail)
+    loadDetail(activeBatch.id)
       .catch((reason) => setError(errorText(reason)));
-  }, [activeBatch?.id]);
+  }, [activeBatch?.id, loadDetail]);
   const employees = useMemo(() => {
     const items = detail?.items ?? [];
     const needle = query.trim().toLowerCase();
@@ -293,6 +296,26 @@ export function SalaryManagement({
       });
       setMessage(`已向 ${item.employeeName} 发送钉钉工作通知`);
       await load();
+      await loadDetail(batch.id);
+      onChanged();
+    } catch (reason) {
+      setError(errorText(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function withdrawIndividual(batch: Batch, item: SalaryItem) {
+    setBusy(true);
+    setError(undefined);
+    try {
+      await api(`/v1/salary-batches/${batch.id}/items/${item.id}/withdraw`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setMessage(`已撤回 ${item.employeeName} 的工资条`);
+      await load();
+      await loadDetail(batch.id);
       onChanged();
     } catch (reason) {
       setError(errorText(reason));
@@ -620,9 +643,13 @@ export function SalaryManagement({
                     <td>
                       <Status
                         state={
-                          activeBatch?.state === "sent"
+                          item.deliveryStatus === "delivered"
                             ? "sent"
-                            : (activeBatch?.state ?? "draft")
+                            : item.deliveryStatus === "failed"
+                              ? "failed"
+                              : item.deliveryStatus === "withdrawn"
+                                ? "withdrawn"
+                                : "draft"
                         }
                       />
                     </td>
@@ -635,17 +662,28 @@ export function SalaryManagement({
                       />
                     </td>
                     <td>
-                      <button
-                        className="text-button"
-                        disabled={
-                          !activeBatch || busy || activeBatch.state === "sent"
-                        }
-                        onClick={() =>
-                          activeBatch && void sendIndividual(activeBatch, item)
-                        }
-                      >
-                        单独发送工作通知
-                      </button>
+                      {item.deliveryStatus === "delivered" ? (
+                        <button
+                          className="text-button danger"
+                          disabled={!activeBatch || busy}
+                          onClick={() =>
+                            activeBatch &&
+                            void withdrawIndividual(activeBatch, item)
+                          }
+                        >
+                          撤回
+                        </button>
+                      ) : (
+                        <button
+                          className="text-button"
+                          disabled={!activeBatch || busy}
+                          onClick={() =>
+                            activeBatch && void sendIndividual(activeBatch, item)
+                          }
+                        >
+                          单独发送
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );

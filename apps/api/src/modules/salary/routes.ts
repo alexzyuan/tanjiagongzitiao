@@ -197,6 +197,18 @@ export function registerSalaryRoutes(
       );
     },
   );
+  app.post(
+    "/v1/salary-batches/:batchId/items/:itemId/withdraw",
+    async (request) => {
+      const identity = user(request, deps.sessions);
+      const params = request.params as { batchId: string; itemId: string };
+      return deps.salary.withdrawItem(
+        deps.authz.accessFor(identity.userId),
+        params.batchId,
+        params.itemId,
+      );
+    },
+  );
   app.get("/v1/directory/users", async (request) => {
     const identity = user(request, deps.sessions);
     return deps.salary.listDirectoryUsers(

@@ -73,6 +73,17 @@ describe("salary delivery", () => {
       .json()
       .items.find((item: { id: string }) => item.id === itemId);
     expect(refreshedItem.deliveryStatus).toBe("delivered");
+    const withdraw = await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${batch.id}/items/${itemId}/withdraw`,
+      headers: { cookie },
+      payload: {},
+    });
+    expect(withdraw.statusCode).toBe(200);
+    expect(
+      withdraw.json().items.find((item: { id: string }) => item.id === itemId)
+        .deliveryStatus,
+    ).toBe("withdrawn");
     await app.close();
   });
 

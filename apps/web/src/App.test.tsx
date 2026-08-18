@@ -45,7 +45,7 @@ describe("salary management", () => {
       return Promise.reject(new Error(`unexpected_request:${path}`));
     });
     render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
-    await screen.findByRole("button", { name: "单独发送工作通知" });
+    await screen.findByRole("button", { name: "单独发送" });
     expect(screen.queryByText(/DING/)).not.toBeInTheDocument();
   });
 });

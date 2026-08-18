@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { HttpDingTalkClient } from "../src/client.js";
 
 describe("HTTP DingTalk client", () => {
-  it("exchanges an H5 auth code with the app token and sends a link work notice", async () => {
+  it("exchanges an H5 auth code with the app token and sends a large action-card work notice", async () => {
     const calls: Array<{ url: string; init: RequestInit }> = [];
     const fetchImpl: typeof fetch = async (input, init = {}) => {
       const url = String(input);
@@ -28,6 +28,8 @@ describe("HTTP DingTalk client", () => {
     expect(noticeBody).toContain("agent_id=42");
     expect(noticeBody).toContain("userid_list=employee-a");
     expect(decodeURIComponent(noticeBody)).toContain("salary-notification.svg");
+    expect(decodeURIComponent(noticeBody)).toContain("action_card");
+    expect(decodeURIComponent(noticeBody)).toContain("查看明细");
     expect(noticeBody).not.toContain("金额");
   });
 

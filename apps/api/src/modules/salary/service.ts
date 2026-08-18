@@ -472,6 +472,48 @@ export class SalaryService {
     }
   }
 
+  withdrawItem(actor: Access, batchId: string, itemId: string) {
+    if (!canManageBatch(actor, batchId))
+      throw new Error("salary_batch_access_denied");
+    const batch = this.store.getBatch(batchId);
+    const item = batch.items.find((candidate) => candidate.id === itemId);
+    if (!item) throw new Error("salary_item_not_found");
+    const delivery = this.store
+      .listDeliveries(batchId)
+      .filter((candidate) => candidate.employeeUserId === item.employeeUserId)
+      .at(-1);
+    if (!delivery || delivery.status !== "delivered")
+      throw new Error("salary_item_not_withdrawable");
+    this.store.recordDelivery({
+      batchId,
+      employeeUserId: item.employeeUserId,
+      status: "withdrawn",
+      ...(delivery.taskId ? { taskId: delivery.taskId } : {}),
+    });
+    this.store.recordEvidence({
+      batchId,
+      employeeUserId: item.employeeUserId,
+      eventType: "withdrawn",
+      fingerprint: fingerprintSalaryPayload({
+        batchId,
+        employeeUserId: item.employeeUserId,
+        eventType: "withdrawn",
+        taskId: delivery.taskId,
+      }),
+      metadata: delivery.taskId ? { taskId: delivery.taskId } : {},
+    });
+    this.audit.record({
+      correlationId: `item:${item.id}`,
+      actorUserId: actor.userId,
+      action: "salary_item.withdraw",
+      targetType: "salary_item",
+      targetId: item.id,
+      outcome: "completed",
+      metadata: { taskId: delivery.taskId },
+    });
+    return this.withDeliveryStatus(this.store.getBatch(batchId));
+  }
+
   async processScheduled(actor: Access, now = new Date()) {
     if (actor.kind !== "main_admin") throw new Error("main_admin_required");
     const processed: string[] = [];
