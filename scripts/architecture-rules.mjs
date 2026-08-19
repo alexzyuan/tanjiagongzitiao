@@ -31,6 +31,34 @@ const IMPORT_RULES = [
   ["apps/worker", ["@salary/dingtalk", "fastify", "react", "apps/api", "apps/web"]],
 ];
 
+const EXPECTED_CSS_DUPLICATES = [
+  {
+    selector: "body",
+    locations: ["apps/web/src/styles/base.css", "apps/web/src/styles/salary.css"],
+    reason: "salary print mode switches the document canvas to white",
+  },
+  {
+    selector: ".sidebar",
+    locations: ["apps/web/src/styles/base.css", "apps/web/src/styles/salary.css"],
+    reason: "salary print mode hides application navigation",
+  },
+  {
+    selector: ".main-content",
+    locations: ["apps/web/src/styles/base.css", "apps/web/src/styles/salary.css"],
+    reason: "salary print mode removes application padding",
+  },
+  {
+    selector: ".topbar",
+    locations: ["apps/web/src/styles/base.css", "apps/web/src/styles/salary.css"],
+    reason: "salary print mode hides the application header",
+  },
+  {
+    selector: ".page-wrap",
+    locations: ["apps/web/src/styles/base.css", "apps/web/src/styles/salary.css"],
+    reason: "salary print mode removes page chrome padding",
+  },
+];
+
 export async function scanArchitecture(root = process.cwd()) {
   const absoluteRoot = resolve(root);
   const files = await filesUnder(absoluteRoot);
@@ -151,9 +179,19 @@ async function checkDuplicateSelectors(root, files, warnings) {
     }
   }
   for (const [selector, locations] of selectors) {
-    if (locations.size > 1)
+    if (locations.size > 1 && !isExpectedDuplicate(selector, [...locations]))
       warnings.push(`ARCH-WARN duplicate_selector ${selector}\n  ${[...locations].join("\n  ")}`);
   }
+}
+
+export function isExpectedDuplicate(selector, locations) {
+  const normalizedLocations = [...locations].sort();
+  return EXPECTED_CSS_DUPLICATES.some(
+    (entry) =>
+      entry.selector === selector &&
+      entry.locations.length === normalizedLocations.length &&
+      entry.locations.every((location, index) => location === normalizedLocations[index]),
+  );
 }
 
 function importsFrom(source) {

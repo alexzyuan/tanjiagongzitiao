@@ -349,3 +349,112 @@
   font-variant-numeric: tabular-nums;
   font-weight: 680;
 }
+
+@media (max-width: 700px) {
+  .salary-heading {
+    gap: 8px;
+  }
+  .salary-heading h2 {
+    font-size: 15px;
+  }
+  .salary-heading .security-badge {
+    font-size: 0;
+    padding: 6px;
+  }
+  .salary-alert {
+    align-items: flex-start;
+    gap: 7px 9px;
+    padding: 13px 14px;
+  }
+  .alert-divider {
+    display: none;
+  }
+  .manager-card {
+    width: 100%;
+    margin: 4px 0 0;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+  }
+  .salary-controls {
+    align-items: stretch;
+  }
+  .salary-controls > .button,
+  .salary-controls .self-send-tip,
+  .month-picker-wrap {
+    flex: 1 1 calc(50% - 5px);
+  }
+  .self-send-tip {
+    justify-content: center;
+  }
+  .month-picker {
+    width: 100%;
+  }
+  .month-panel {
+    left: auto;
+    right: 0;
+    width: min(280px, calc(100vw - 30px));
+  }
+  .salary-overview {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 15px;
+    padding: 16px;
+  }
+  .overview-title {
+    grid-column: 1 / -1;
+  }
+  .overview-stat {
+    border-left: 0;
+    padding-left: 0;
+  }
+  .overview-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    padding: 13px 0 0;
+  }
+  .employee-toolbar {
+    align-items: stretch;
+    flex-wrap: wrap;
+    padding: 12px;
+  }
+  .employee-toolbar .search {
+    width: 100%;
+  }
+  .employee-toolbar .filter-select,
+  .employee-toolbar .more-wrap,
+  .employee-toolbar > .button {
+    flex: 1;
+  }
+  .employee-toolbar > .button:nth-last-child(2) {
+    margin-left: 0;
+  }
+  .more-menu {
+    left: 0;
+    right: auto;
+  }
+}
+@media print {
+  .sidebar,
+  .topbar,
+  .salary-controls,
+  .employee-toolbar,
+  .back-button,
+  .salary-alert .manager-card,
+  .salary-heading .security-badge {
+    display: none !important;
+  }
+  body,
+  .main-content,
+  .page-wrap {
+    background: #fff;
+    padding: 0;
+  }
+  .salary-workspace {
+    gap: 8px;
+  }
+  .salary-overview,
+  .employee-table-card {
+    border-color: #cfd7df;
+  }
+}

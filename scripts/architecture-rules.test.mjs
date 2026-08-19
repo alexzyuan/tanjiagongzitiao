@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
-import { scanArchitecture } from "./architecture-rules.mjs";
+import { isExpectedDuplicate, scanArchitecture } from "./architecture-rules.mjs";
 
 async function fixture() {
   return mkdtemp(join(tmpdir(), "salary-architecture-"));
@@ -64,6 +64,17 @@ describe("architecture rules", () => {
     const result = await scanArchitecture(root);
     assert.deepEqual(result.errors, []);
     assert.equal(result.warnings.some((warning) => warning.includes("App.tsx")), true);
+  });
+
+  it("allows only documented print overrides", () => {
+    assert.equal(
+      isExpectedDuplicate("body", ["apps/web/src/styles/base.css", "apps/web/src/styles/salary.css"]),
+      true,
+    );
+    assert.equal(
+      isExpectedDuplicate("body", ["apps/web/src/styles/base.css", "apps/web/src/styles/import.css"]),
+      false,
+    );
   });
 
   it("passes a legal structure", async () => {
