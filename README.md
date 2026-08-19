@@ -35,11 +35,19 @@ pnpm dev
 - 本项目不使用 DING。
 - 钉钉提供创建个人待办任务和更新待办执行者状态的开放 API，但创建个人待办需要 OAuth 用户 access token。当前 H5 免登码只能识别企业身份，不能替代该授权，因此“当天未查看后创建查看待办、当天未确认后追加确认待办”尚未启用。启用前必须完成管理员 OAuth 授权、加密保存及刷新 token、按日调度、提醒幂等和失败告警；不能把失败的待办创建伪装为发送成功。
 
+互动卡片属于后续独立功能，当前整改和生产链路不接入。不要在已验证的 `asyncsend_v2` 工作通知接口上尝试 `action_card` 载荷。
+
+## 生产运行
+
+- 生产 API 使用 HTTPS 和部署目录外的 SQLite 绝对路径。
+- SQLite/WAL 数据库由外部 cron 或 systemd timer 负责归档与备份；应用本身不依赖 Redis、PostgreSQL、ORM 或消息队列。
+- 备份必须与生产数据库、应用密钥分离保存，并定期验证可恢复性。
+
 ## 质量门禁
 
 ```bash
 pnpm test
-pnpm -r typecheck
+pnpm typecheck
 pnpm build
 ```
 

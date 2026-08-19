@@ -1,5 +1,7 @@
 # 工资条应用开发约定
 
+本文件是项目根级执行规则。根目录 `CODEX_TASKS.md` 是当前整改清单；清单列出多个 Phase 不代表一次性授权。每次只执行用户明确指定的一个 Phase，完成后停止并报告。
+
 ## 导入工作流
 
 - Excel 导入是三步工作流：上传只生成限时预览，预览仅在用户确认后才会创建工资表，设置在最终提交时与批次一起持久化。
@@ -21,6 +23,23 @@
 - 导入、通讯录匹配、通知发送发生异常时必须将错误返回给调用方并记录结构化上下文；禁止静默降级或伪造成功。
 - 生产数据库为 SQLite 时，新增字段必须提供兼容旧库的迁移路径。
 
+### 强制安全边界
+
+- 员工 DTO 必须由服务端按当前钉钉身份隔离，只能返回本人数据。
+- `visibleFields` 必须在服务端过滤，隐藏工资字段不得离开员工接口。
+- Session 有效期为 8 小时；Cookie 必须使用 HttpOnly、SameSite，并在生产 HTTPS 下启用 Secure。
+- 工资字段落盘使用 AES-256-GCM；日志、错误、审计 metadata 不得记录工资金额、工资字段、银行卡号、身份证号、密钥或 AppSecret。
+- 撤回只表示本应用内撤销访问并记录本地状态/存证，不得声称已远程删除钉钉通知。
+- 重发只处理 failed 投递；delivered 不重复发送；批次统计必须满足 `sent <= total`。
+- 生产必须使用 HTTPS 和部署目录外的 SQLite 绝对路径。
+- 员工只可访问最近 12 个月工资条；更早批次进入加密归档，只有主管理员可访问。
+
+### 技术栈和钉钉边界
+
+继续使用 Fastify、React、TypeScript、SQLite/WAL、Vitest、Vite、pnpm workspace 和普通 CSS。未经用户另行授权，不引入 Redis、PostgreSQL/MySQL、ORM、消息队列、Redux、React Query、新 Router、Tailwind、CSS Modules、styled-components 或复杂 DDD/CQRS/Event Sourcing 分层。
+
+当前已验证的工资触达方式是工作通知 `asyncsend_v2` 的 `link` 消息；本项目不使用 DING。互动卡片是独立的未来功能，整改 Phase 不得顺带接入，也不得在旧接口上猜测 `action_card` 载荷。未完成 OAuth/token/调度链路前，不得启用或声称“未查看/未确认待办”已启用。
+
 ## 变更纪律
 
 1. Fail fast: 不隐藏或吞掉错误。
@@ -28,3 +47,11 @@
 3. 关键路径必须可追踪、可调试。
 4. 技术栈或产品方向变更时同步更新本文件。
 5. 大规模重构或实验性修改前先切出 `codex/` 前缀分支，避免影响主线。
+
+## Git 和验证纪律
+
+- 开始 Phase 前执行 `git status --short`、`git branch --show-current`、`git log -1 --oneline`。
+- 保护用户已有未提交修改；禁止 `git reset --hard`、`git clean -fd`、覆盖或回滚用户代码。
+- 未经用户明确授权，不 push、merge 或 deploy。需要大规模改动时先创建 `codex/` 前缀分支。
+- 行为 bug 必须测试先行：先增加失败回归测试，确认修复前失败，再做最小修改。
+- 完成前运行目标测试、相关测试、`pnpm test`、`pnpm typecheck`、`pnpm build` 和 `git diff --check`；命令未实际成功不得报告为通过。
