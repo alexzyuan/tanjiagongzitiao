@@ -263,7 +263,10 @@ export function EmployeePage({ employeeId }: { employeeId: string | undefined })
           </button>
         )}
         <p className="employee-footnote">
-          本工资条通过企业内部工作通知送达，查看和确认时间将生成存证记录。
+          本工资条通过企业内部工作通知送达，
+          {settings.confirmationEnabled
+            ? "查看和确认时间将生成存证记录。"
+            : "查看时间将生成存证记录。"}
         </p>
       </main>
     </div>

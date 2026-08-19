@@ -86,6 +86,99 @@ describe("salary draft routes", () => {
     expect(response.json().code).toBe("salary_visible_fields_required");
     await app.close();
   });
+
+  it("rejects a net amount field hidden from employees", async () => {
+    const { app } = buildApp();
+    const cookie = await cookieFor(app);
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/salary-batches",
+      headers: { cookie },
+      payload: {
+        payrollMonth: "2026-08",
+        title: "隐藏实发字段",
+        rows: [{ userId: "employee-a", name: "员工A", 实发金额: 9000 }],
+        displaySettings: {
+          netAmountField: "实发金额",
+          hideEmptyFields: true,
+          confirmationEnabled: false,
+          notice: "",
+          greeting: "{name}",
+          theme: "default",
+          visibleFields: ["基本工资"],
+          fieldGroups: [],
+        },
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBe("salary_net_amount_field_must_be_visible");
+    await app.close();
+  });
+
+  it("validates salary templates with the same display settings rules", async () => {
+    const { app } = buildApp();
+    const cookie = await cookieFor(app);
+    const base = {
+      netAmountField: "实发金额",
+      hideEmptyFields: true,
+      confirmationEnabled: false,
+      notice: "",
+      greeting: "{name}",
+      theme: "default",
+      fieldGroups: [],
+    };
+    const empty = await app.inject({
+      method: "POST",
+      url: "/v1/salary-slip-templates",
+      headers: { cookie },
+      payload: { name: "空字段模板", settings: { ...base, visibleFields: [] } },
+    });
+    expect(empty.statusCode).toBe(400);
+    expect(empty.json().code).toBe("salary_visible_fields_required");
+
+    const hidden = await app.inject({
+      method: "POST",
+      url: "/v1/salary-slip-templates",
+      headers: { cookie },
+      payload: {
+        name: "隐藏实发模板",
+        settings: { ...base, visibleFields: ["基本工资"] },
+      },
+    });
+    expect(hidden.statusCode).toBe(400);
+    expect(hidden.json().code).toBe("salary_net_amount_field_must_be_visible");
+
+    const valid = await app.inject({
+      method: "POST",
+      url: "/v1/salary-slip-templates",
+      headers: { cookie },
+      payload: {
+        name: "合法模板",
+        settings: { ...base, visibleFields: ["基本工资", "实发金额"] },
+      },
+    });
+    expect(valid.statusCode).toBe(200);
+    expect(valid.json().settings.visibleFields).toEqual(["基本工资", "实发金额"]);
+
+    const legacyDraft = await app.inject({
+      method: "POST",
+      url: "/v1/salary-batches",
+      headers: { cookie },
+      payload: {
+        payrollMonth: "2026-08",
+        title: "默认设置批次",
+        rows: [{ userId: "employee-a", name: "员工A", 实发金额: 9000 }],
+      },
+    });
+    const legacy = await app.inject({
+      method: "GET",
+      url: `/v1/salary-batches/${legacyDraft.json().batchId}`,
+      headers: { cookie },
+    });
+    expect(legacy.statusCode).toBe(200);
+    expect(legacy.json().displaySettings.visibleFields).toEqual([]);
+    await app.close();
+  });
 });
 
 describe("directory matching", () => {

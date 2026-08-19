@@ -442,9 +442,13 @@ export class SalaryService {
         metadata: { taskId: result.taskId },
       });
       const updated = this.store.getBatch(batchId);
-      const deliveredCount = this.store
-        .listDeliveries(batchId)
-        .filter((delivery) => delivery.status === "delivered").length;
+      const deliveredEmployees = new Set(
+        this.store
+          .listDeliveries(batchId)
+          .filter((delivery) => delivery.status === "delivered")
+          .map((delivery) => delivery.employeeUserId),
+      );
+      const deliveredCount = deliveredEmployees.size;
       let finalBatch = updated;
       if (deliveredCount === updated.total && updated.state !== "sent") {
         this.store.setState(batchId, "sending");

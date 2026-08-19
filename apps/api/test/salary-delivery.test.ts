@@ -153,6 +153,57 @@ describe("salary delivery", () => {
     await app.close();
   });
 
+  it("counts unique delivered employees when duplicate delivery history exists", async () => {
+    const { app, store } = buildApp();
+    const auth = await app.inject({ method: "POST", url: "/v1/auth/dev" });
+    const cookie = auth.headers["set-cookie"]?.split(";")[0];
+    const draft = await app.inject({
+      method: "POST",
+      url: "/v1/salary-batches",
+      headers: { cookie },
+      payload: {
+        payrollMonth: "2026-08",
+        title: "重复投递历史测试",
+        rows: [
+          { userId: "employee-a", name: "员工A", 实发金额: 10000 },
+          { userId: "employee-b", name: "员工B", 实发金额: 9000 },
+        ],
+      },
+    });
+    const batch = (
+      await app.inject({
+        method: "GET",
+        url: `/v1/salary-batches/${draft.json().batchId}`,
+        headers: { cookie },
+      })
+    ).json();
+
+    await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${batch.id}/items/${batch.items[0].id}/send`,
+      headers: { cookie },
+      payload: {},
+    });
+    store.recordDelivery({
+      batchId: batch.id,
+      employeeUserId: "employee-a",
+      status: "delivered",
+      taskId: "duplicate-history",
+    });
+
+    const sendB = await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${batch.id}/items/${batch.items[1].id}/send`,
+      headers: { cookie },
+      payload: {},
+    });
+    expect(sendB.statusCode, JSON.stringify(sendB.json())).toBe(200);
+    expect(sendB.json().batch.state).toBe("sent");
+    expect(sendB.json().batch.sent).toBe(2);
+    expect(sendB.json().batch.sent).toBeLessThanOrEqual(sendB.json().batch.total);
+    await app.close();
+  });
+
   it("lists enterprise directory users and only assigns an existing directory user as a sub-admin", async () => {
     const { app } = buildApp();
     const auth = await app.inject({ method: "POST", url: "/v1/auth/dev" });
