@@ -15,6 +15,7 @@
     "build": "pnpm build:packages && pnpm --filter @salary/api build && pnpm --filter @salary/web build",
     "test": "pnpm build:packages && pnpm --filter @salary/api build && pnpm -r test",
     "lint": "pnpm -r lint",
+    "architecture:check": "node scripts/check-architecture.mjs",
     "typecheck": "pnpm -r typecheck",
     "test:e2e": "playwright test"
   }

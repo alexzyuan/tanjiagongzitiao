@@ -40,6 +40,12 @@
 
 当前已验证的工资触达方式是工作通知 `asyncsend_v2` 的 `link` 消息；本项目不使用 DING。互动卡片是独立的未来功能，整改 Phase 不得顺带接入，也不得在旧接口上猜测 `action_card` 载荷。未完成 OAuth/token/调度链路前，不得启用或声称“未查看/未确认待办”已启用。
 
+### 架构依赖方向
+
+- `packages/domain` 只依赖领域类型和纯逻辑；`packages/db` 只依赖 domain 与 SQLite/Node；`packages/dingtalk` 不依赖应用层或数据库；`apps/web` 不依赖服务端、数据库或钉钉客户端包；`apps/worker` 不依赖 API、Web 或钉钉客户端；任何 `packages/**` 不得依赖 `apps/**`。
+- 未经明确授权，不新增 ORM、缓存、消息队列、状态管理或路由基础设施依赖。授权新增依赖时必须同步更新本文件、架构检查规则和架构决策记录。
+- `pnpm architecture:check` 是依赖方向和禁止基础设施的 hard-fail 检查；文件规模与跨 CSS 重复仅输出 warning，不得为消除 warning 做无关重构。
+
 ## 变更纪律
 
 1. Fail fast: 不隐藏或吞掉错误。
