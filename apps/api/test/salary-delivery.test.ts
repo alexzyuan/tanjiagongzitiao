@@ -177,10 +177,17 @@ describe("salary delivery", () => {
         headers: { cookie },
       })
     ).json();
+    const itemA = batch.items.find(
+      (item: { employeeUserId: string }) => item.employeeUserId === "employee-a",
+    );
+    const itemB = batch.items.find(
+      (item: { employeeUserId: string }) => item.employeeUserId === "employee-b",
+    );
+    if (!itemA || !itemB) throw new Error("test_items_missing");
 
     await app.inject({
       method: "POST",
-      url: `/v1/salary-batches/${batch.id}/items/${batch.items[0].id}/send`,
+      url: `/v1/salary-batches/${batch.id}/items/${itemA.id}/send`,
       headers: { cookie },
       payload: {},
     });
@@ -193,7 +200,7 @@ describe("salary delivery", () => {
 
     const sendB = await app.inject({
       method: "POST",
-      url: `/v1/salary-batches/${batch.id}/items/${batch.items[1].id}/send`,
+      url: `/v1/salary-batches/${batch.id}/items/${itemB.id}/send`,
       headers: { cookie },
       payload: {},
     });

@@ -64,7 +64,10 @@ export function buildApp(options: { databasePath?: string } = {}) {
       message.startsWith("salary_item_not_found") ||
       message === "salary_import_preview_not_found"
         ? 404
-        : [
+        : message.startsWith("salary_item_not_sendable:") ||
+            message.startsWith("salary_batch_not_sendable:") ||
+            message.startsWith("invalid_salary_batch_transition:") ||
+            [
               "salary_item_already_sent",
               "salary_item_send_in_progress",
               "salary_item_not_withdrawable",
