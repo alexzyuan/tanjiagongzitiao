@@ -7,11 +7,12 @@ export class ReportService {
 
   summary(access: Access, payrollMonth?: string) {
     if (access.kind === "employee") throw new Error("admin_identity_required");
-    const batches = this.store.listBatches()
+    const summaries = this.store.listBatchSummaries()
       .filter(batch => batch.state !== "archived" && canManageBatch(access, batch.id))
       .filter(batch => !payrollMonth || batch.payrollMonth === payrollMonth);
-    const deliveries = this.store.listDeliveries();
-    const evidence = this.store.listEvidence();
+    const batches = summaries.map((summary) => this.store.getBatch(summary.id));
+    const deliveries = batches.flatMap((batch) => this.store.listDeliveries(batch.id));
+    const evidence = batches.flatMap((batch) => this.store.listEvidence(batch.id));
     const salaryTotals = batches.flatMap(batch => batch.items).reduce((total, item) => {
       total.gross += numberField(item.fields, ["应发合计", "应发工资", "基本工资"]);
       total.net += numberField(item.fields, ["实发金额", "实发", "到手工资"]);

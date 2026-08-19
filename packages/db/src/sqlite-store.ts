@@ -151,6 +151,9 @@ export class SqliteSalaryStore implements SalaryStore {
         .all() as BatchRow[]
     ).map((row) => this.toBatchSummary(row));
   }
+  getBatchSummary(id: string): SalaryBatchSummary {
+    return this.toBatchSummary(this.batchRow(id));
+  }
   getBatch(id: string): StoredBatch {
     return this.toBatch(this.batchRow(id));
   }

@@ -49,6 +49,10 @@ describe("SQLite salary store", () => {
         fieldGroups: [{ id: "income", name: "应发工资", fieldKeys: ["基本工资"] }]
       });
       expect(reopened.getBatch(batch.id).items[0]?.fields).toEqual({ 基本工资: 12000 });
+      const summary = reopened.getBatchSummary(batch.id);
+      expect(summary).toMatchObject({ id: batch.id, payrollMonth: "2026-08" });
+      expect(summary).not.toHaveProperty("items");
+      expect(reopened.listBatchSummaries()[0]).not.toHaveProperty("items");
       expect(reopened.listSubAdmins()).toEqual(["finance-1"]);
       expect(reopened.listSalaryTemplates()).toMatchObject([{ id: template.id, name: "常规工资条", settings: batch.displaySettings }]);
       expect(reopened.getSettings()).toEqual({ employeeVisibilityMonths: 12 });

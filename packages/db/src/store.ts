@@ -85,6 +85,7 @@ export interface SalaryStore {
   }): StoredBatch;
   listBatches(): StoredBatch[];
   listBatchSummaries(): SalaryBatchSummary[];
+  getBatchSummary(id: string): SalaryBatchSummary;
   getBatch(id: string): StoredBatch;
   setState(id: string, state: SalaryBatchState): StoredBatch;
   schedule(id: string, scheduledAt: string): StoredBatch;
@@ -180,6 +181,13 @@ export class MemorySalaryStore implements SalaryStore {
     return [...this.batches.values()].map(({ items: _items, ...batch }) =>
       structuredClone(batch),
     );
+  }
+
+  getBatchSummary(id: string): SalaryBatchSummary {
+    const batch = this.batches.get(id);
+    if (!batch) throw new Error(`salary_batch_not_found:${id}`);
+    const { items: _items, ...summary } = batch;
+    return structuredClone(summary);
   }
 
   getBatch(id: string): StoredBatch {

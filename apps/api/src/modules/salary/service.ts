@@ -3,6 +3,7 @@ import type { DirectoryUser } from "@salary/dingtalk";
 import type {
   Access,
   SalaryBatchState,
+  SalaryBatchSummary,
   SalaryItemInput,
   SalarySlipDisplaySettings,
 } from "@salary/domain";
@@ -308,14 +309,13 @@ export class SalaryService {
   listEmployeeSlips(access: Access, now = new Date()) {
     if (access.kind !== "employee")
       throw new Error("employee_identity_required");
-    return this.store
-      .listBatches()
-      .flatMap((batch) => {
+    return this.store.listBatchSummaries().flatMap((summary) => {
         try {
           const employeeSlip = this.employeeAccessibleSlip(
-            batch.id,
+            summary.id,
             access.userId,
             now,
+            summary,
           );
           return [employeeSlipResponse(employeeSlip.batch, employeeSlip.item)];
         } catch (error) {
@@ -746,8 +746,9 @@ export class SalaryService {
     batchId: string,
     employeeUserId: string,
     now = new Date(),
+    batchSummary?: SalaryBatchSummary,
   ) {
-    const batch = this.store.getBatch(batchId);
+    const batch = batchSummary ?? this.store.getBatchSummary(batchId);
     if (
       batch.state === "archived" ||
       batch.payrollMonth <
@@ -784,18 +785,13 @@ function validateDisplaySettings(settings: SalarySlipDisplaySettings): void {
 }
 
 function employeeSlipResponse(
-  batch: ReturnType<SalaryStore["getBatch"]>,
+  batch: SalaryBatchSummary,
   item: ReturnType<SalaryStore["getEmployeeItem"]>,
 ) {
   return {
-    batch: employeeBatchSummary(batch),
+    batch,
     item: employeeVisibleItem(item, batch.displaySettings),
   };
-}
-
-function employeeBatchSummary(batch: ReturnType<SalaryStore["getBatch"]>) {
-  const { items: _items, ...value } = batch;
-  return value;
 }
 
 function employeeVisibleItem(
@@ -814,7 +810,7 @@ function employeeVisibleItem(
 }
 
 function salarySlipFingerprint(
-  batch: ReturnType<SalaryStore["getBatch"]>,
+  batch: SalaryBatchSummary,
   item: ReturnType<SalaryStore["getEmployeeItem"]>,
 ) {
   return fingerprintSalaryPayload({
