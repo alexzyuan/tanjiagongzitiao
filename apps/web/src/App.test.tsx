@@ -120,6 +120,28 @@ describe("admin module smoke tests", () => {
     expect(apiMock).toHaveBeenCalledWith("/v1/payment-evidence");
   });
 
+  it("renders a non-empty evidence record", async () => {
+    const user = userEvent.setup();
+    ensureSessionMock.mockResolvedValue(identity);
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/v1/salary-batches") return Promise.resolve([]);
+      if (path === "/v1/payment-evidence") return Promise.resolve([{
+        id: "evidence-1",
+        batchId: "batch-2026-08",
+        employeeUserId: "employee-a",
+        eventType: "notification_sent",
+        fingerprint: "0123456789abcdef0123456789abcdef",
+        createdAt: "2026-08-01T08:00:00.000Z",
+      }]);
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "发薪存证" }));
+    expect(await screen.findByText("batch-2026-08")).toBeInTheDocument();
+    expect(screen.getByText("employee-a")).toBeInTheDocument();
+    expect(screen.getByText("notification_sent")).toBeInTheDocument();
+  });
+
   it("loads the report and renders salary totals", async () => {
     const user = userEvent.setup();
     ensureSessionMock.mockResolvedValue(identity);
@@ -164,6 +186,24 @@ describe("admin module smoke tests", () => {
     await user.click(await screen.findByRole("button", { name: "权限管理" }));
     await user.click(await screen.findByRole("button", { name: "从企业通讯录选择人员" }));
     expect(await screen.findByRole("heading", { name: "请选择人员" })).toBeInTheDocument();
+  });
+
+  it("renders sub-admin names resolved from the directory", async () => {
+    const user = userEvent.setup();
+    ensureSessionMock.mockResolvedValue(identity);
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/v1/salary-batches") return Promise.resolve([]);
+      if (path === "/v1/sub-admins") return Promise.resolve(["finance-1"]);
+      if (path === "/v1/directory/users") return Promise.resolve([{
+        userId: "finance-1",
+        name: "财务小李",
+        departmentIds: [],
+      }]);
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "权限管理" }));
+    expect(await screen.findByText("财务小李")).toBeInTheDocument();
   });
 
   it("loads settings and renders the actual fixed configuration", async () => {
