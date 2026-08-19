@@ -3,29 +3,6 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
-.report-metrics {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-}
-.report-summary-line {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
-.report-summary-line span {
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  padding: 14px 16px;
-  color: var(--muted);
-  font-size: 12px;
-}
-.report-summary-line strong {
-  display: block;
-  color: var(--ink);
-  font-size: 16px;
-  margin-top: 7px;
-  font-variant-numeric: tabular-nums;
-}
 .metric {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -281,54 +258,6 @@ tbody tr:last-child td {
   height: 30px;
   line-height: 25px;
 }
-.detail-summary {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  padding: 20px 0;
-  border-bottom: 1px solid var(--line);
-}
-.detail-summary span {
-  display: grid;
-  gap: 6px;
-  color: var(--ink);
-  font-weight: 700;
-}
-.detail-summary small {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 500;
-}
-.employee-list {
-  display: grid;
-}
-.employee-row {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  padding: 15px 0;
-  border-bottom: 1px solid var(--line);
-}
-.employee-main {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-  flex: 1;
-}
-.employee-main strong {
-  font-size: 13px;
-}
-.employee-main small {
-  color: var(--muted);
-  font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.employee-net {
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-  font-weight: 650;
-}
 .modal {
   width: min(540px, 100%);
   background: #fff;
@@ -352,10 +281,7 @@ tbody tr:last-child td {
   font-size: 12px;
 }
 .field input,
-.field select,
-.assign-row input,
-.assign-row select,
-.setting-row select {
+.field select {
   height: 38px;
   border: 1px solid #d8e1ea;
   border-radius: 5px;
@@ -364,17 +290,8 @@ tbody tr:last-child td {
   color: var(--ink);
   background: #fff;
 }
-.assign-row input {
-  flex: 1;
-  min-width: 0;
-}
-.setting-row select {
-  min-width: 180px;
-}
 .field input:focus,
-.field select:focus,
-.assign-row input:focus,
-.setting-row select:focus {
+.field select:focus {
   border-color: #74aef4;
   box-shadow: 0 0 0 3px #eaf3ff;
 }
