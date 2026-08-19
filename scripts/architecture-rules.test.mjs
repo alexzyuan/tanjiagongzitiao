@@ -33,6 +33,30 @@ describe("architecture rules", () => {
     assert.equal(result.errors.some((error) => error.includes("apps/web")), true);
   });
 
+  it("resolves forbidden relative imports inside the repository", async () => {
+    const root = await fixture();
+    await writeFixture(root, "package.json", "{}");
+    await writeFixture(root, "packages/db/src/index.ts", "export const db = true;\n");
+    await writeFixture(root, "apps/api/src/index.ts", "export const api = true;\n");
+    await writeFixture(root, "packages/domain/src/index.ts", 'import "../../db/src/index.js";\nimport "../../../apps/api/src/index.js";\n');
+    await writeFixture(root, "apps/web/src/index.ts", 'import "../../../packages/db/src/index.js";\n');
+    const result = await scanArchitecture(root);
+    assert.equal(result.errors.some((error) => error.includes("../../db/src/index.js")), true);
+    assert.equal(result.errors.some((error) => error.includes("../../../apps/api/src/index.js")), true);
+    assert.equal(result.errors.some((error) => error.includes("../../../packages/db/src/index.js")), true);
+  });
+
+  it("finds dynamic imports and allows same-package relative imports", async () => {
+    const root = await fixture();
+    await writeFixture(root, "package.json", "{}");
+    await writeFixture(root, "packages/db/src/index.ts", "export const db = true;\n");
+    await writeFixture(root, "packages/domain/src/helper.ts", "export const helper = true;\n");
+    await writeFixture(root, "packages/domain/src/index.ts", 'import "./helper.js";\nawait import("@salary/db");\n');
+    const result = await scanArchitecture(root);
+    assert.equal(result.errors.some((error) => error.includes("@salary/db")), true);
+    assert.equal(result.errors.some((error) => error.includes("./helper.js")), false);
+  });
+
   it("reports size warnings without hard failure", async () => {
     const root = await fixture();
     await writeFixture(root, "package.json", "{}");

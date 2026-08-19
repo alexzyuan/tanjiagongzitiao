@@ -1,5 +1,5 @@
 import { readFile, readdir } from "node:fs/promises";
-import { basename, relative, resolve } from "node:path";
+import { basename, dirname, relative, resolve } from "node:path";
 
 const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".mts", ".mjs"]);
 const IGNORED_DIRS = new Set([".git", ".superpowers", "dist", "node_modules", "coverage"]);
@@ -43,7 +43,7 @@ export async function scanArchitecture(root = process.cwd()) {
   await checkSizeWarnings(absoluteRoot, files, warnings);
   await checkDuplicateSelectors(absoluteRoot, files, warnings);
 
-  return { errors, warnings };
+  return { errors: [...new Set(errors)], warnings: [...new Set(warnings)] };
 }
 
 async function filesUnder(root) {
@@ -86,7 +86,12 @@ async function checkImportDirections(root, files, errors) {
       if (!(relativeFile === directory || relativeFile.startsWith(`${directory}/`))) continue;
       const source = await readFile(file, "utf8");
       for (const specifier of importsFrom(source)) {
-        const blocked = forbidden.find((prefix) => specifier === prefix || specifier.startsWith(prefix));
+        const blocked = forbidden.find(
+          (prefix) =>
+            specifier === prefix ||
+            specifier.startsWith(prefix) ||
+            resolvedTargetMatches(root, file, specifier, prefix),
+        );
         if (blocked)
           errors.push(`ARCH-ERROR forbidden import ${specifier} in ${relativeFile} (rule ${directory})`);
       }
@@ -96,7 +101,11 @@ async function checkImportDirections(root, files, errors) {
     const relativeFile = display(root, file);
     if (!relativeFile.startsWith("packages/")) continue;
     for (const specifier of importsFrom(await readFile(file, "utf8"))) {
-      if (specifier === "apps" || specifier.startsWith("apps/"))
+      if (
+        specifier === "apps" ||
+        specifier.startsWith("apps/") ||
+        resolvedTargetMatches(root, file, specifier, "apps/")
+      )
         errors.push(`ARCH-ERROR forbidden import ${specifier} in ${relativeFile} (rule packages/**)`);
     }
   }
@@ -149,9 +158,22 @@ async function checkDuplicateSelectors(root, files, warnings) {
 
 function importsFrom(source) {
   const specifiers = [];
-  const pattern = /(?:\bfrom\s*|\bimport\s*|\brequire\s*\()(["'])([^"']+)\1/g;
+  const pattern = /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|\brequire\s*\()(["'])([^"']+)\1/g;
   for (const match of source.matchAll(pattern)) specifiers.push(match[2]);
   return specifiers;
+}
+
+function resolvedTargetMatches(root, sourceFile, specifier, forbiddenPrefix) {
+  if (!specifier.startsWith(".")) return false;
+  const target = resolve(dirname(sourceFile), specifier);
+  const targetRelative = display(root, target);
+  if (targetRelative === "" || targetRelative === ".." || targetRelative.startsWith("../")) return false;
+  if (forbiddenPrefix === "apps/") return targetRelative.startsWith("apps/");
+  if (forbiddenPrefix === "@salary/db") return targetRelative.startsWith("packages/db/");
+  if (forbiddenPrefix === "@salary/dingtalk") return targetRelative.startsWith("packages/dingtalk/");
+  if (forbiddenPrefix === "apps/api") return targetRelative.startsWith("apps/api/");
+  if (forbiddenPrefix === "apps/web") return targetRelative.startsWith("apps/web/");
+  return false;
 }
 
 function extname(file) {
