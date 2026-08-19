@@ -1,0 +1,303 @@
+import type { FastifyInstance, FastifyRequest } from "fastify";
+import { z } from "zod";
+import type { DingTalkClient } from "@salary/dingtalk";
+import type { SessionService } from "../auth/session.js";
+import type { AuthorizationService } from "../authorization/service.js";
+import { SalaryService } from "./service.js";
+import { parseWorkbook } from "./import.js";
+
+const ScheduleSchema = z.object({
+  scheduledAt: z.string().datetime().optional(),
+});
+const SalarySlipDisplaySettingsSchema = z
+  .object({
+    netAmountField: z.string().trim().min(1).max(120),
+    hideEmptyFields: z.boolean(),
+    confirmationEnabled: z.boolean(),
+    notice: z.string().max(500),
+    greeting: z.string().max(200),
+    theme: z.enum(["default", "technology", "night", "gold", "lotus"]),
+    visibleFields: z.array(z.string().trim().min(1).max(120)).max(300),
+    fieldGroups: z
+      .array(
+        z
+          .object({
+            id: z.string().min(1),
+            name: z.string().trim().min(1).max(120),
+            fieldKeys: z.array(z.string().trim().min(1).max(120)).max(300),
+          })
+          .strict(),
+      )
+      .max(50),
+  })
+  .strict();
+const DraftSchema = z.object({
+  payrollMonth: z.string().regex(/^\d{4}-\d{2}$/),
+  title: z.string().min(1),
+  rows: z.array(z.record(z.unknown())).min(1),
+  displaySettings: SalarySlipDisplaySettingsSchema.optional(),
+});
+const ImportCommitSchema = z.object({
+  previewId: z.string().min(1),
+  resolutions: z.array(
+    z.object({ row: z.number().int().min(2), userId: z.string().min(1) }),
+  ),
+  displaySettings: SalarySlipDisplaySettingsSchema,
+});
+const SalaryTemplateSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+    settings: SalarySlipDisplaySettingsSchema,
+  })
+  .strict();
+const MatchStrategySchema = z.enum(["userId", "employeeNo", "name"]);
+const DirectoryQuerySchema = z
+  .object({ query: z.string().trim().max(120).optional() })
+  .strict();
+
+function user(request: FastifyRequest, sessions: SessionService) {
+  return sessions.read(request.cookies.salary_session);
+}
+
+function employeeAccess(request: FastifyRequest, sessions: SessionService) {
+  return { kind: "employee" as const, userId: user(request, sessions).userId };
+}
+
+export function registerSalaryRoutes(
+  app: FastifyInstance,
+  deps: {
+    sessions: SessionService;
+    authz: AuthorizationService;
+    salary: SalaryService;
+    dingtalk: DingTalkClient;
+  },
+): void {
+  app.get("/v1/salary-batches", async (request) =>
+    deps.salary.list(deps.authz.accessFor(user(request, deps.sessions).userId)),
+  );
+  app.get("/v1/salary-slip-templates", async (request) => {
+    const identity = user(request, deps.sessions);
+    if (deps.authz.accessFor(identity.userId).kind !== "main_admin")
+      throw new Error("salary_admin_required");
+    return deps.salary.listTemplates();
+  });
+  app.post("/v1/salary-slip-templates", async (request) => {
+    const identity = user(request, deps.sessions);
+    return deps.salary.createTemplate(
+      deps.authz.accessFor(identity.userId),
+      SalaryTemplateSchema.parse(request.body),
+    );
+  });
+  app.post("/v1/salary-batches", async (request) => {
+    const identity = user(request, deps.sessions);
+    const access = deps.authz.accessFor(identity.userId);
+    if (access.kind !== "main_admin") throw new Error("salary_admin_required");
+    const draft = DraftSchema.parse(request.body);
+    return deps.salary.createDraft(identity.userId, {
+      payrollMonth: draft.payrollMonth,
+      title: draft.title,
+      rows: draft.rows,
+      ...(draft.displaySettings
+        ? { displaySettings: draft.displaySettings }
+        : {}),
+    });
+  });
+  app.post("/v1/salary-batches/import", async (request) => {
+    const identity = user(request, deps.sessions);
+    const access = deps.authz.accessFor(identity.userId);
+    if (access.kind !== "main_admin") throw new Error("salary_admin_required");
+    const part = await request.file();
+    if (!part) throw new Error("salary_workbook_file_required");
+    const payrollMonth = multipartText(part.fields.payrollMonth);
+    const title = multipartText(part.fields.title);
+    if (!payrollMonth || !title)
+      throw new Error("salary_workbook_metadata_required");
+    return deps.salary.createDraft(identity.userId, {
+      payrollMonth,
+      title,
+      rows: parseWorkbook(await part.toBuffer()),
+    });
+  });
+  app.post("/v1/salary-batches/import/preview", async (request) => {
+    const identity = user(request, deps.sessions);
+    if (deps.authz.accessFor(identity.userId).kind !== "main_admin")
+      throw new Error("salary_admin_required");
+    const part = await request.file();
+    if (!part) throw new Error("salary_workbook_file_required");
+    const payrollMonth = multipartText(part.fields.payrollMonth);
+    const title = multipartText(part.fields.title);
+    const strategyValue = multipartText(part.fields.matchStrategy);
+    if (!payrollMonth || !title || !strategyValue)
+      throw new Error("salary_workbook_metadata_required");
+    const strategy = MatchStrategySchema.parse(strategyValue);
+    const [rows, directory] = await Promise.all([
+      parseWorkbook(await part.toBuffer()),
+      deps.dingtalk.listDirectoryUsers(),
+    ]);
+    return deps.salary.previewImport(identity.userId, {
+      payrollMonth,
+      title,
+      strategy,
+      rows,
+      directory,
+    });
+  });
+  app.post("/v1/salary-batches/import/commit", async (request) => {
+    const identity = user(request, deps.sessions);
+    if (deps.authz.accessFor(identity.userId).kind !== "main_admin")
+      throw new Error("salary_admin_required");
+    const body = ImportCommitSchema.parse(request.body);
+    return deps.salary.commitImport(
+      identity.userId,
+      body.previewId,
+      body.resolutions,
+      body.displaySettings,
+    );
+  });
+  app.get(
+    "/v1/salary-batches/import/previews/:previewId/users",
+    async (request) => {
+      const identity = user(request, deps.sessions);
+      if (deps.authz.accessFor(identity.userId).kind !== "main_admin")
+        throw new Error("salary_admin_required");
+      const query = z
+        .object({ query: z.string().min(1) })
+        .parse(request.query).query;
+      return deps.salary.searchPreviewDirectory(
+        identity.userId,
+        (request.params as { previewId: string }).previewId,
+        query,
+      );
+    },
+  );
+  app.get("/v1/salary-batches/:batchId", async (request) => {
+    const identity = user(request, deps.sessions);
+    return deps.salary.getBatch(
+      deps.authz.accessFor(identity.userId),
+      (request.params as { batchId: string }).batchId,
+    );
+  });
+  app.post("/v1/salary-batches/:batchId/send", async (request) => {
+    const identity = user(request, deps.sessions);
+    return deps.salary.send(
+      deps.authz.accessFor(identity.userId),
+      (request.params as { batchId: string }).batchId,
+      ScheduleSchema.parse(request.body).scheduledAt,
+    );
+  });
+  app.post(
+    "/v1/salary-batches/:batchId/items/:itemId/send",
+    async (request) => {
+      const identity = user(request, deps.sessions);
+      return deps.salary.sendItem(
+        deps.authz.accessFor(identity.userId),
+        (request.params as { batchId: string; itemId: string }).batchId,
+        (request.params as { batchId: string; itemId: string }).itemId,
+      );
+    },
+  );
+  app.post(
+    "/v1/salary-batches/:batchId/items/:itemId/withdraw",
+    async (request) => {
+      const identity = user(request, deps.sessions);
+      const params = request.params as { batchId: string; itemId: string };
+      return deps.salary.withdrawItem(
+        deps.authz.accessFor(identity.userId),
+        params.batchId,
+        params.itemId,
+      );
+    },
+  );
+  app.get("/v1/directory/users", async (request) => {
+    const identity = user(request, deps.sessions);
+    return deps.salary.listDirectoryUsers(
+      deps.authz.accessFor(identity.userId),
+      DirectoryQuerySchema.parse(request.query).query,
+    );
+  });
+  app.post("/v1/salary-batches/:batchId/resend", async (request) => {
+    const identity = user(request, deps.sessions);
+    return deps.salary.resend(
+      deps.authz.accessFor(identity.userId),
+      (request.params as { batchId: string }).batchId,
+    );
+  });
+  app.post("/v1/salary-batches/:batchId/withdraw", async (request) => {
+    const identity = user(request, deps.sessions);
+    return deps.salary.withdraw(
+      deps.authz.accessFor(identity.userId),
+      (request.params as { batchId: string }).batchId,
+    );
+  });
+  app.post("/v1/salary-batches/:batchId/admins", async (request) => {
+    const identity = user(request, deps.sessions);
+    const body = z.object({ userId: z.string().min(1) }).parse(request.body);
+    return deps.salary.assignAdmin(
+      deps.authz.accessFor(identity.userId),
+      (request.params as { batchId: string }).batchId,
+      body.userId,
+    );
+  });
+  app.delete("/v1/salary-batches/:batchId/admins/:userId", async (request) => {
+    const identity = user(request, deps.sessions);
+    const params = request.params as { batchId: string; userId: string };
+    return deps.salary.removeAdmin(
+      deps.authz.accessFor(identity.userId),
+      params.batchId,
+      params.userId,
+    );
+  });
+  app.get("/v1/sub-admins", async (request) => {
+    const identity = user(request, deps.sessions);
+    if (deps.authz.accessFor(identity.userId).kind !== "main_admin")
+      throw new Error("main_admin_required");
+    return deps.salary.listSubAdmins();
+  });
+  app.post("/v1/sub-admins", async (request) => {
+    const identity = user(request, deps.sessions);
+    const body = z.object({ userId: z.string().min(1) }).parse(request.body);
+    return deps.salary.assignSubAdmin(
+      deps.authz.accessFor(identity.userId),
+      body.userId,
+    );
+  });
+  app.delete("/v1/sub-admins/:userId", async (request) => {
+    const identity = user(request, deps.sessions);
+    return deps.salary.removeSubAdmin(
+      deps.authz.accessFor(identity.userId),
+      (request.params as { userId: string }).userId,
+    );
+  });
+  app.post("/v1/admin/scheduled/run", async (request) => {
+    const identity = user(request, deps.sessions);
+    return deps.salary.processScheduled(deps.authz.accessFor(identity.userId));
+  });
+  app.get("/v1/me/salary-slips", async (request) =>
+    deps.salary.listEmployeeSlips(employeeAccess(request, deps.sessions)),
+  );
+  app.get("/v1/me/salary-slips/:batchId", async (request) =>
+    deps.salary.readEmployeeItem(
+      employeeAccess(request, deps.sessions),
+      (request.params as { batchId: string }).batchId,
+    ),
+  );
+  app.post("/v1/me/salary-slips/:batchId/view", async (request) =>
+    deps.salary.viewEmployeeItem(
+      employeeAccess(request, deps.sessions),
+      (request.params as { batchId: string }).batchId,
+    ),
+  );
+  app.post("/v1/me/salary-slips/:batchId/confirm", async (request) =>
+    deps.salary.confirmEmployeeItem(
+      employeeAccess(request, deps.sessions),
+      (request.params as { batchId: string }).batchId,
+    ),
+  );
+}
+
+function multipartText(value: unknown): string | undefined {
+  if (!value || typeof value !== "object" || !("value" in value))
+    return undefined;
+  const text = (value as { value: unknown }).value;
+  return typeof text === "string" && text.trim() ? text.trim() : undefined;
+}
