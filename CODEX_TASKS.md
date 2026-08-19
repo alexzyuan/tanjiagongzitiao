@@ -1,153 +1,526 @@
-# 钉钉工资条内部应用：GitHub Main 第二轮剩余整改任务（Codex 执行版）
+# 钉钉工资条内部应用：剩余整改与持续轻量架构任务（Codex 执行版）
 
-> **基线仓库：** `alexzyuan/tanjiagongzitiao`
+> **仓库：** `alexzyuan/tanjiagongzitiao`
 >
 > **基线分支：** `main`
 >
-> **基线提交：** `3bcd9a6bc1cd3b8fcac86535137b9a8d0cefb7d1`
+> **当前基线提交：** `c4dda55e8f9c4a8adab50ede3dc67bd6653ff019`
 >
-> **基线提交说明：** `harden salary data boundaries and runtime`
+> **基线提交说明：** `docs: align github main phase guidance`
 >
-> 本文件是根据 2026-08-19 GitHub `main` 上的真实代码重新核对后生成。
-> 它替代此前基于 ZIP 静态审查生成的 `CODEX_TASKS_NEXT.md`。
+> **状态：** 原 Phase G0 已完成并合并到 `main`。本文件从后续代码整改与长期架构约束开始。
 >
-> **重要：本文件不是“一次全部执行”的授权。**
+> **用途：** 本文件同时解决两类问题：
+>
+> 1. 当前代码仍存在的正确性、安全最小读取和结构问题；
+> 2. 以后 Codex/开发者继续加功能时，防止项目重新膨胀、重复、引入不必要基础设施。
+>
+> **重要：本文件不是一次性全部授权。**
 > Codex 每次只能执行用户明确指定的一个 Phase。
-> 每个 Phase 完成后必须停止、报告结果并等待下一次授权。
+> 完成当前 Phase 后必须停止、报告结果并等待下一次授权。
 
 ---
 
-# 一、当前 main 已经完成的整改
+# 0. 当前项目判断
 
-以下内容在当前 `main` 已经存在，除非回归测试证明失效，否则不要重新实现。
+当前应用已经具备较完整的安全基础，不需要重写。
 
-## 已完成：员工数据边界
+已经存在并应保持的能力：
 
-- 员工详情响应不再直接返回完整 `StoredBatch.items`；
-- 员工列表、详情、view、confirm 使用员工可见字段映射；
-- `visibleFields.length > 0` 时由服务端按白名单过滤；
-- 历史/default `visibleFields: []` 保留“本人全部业务字段”语义；
-- 员工 A/B 跨员工数据隔离已有 API 回归测试。
-
-## 已完成：新 display settings 服务端校验
-
-当前 `SalaryService` 已有 `validateDisplaySettings()`：
-
-- 显式提交 `visibleFields: []` 会拒绝；
-- `netAmountField` 不在 `visibleFields` 中会拒绝；
-- server 已映射为 HTTP 400；
-- salary import 测试已有“显式空 visibleFields 拒绝”用例。
-
-不要把历史 `visibleFields: []` 读取语义改成空字段。
-
-## 已完成：confirmation 后端控制
-
-当前：
-
-- `confirmEmployeeItem()` 已检查 `confirmationEnabled`；
-- disabled 时返回 `salary_confirmation_disabled`；
-- server 映射 HTTP 409；
-- 员工 UI 仅在 `confirmationEnabled` 时显示确认按钮；
-- API 已有 disabled confirmation 回归测试。
-
-不要重复实现该能力。
-
-## 已完成：单员工发送 in-flight guard
-
-当前 `sendItem()` 已有：
-
-- `inFlightItemSends`；
-- `${batchId}:${employeeUserId}` key；
-- 并发第二次请求返回 `salary_item_send_in_progress`；
-- `finally` 释放 guard；
-- API 已有 concurrent single send 测试；
-- HTTP 409 映射已经存在。
-
-不要引入 Redis、BullMQ 或消息队列替换当前单实例保护。
-
-## 已完成：管理员 batch summary 基础
-
-当前：
-
-- `SalaryStore.listBatchSummaries()` 已存在；
-- `AuthorizationService.accessFor()` 已使用 summary；
-- `SalaryService.list()` 已使用 summary；
-- 管理端 batch 列表已经不需要完整 items。
-
-不要回退成用 `listBatches()` 做管理员授权判断。
-
-## 已完成：幽灵基础设施清理
-
-当前 `main` 已经不再依赖：
-
-- Prisma；
-- PostgreSQL；
-- Redis；
-- BullMQ；
-- ioredis；
-- web 的 TanStack；
-- worker 的无关 DingTalk 依赖；
-- web / dingtalk 的无引用 zod。
-
-当前 package 状态以 SQLite 为准。
-
-不要重新引入上述基础设施。
-
----
-
-# 二、全局工程约束
-
-所有 Phase 均遵守以下规则。
-
-## 技术栈保持
-
-继续使用：
-
-- Fastify；
-- React；
-- TypeScript；
+- 钉钉企业内部免登身份；
+- HR 三步 Excel 导入；
+- 企业通讯录匹配；
 - SQLite / WAL；
-- Vitest；
-- Vite；
-- pnpm workspace；
-- 普通 CSS。
+- AES-256-GCM 工资字段加密；
+- 员工服务端身份隔离；
+- 服务端 `visibleFields` 白名单过滤；
+- 历史 `visibleFields: []` 的兼容读取；
+- 新配置禁止显式空 `visibleFields`；
+- `netAmountField` 必须属于可见字段；
+- 单员工发送；
+- 批量发送；
+- failed-only resend；
+- 单员工同实例 in-flight 防重复；
+- 本地撤回访问；
+- 审计；
+- 存证 fingerprint；
+- 8 小时 Session；
+- production HTTPS 和 SQLite 绝对路径限制；
+- 12 个月员工访问限制；
+- archive worker；
+- batch summary；
+- Prisma / PostgreSQL / Redis / BullMQ 等遗留基础设施已经清理；
+- TanStack 等未使用前端依赖已经清理。
 
-未经用户另行授权，不引入：
+原 Phase G0 已完成：
 
-- 微服务；
+- 根 `AGENTS.md` 已增加安全边界；
+- 已增加技术栈边界；
+- 已增加 Git / 验证纪律；
+- `HANDOFF.md` 已明确互动卡片不是当前默认任务；
+- 根 `CODEX_TASKS.md` 已成为当前 Phase 清单。
+
+因此：
+
+> **后续任务不再以“大安全补洞”为主，而是进入“正确性收口 + 数据最小读取 + 结构拆分 + 架构防回退”。**
+
+---
+
+# 1. 最终架构目标
+
+本项目长期保持为一个简单的企业内部应用。
+
+目标运行结构：
+
+```text
+Browser / DingTalk WebView
+        │
+        ▼
+   React Web
+        │ HTTP
+        ▼
+ Fastify API
+   │       │
+   │       └──────── DingTalk API
+   │
+   ▼
+ SQLite
+   ▲
+   │
+one-shot archive worker
+(cron/systemd 外部调度)
+```
+
+不要演化成：
+
+```text
+Web
+ ↓
+API Gateway
+ ↓
+multiple microservices
+ ↓
+Redis / MQ / ORM / second DB
+ ↓
+scheduler service
+ ↓
+extra cache layer
+```
+
+除非未来出现明确且经过验证的业务需求，并由用户单独授权。
+
+---
+
+# 2. 长期依赖方向
+
+以后新增代码必须遵循下面的依赖方向。
+
+```text
+packages/domain
+      ▲
+      │
+packages/db
+
+packages/dingtalk
+
+packages/domain ───────┐
+packages/db ───────────┼──► apps/api
+packages/dingtalk ─────┘
+
+packages/db ─────────────► apps/worker
+
+HTTP contract ───────────► apps/web
+```
+
+## 2.1 `packages/domain`
+
+职责：
+
+- 纯领域类型；
+- 状态机；
+- 无 IO 的业务规则；
+- 小型纯 helper。
+
+允许：
+
+```text
+TypeScript 标准能力
+```
+
+禁止依赖：
+
+```text
+apps/*
+@salary/db
+@salary/dingtalk
+Fastify
+React
+better-sqlite3
+HTTP client
+filesystem
+```
+
+原则：
+
+> domain 必须可以在不知道数据库、Fastify、React、钉钉存在的情况下被理解和测试。
+
+## 2.2 `packages/db`
+
+职责：
+
+- `SalaryStore` contract；
+- SQLite 实现；
+- Memory store；
+- encryption；
+- migration；
+- 数据映射。
+
+允许依赖：
+
+```text
+@salary/domain
+better-sqlite3
+Node crypto/fs/path 等必要标准库
+```
+
+禁止：
+
+```text
+apps/*
+Fastify
+React
+DingTalk API client
+业务 UI 类型
+```
+
+DB 不负责：
+
+- HTTP status；
+- 页面权限；
+- 钉钉消息内容；
+- UI copy。
+
+## 2.3 `packages/dingtalk`
+
+职责：
+
+- 钉钉认证；
+- 通讯录；
+- 工作通知；
+- 钉钉 API transport；
+- mock client。
+
+禁止：
+
+```text
+apps/*
+@salary/db
+SQLite
+Fastify route
+React
+工资业务状态机
+```
+
+DingTalk adapter 不决定：
+
+```text
+谁有工资访问权限
+谁应该被重发
+什么 batch 可撤回
+```
+
+这些属于应用/领域层。
+
+## 2.4 `apps/api`
+
+职责：
+
+- HTTP routes；
+- Session；
+- Authorization；
+- salary orchestration；
+- report；
+- audit orchestration；
+- settings；
+- 调用 DB 和 DingTalk adapter。
+
+允许依赖：
+
+```text
+@salary/domain
+@salary/db
+@salary/dingtalk
+Fastify
+```
+
+禁止：
+
+```text
+apps/web/src/*
+apps/worker/src/*
+```
+
+API 不能因为“复用方便”直接 import 前端源码。
+
+## 2.5 `apps/web`
+
+职责：
+
+- React UI；
+- 用户交互；
+- HTTP API client；
+- 前端格式化；
+- 页面级状态。
+
+原则：
+
+```text
+Web 只相信 HTTP 响应，不直接依赖数据库实现。
+```
+
+禁止直接依赖：
+
+```text
+@salary/db
+better-sqlite3
+apps/api/src/*
+packages/dingtalk
+Node-only 模块
+```
+
+如果某类型需要前后端共享：
+
+优先：
+
+1. 放入 `@salary/domain`，前提是它真的是领域类型；
+2. 或在 web 保留 HTTP DTO 类型；
+3. 不直接 import API 内部 service 类型。
+
+## 2.6 `apps/worker`
+
+职责保持极小：
+
+```text
+读取配置
+初始化 SQLite store
+执行一次 archive
+关闭 store
+退出
+```
+
+允许依赖：
+
+```text
+@salary/db
+必要时 @salary/domain
+```
+
+禁止逐步演化成：
+
+- 第二套 API；
+- DingTalk 发送 worker；
+- Redis consumer；
+- 常驻 scheduler；
+- 通用 job platform。
+
+调度继续交给：
+
+```text
+cron
+systemd timer
+外部平台调度
+```
+
+---
+
+# 3. 轻量化原则
+
+## 3.1 新依赖原则
+
+增加 runtime dependency 前必须在 Phase 报告中回答：
+
+```text
+1. 当前代码或 Node 标准库为什么不能解决？
+2. 该依赖解决的真实问题是什么？
+3. 它是否进入 production runtime？
+4. 是否可以替换已有依赖，而不是叠加？
+5. 删除它的成本是什么？
+```
+
+未经用户明确授权，以下依赖类别禁止重新出现：
+
+```text
+Prisma
+TypeORM
+Sequelize
+Drizzle（当前无需求）
+Redis
+ioredis
+BullMQ
+RabbitMQ client
+Kafka client
+Redux
+React Query
+TanStack Router
+React Router（当前路由规模不需要）
+Tailwind
+styled-components
+CSS Modules
+```
+
+这不是永久否定这些技术，而是：
+
+> 当前应用没有足够复杂度证明它们值得增加。
+
+## 3.2 新基础设施原则
+
+增加以下任意内容都视为**架构变化**，必须用户单独授权：
+
+- 第二数据库；
 - Redis；
-- PostgreSQL / MySQL；
-- ORM；
 - 消息队列；
-- Redux；
-- React Query；
-- 新 Router；
-- Tailwind；
-- CSS Modules；
-- styled-components；
-- CQRS；
-- Event Sourcing；
-- controller/repository/usecase/factory/provider 多层架构。
+- 新常驻服务；
+- API Gateway；
+- scheduler service；
+- microservice；
+- 分布式锁；
+- 外部 cache；
+- object storage 作为工资主存储。
 
-## 安全边界保持
+Codex 不得因为：
 
-任何 Phase 都不得破坏：
+```text
+“更标准”
+“更企业级”
+“更可扩展”
+```
 
-- 员工只能获取自己的工资数据；
-- hidden fields 不离开员工接口服务端；
-- 管理员权限 fail closed；
-- 工资字段继续 AES-256-GCM 加密落盘；
-- 不在普通日志、错误日志、audit metadata 中输出真实工资金额、工资字段、银行卡号、身份证号、密钥、AppSecret；
-- 不发送真实员工工资通知做自动化测试；
-- “撤回”只代表本应用内撤销访问和本地状态/存证；
-- 不声称钉钉已收到的通知能被远程删除；
-- 当前已验证工资触达渠道仍是工作通知 `link`；
-- 本轮整改不得顺带接互动卡片；
-- 不启用未完成 OAuth/token/调度链路的“未查看/未确认待办”。
+自行引入。
 
-## Git 纪律
+## 3.3 数据最小读取原则
 
-开始 Phase 前：
+这是安全和性能共同约束。
+
+```text
+只需要 batch metadata
+=> 不读取 salary_items
+
+只判断权限
+=> 不解密工资
+
+员工 A 查询
+=> 不解密员工 B 工资
+
+sub-admin 查询报表
+=> 不读取未授权 batch 工资
+
+只有真正展示/计算工资
+=> 才读取并解密相应授权数据
+```
+
+## 3.4 抽象原则
+
+不要按“代码长得像”抽象。
+
+只有稳定业务概念才抽：
+
+适合：
+
+```text
+employeeVisibleItem
+employeeAccessibleSlip
+uniqueDeliveredEmployeeCount
+SalaryBatchSummary
+validateDisplaySettings
+```
+
+不适合：
+
+```text
+CommonManager
+BaseService
+GenericRepository
+CommonUtils
+HelperFactory
+AbstractProvider
+```
+
+规则：
+
+> 复用业务语义，而不是复用偶然相似的几行代码。
+
+---
+
+# 4. 文件规模守门
+
+以下是 **Review Trigger**，不是机械 CI hard fail。
+
+达到阈值：
+
+> 必须检查职责，但不要求为了数字强拆。
+
+## 4.1 Web
+
+```text
+React page / feature > 400 行
+=> 检查是否包含多个独立业务功能
+
+App.tsx > 500 行
+=> 默认认为顶层职责过多，除非有明确理由
+
+单个通用 component > 250 行
+=> 检查是否包含业务状态
+```
+
+## 4.2 API
+
+```text
+service > 600 行
+=> 必须做职责审查
+
+route file > 400 行
+=> 检查是否包含多个资源域
+
+单个函数 > 100 行
+=> 检查是否混合：
+   validation
+   IO
+   state transition
+   mapping
+   audit
+```
+
+函数行数暂不作为自动 CI 规则，避免为了满足指标机械拆 helper。
+
+## 4.3 DB
+
+```text
+store implementation > 700 行
+=> 检查 persistence / mapping / migration 是否可自然分离
+
+store interface + implementation 混合过大
+=> 可以拆 interface 与 memory implementation
+```
+
+但不要建立 repository 层。
+
+## 4.4 CSS
+
+```text
+单 CSS > 650 行
+=> 检查是否混入多个页面职责
+
+同一普通 selector 跨文件重复
+=> 必须确认是否有意 cascade
+```
+
+media / print / responsive override 可以存在。
+
+---
+
+# 5. 每个 Phase 的固定执行纪律
+
+执行任何 Phase 前：
 
 ```bash
 git status --short
@@ -155,348 +528,249 @@ git branch --show-current
 git log -1 --oneline
 ```
 
-要求：
+确认基于最新 `main` 创建工作分支。
 
-- 不覆盖用户未提交改动；
-- 不执行 `git reset --hard`；
-- 不执行 `git clean -fd`；
-- 不自动 push；
-- 不自动 merge；
-- 不自动 deploy；
-- 如果需要大规模重构，使用 `codex/` 前缀分支；
-- 用户没有明确要求 push/PR 时，只保留本地改动和报告。
+如果当前任务会修改多个文件或做结构调整：
 
-## TDD / 验证纪律
+```text
+codex/<phase-name>
+```
 
-对行为 bug：
+不要直接在 main 做大规模修改。
 
-1. 阅读当前实现；
-2. 阅读当前测试；
-3. 先增加失败回归测试；
-4. 确认修复前测试失败；
-5. 做最小修改；
-6. 目标测试通过；
-7. 相关模块测试通过；
-8. 全量门禁通过；
-9. `git diff --check`；
-10. 完成后停止。
+## 行为修改
 
-全量门禁：
+必须：
+
+1. 读实现；
+2. 读已有测试；
+3. 写失败测试；
+4. 运行确认 FAIL；
+5. 最小实现；
+6. 运行确认 PASS。
+
+## 机械结构移动
+
+不要求人为制造失败测试，但必须：
+
+1. 移动前相关测试 PASS；
+2. 每次只移动一个清晰单元；
+3. 移动后测试 PASS；
+4. 不同时改业务行为。
+
+## Phase 完成门禁
 
 ```bash
 pnpm test
 pnpm typecheck
 pnpm build
+pnpm architecture:check   # 从 Phase G3 建立后开始要求
 git diff --check
 ```
 
-只有真实执行成功才能报告“通过”。
+未实际成功不得报告“通过”。
 
 ---
 
-# Phase G0 — GitHub 基线、项目指令和文档收口
-
-**优先级：P1 / 后续 Codex 执行前建议先完成**
-
-## 目的
-
-当前 GitHub 根 `AGENTS.md` 仍是较早的 30 行版本；
-`HANDOFF.md` 仍把“互动卡片接入”描述成当前新增方向。
-
-这与当前安全整改目标存在明显执行风险：
-
-- Codex 可能把互动卡片当成本轮任务；
-- 根 `AGENTS.md` 没有完整记录员工数据隔离、Session、撤回、重试、SQLite、工程结构和 Phase 授权规则；
-- 当前仓库没有一份与最新 main 对齐的 Codex phase 清单。
-
-本 Phase 只同步项目级执行规则和真实状态，不改业务代码。
-
-## 允许修改
-
-- `AGENTS.md`
-- `HANDOFF.md`
-- `README.md`
-- 新增/替换根 `CODEX_TASKS.md`
-
-## 明确禁止
-
-- 不改 `apps/**` 业务代码；
-- 不改 `packages/**`；
-- 不接互动卡片；
-- 不改钉钉投递协议；
-- 不改数据库。
-
-## Task G0.1 — 用完整项目规则更新 AGENTS.md
-
-根 `AGENTS.md` 至少明确：
-
-### 安全
-
-- employee DTO 必须服务端隔离；
-- hidden fields 服务端过滤；
-- Session 8h；
-- Cookie HttpOnly/SameSite/Secure；
-- AES-256-GCM；
-- 日志不得写敏感工资；
-- withdraw 本地语义；
-- failed retry 只处理 failed；
-- delivered 不重复；
-- `sent <= total`；
-- 生产 HTTPS；
-- 生产 SQLite 绝对路径；
-- 12 月员工访问限制。
-
-### 架构
-
-明确禁止：
-
-```text
-Redis
-PostgreSQL/MySQL
-ORM
-队列
-Redux
-React Query
-新 Router
-Tailwind
-复杂 DDD/CQRS/Event Sourcing
-```
-
-### 钉钉
-
-明确：
-
-```text
-当前已验证 = asyncsend_v2 link
-本项目不使用 DING
-互动卡片属于后续独立功能
-整改 Phase 不顺带接入
-```
-
-### Phase 授权
-
-明确：
-
-```text
-CODEX_TASKS.md 列出多个 Phase != 一次全部授权
-用户只授权当前指定 Phase
-完成后必须停止
-```
-
-## Task G0.2 — 更新 HANDOFF.md
-
-删除/改写容易误导 Codex 的内容：
-
-不要再把：
-
-```text
-当前新增方向是使用钉钉互动卡片替代普通工作通知链接
-正在处理互动卡片集成
-下一步默认接互动卡片
-```
-
-描述成当前整改任务。
-
-可以保留历史研究记录，但必须改成：
-
-```text
-互动卡片是独立未来功能；
-当前 main 的生产触达仍是已验证的工作通知 link；
-除非用户另行授权，不进入互动卡片开发。
-```
-
-HANDOFF 的“当前分支”应更新成真实 GitHub 状态，不继续写已经删除的
-`codex/salary-slip-internal-app` 为当前开发分支。
-
-## Task G0.3 — 将本文件作为当前 CODEX_TASKS.md
-
-建议根目录最终只有一份当前执行清单：
-
-```text
-CODEX_TASKS.md
-```
-
-不要同时留下多个名字相似、互相冲突的整改任务文件让 Codex 猜优先级。
-
-旧历史 plan 可以保留在 `docs/`，但根执行规则必须明确它们是历史设计记录，不是当前授权。
-
-## Task G0.4 — README 与实际架构一致
-
-检查 README：
-
-- SQLite；
-- cron/systemd archive；
-- link 工作通知；
-- 8h Session；
-- backup；
-- HTTPS；
-- 当前未启用的功能。
-
-只修真实不一致，不大改文案。
-
-## 验证
-
-```bash
-git diff --check
-git diff -- AGENTS.md HANDOFF.md README.md CODEX_TASKS.md
-```
-
-由于本 Phase 不改代码，仍建议执行：
-
-```bash
-pnpm test
-pnpm typecheck
-pnpm build
-```
-
-若只是文档改动且环境不能运行，必须明确说明未验证，不能伪造通过。
-
-## 验收标准
-
-- Codex 读根文件不会误以为互动卡片是当前任务；
-- 根 AGENTS 包含完整安全/工程边界；
-- 根目录有唯一当前 Phase 清单；
-- 不修改业务代码。
-
-**完成后停止。**
-
----
-
-# Phase G1 — 剩余业务正确性和前端语义收口
+# Phase G1 — 剩余业务正确性收口
 
 **优先级：P1**
 
-## 目的
+**目标：** 解决当前已经确认但尚未收口的几个小型正确性问题，为后续结构重构提供稳定基线。
 
-当前 P0/P1 主体修复已存在，本 Phase 只收掉剩余的小型正确性问题：
+---
 
-1. 单员工发送完成状态的 delivered 统计仍按 delivery 行数计算；
-2. confirmation disabled 时员工页底部文案仍写“查看和确认时间将生成存证”；
-3. display settings 的关键 validation 测试还不完整；
-4. web 测试对员工 confirmation / display settings 语义覆盖不足。
+## G1.1 单员工发送 delivered 统计改为唯一员工
 
-## 主要文件
+### 当前问题
 
-- `apps/api/src/modules/salary/service.ts`
-- `apps/api/src/server.ts`（只有确有错误码遗漏才改）
-- `apps/api/test/salary-delivery.test.ts`
-- `apps/api/test/salary-import.test.ts`
-- `apps/web/src/pages/EmployeeSalary.tsx`
-- `apps/web/src/App.test.tsx`
-- 如更适合，可新建 `apps/web/src/pages/EmployeeSalary.test.tsx`
-
-## Task G1.1 — 修复 sendItem deliveredCount 唯一员工语义
-
-当前 `sendItem()` 成功后存在类似：
+`sendItem()` 成功后当前按：
 
 ```ts
-const deliveredCount = this.store
-  .listDeliveries(batchId)
-  .filter((delivery) => delivery.status === "delivered").length;
+listDeliveries(batchId)
+  .filter(status === "delivered")
+  .length
 ```
 
-该语义统计的是 delivery rows，不是唯一成功员工。
+判断是否全部员工已经 delivered。
 
-改成：
+这统计的是：
 
 ```text
-unique delivered employeeUserId count
+delivery rows
 ```
 
-要求：
+而不是：
 
 ```text
-deliveredUnique <= total
+unique delivered employees
 ```
 
-只有唯一 delivered 员工数等于 `total` 才把 batch 收口成 `sent`。
-
-不要删除历史 delivery 行。
-
-不要通过清洗历史记录来掩盖统计问题。
-
-### 回归测试
-
-构造：
-
-- batch 2 人；
-- delivery history 中 A 存在两条 delivered；
-- B 尚未 delivered；
-- 触发与状态相关的逻辑；
-- 不能把 2 条 A delivery 当成 2 个员工。
-
-然后 B 真正 delivered 后：
+如果历史数据中同一个员工存在多条 delivered 记录，可能提前满足：
 
 ```text
+deliveredCount === total
+```
+
+### 目标
+
+增加纯 helper，例如：
+
+```ts
+function uniqueDeliveredEmployeeCount(
+  deliveries: DeliveryRecord[],
+): number
+```
+
+语义：
+
+```text
+status === delivered
+按 employeeUserId 去重
+```
+
+并用于 `sendItem()` 最终 batch 状态判断。
+
+不要删除历史 delivery rows。
+
+### 测试
+
+`salary-delivery.test.ts` 增加：
+
+```text
+batch = A, B 两人
+
+历史：
+A delivered
+A delivered（重复历史）
+B 尚未 delivered
+
+=> 不能判 batch sent
+
+B delivered 后：
 unique delivered = 2
-batch = sent
+batch sent
 sent = 2
 total = 2
 ```
 
-## Task G1.2 — confirmation disabled 时修正文案
+继续保证：
 
-当前员工 UI 已经正确隐藏确认按钮，但底部仍固定显示：
+```text
+sent <= total
+```
+
+---
+
+## G1.2 补齐业务冲突 HTTP 409
+
+检查当前 `server.ts` 对以下错误：
+
+```text
+salary_item_not_sendable:*
+salary_batch_not_sendable:*
+invalid_salary_batch_transition:*
+```
+
+如果当前仍落到 500：
+
+改为稳定 409。
+
+注意：
+
+员工访问场景使用：
+
+```text
+salary_item_withdrawn -> 404
+```
+
+的隐藏资源语义不得被破坏。
+
+优先使用小型 helper：
+
+```ts
+function businessErrorStatus(message: string): number | undefined
+```
+
+不要引入自定义 Error class 大体系，除非当前代码已自然需要。
+
+### 测试
+
+覆盖：
+
+- 已发送 item 再单发；
+- sending/archived item 不可发送；
+- invalid transition；
+- employee withdrawn 仍 404；
+- 未知异常仍 500。
+
+---
+
+## G1.3 confirmation disabled 员工文案一致
+
+当前按钮已经受 `confirmationEnabled` 控制。
+
+底部说明也必须一致。
+
+### true
 
 ```text
 查看和确认时间将生成存证记录
 ```
 
-改为基于 settings：
-
-### enabled
-
-```text
-查看和确认时间将生成存证记录
-```
-
-### disabled
+### false
 
 ```text
 查看时间将生成存证记录
 ```
 
-不要改存证逻辑。
+只改文案逻辑，不改 evidence 行为。
 
-## Task G1.3 — 补 display settings 校验测试
+---
 
-当前已有：
+## G1.4 补 display settings 边界测试
+
+已有：
 
 ```text
-显式 visibleFields: [] -> 400 salary_visible_fields_required
+explicit visibleFields: [] -> 400
 ```
 
-再增加：
+补：
 
-### API
+1. `netAmountField` 不在 visibleFields -> 400；
+2. template visibleFields [] -> 400；
+3. template netAmountField hidden -> 400；
+4. 合法 template -> 200；
+5. 未显式传 displaySettings 的 default/历史兼容行为不变。
 
-1. `netAmountField` 不在 `visibleFields` -> 400；
-2. 创建模板时 `visibleFields: []` -> 400；
-3. 创建模板时 net amount hidden -> 400；
-4. 合法 settings -> 正常成功；
-5. 没显式传 displaySettings 的历史/default 行为保持，避免误伤旧语义。
+---
 
-如果当前 schema 已经能防止空字符串字段，可复用；不要重复造 validation 框架。
+## G1.5 Web 关键行为测试
 
-## Task G1.4 — 增加员工 UI 关键行为测试
+新增独立：
 
-当前 web `App.test.tsx` 测试很少。
+```text
+apps/web/src/pages/EmployeeSalary.test.tsx
+```
 
-至少增加：
+优先不要继续把所有测试堆到 `App.test.tsx`。
 
-1. `confirmationEnabled=false` 不显示确认按钮；
-2. false 时 footnote 不出现“确认时间”；
-3. true 时显示确认按钮；
-4. true 时 footnote 包含确认存证语义；
-5. `SalarySlipPreview` 在 `visibleFields: []` 时与历史服务端语义一致：展示所有 fields，而不是假装隐藏所有字段；
-6. 非空 visibleFields 只预览白名单字段。
+至少：
 
-不要使用大面积 DOM snapshot。
+- confirmation false 不显示按钮；
+- confirmation false 文案不出现“确认时间”；
+- confirmation true 显示按钮；
+- confirmation true 显示确认存证文案；
+- `SalarySlipPreview` visibleFields [] 展示全部 fields；
+- 非空 visibleFields 只展示白名单。
 
-## 验证
+---
+
+## G1 验证
 
 ```bash
-pnpm --filter @salary/api test -- salary-delivery.test.ts salary-import.test.ts
+pnpm --filter @salary/api test -- salary-delivery.test.ts salary-import.test.ts employee-access.test.ts
 pnpm --filter @salary/web test
 
 pnpm test
@@ -505,13 +779,14 @@ pnpm build
 git diff --check
 ```
 
-## 验收标准
+### G1 验收标准
 
-- delivery count 按员工去重；
+- delivery 统计按员工唯一值；
 - `sent <= total`；
-- confirmation UI 与文案完全一致；
-- display validation 有完整回归测试；
-- 不引入新依赖。
+- 常见管理员业务冲突不返回 500；
+- confirmation UI 文案一致；
+- display settings 边界有回归测试；
+- 不新增依赖。
 
 **完成后停止。**
 
@@ -519,198 +794,301 @@ git diff --check
 
 # Phase G2 — 敏感工资数据最小读取
 
-**优先级：P1**
+**优先级：P1 / 架构核心**
 
-## 目的
+**目标：**
 
-当前 `main` 已解决：
+> 只有真正需要工资明细的路径才解密工资。
+
+这是本轮最重要的后端架构整改。
+
+---
+
+## G2.1 当前已正确部分
+
+保持：
 
 ```text
-AuthorizationService -> listBatchSummaries()
-SalaryService.list()  -> listBatchSummaries()
+AuthorizationService.accessFor()
+=> listBatchSummaries()
+
+SalaryService.list()
+=> listBatchSummaries()
 ```
 
-但仍有两个明显的过度读取路径：
+不要回退。
 
-### 员工工资条列表
+---
 
-当前 `listEmployeeSlips()` 仍从：
+## G2.2 员工列表移除 `listBatches()`
+
+### 当前问题
+
+当前员工列表类似：
 
 ```ts
 store.listBatches()
+  .flatMap(...)
 ```
 
-开始。
-
-SQLite `listBatches()` 会加载完整 batch items 并解密工资字段。
-
-结果：
-
-> 员工 A 只是打开自己的工资条列表，服务端可能为遍历 batch 解密大量其他员工工资数据。
-
-虽然最终 HTTP DTO 没泄露，但不符合敏感数据最小读取原则。
-
-### 报表
-
-当前 `ReportService.summary()`：
-
-```ts
-store.listBatches()
-  .filter(canManageBatch)
-```
-
-意味着：
-
-> 对 sub-admin / batch-admin，可能先读取/解密全部 batch，再在内存过滤未授权 batch。
-
-最终响应会去掉 items，但未授权工资已经在服务器业务路径内被不必要读取。
-
-## 主要文件
-
-- `apps/api/src/modules/salary/service.ts`
-- `apps/api/src/modules/reports/service.ts`
-- `apps/api/test/employee-access.test.ts`
-- `apps/api/test/authorization-boundary.test.ts`
-- 报表测试（如无则新增）
-- `packages/db/src/store.ts`
-- `packages/db/src/sqlite-store.ts`
-- `packages/db/test/sqlite-store.test.ts`
-
-## 明确禁止
-
-- 不引入 repository 层；
-- 不引入 ORM；
-- 不改加密算法；
-- 不改 HTTP 产品语义；
-- 不为了优化写复杂缓存。
-
-## Task G2.1 — 员工列表改用 batch summary + 当前员工 item
+而 SQLite `listBatches()` 会构造完整 batch 和 items。
 
 目标：
 
 ```text
-读取 metadata
-+
-只查询当前 employee item
+员工 A 打开列表
+=> 只读取 batch metadata
+=> 只查询员工 A 自己的 item
+=> 不解密同批员工 B/C
 ```
 
-不再：
+### 推荐方案 A：最简单
+
+```ts
+listBatchSummaries()
+
+for each summary:
+  getEmployeeItem(summary.id, access.userId)
+```
+
+对于当前小型内部应用，优先简单正确。
+
+### 推荐方案 B：如果 SQL 更自然
+
+Store 增加：
+
+```ts
+listEmployeeBatchSummaries(
+  employeeUserId: string
+): SalaryBatchSummary[]
+```
+
+SQLite 使用 salary_items 只做：
 
 ```text
-listBatches() -> 解密所有 items
+batch_id / employee_user_id existence filter
 ```
 
-优先简单实现。
+不要读取 encrypted fields。
 
-允许路线 A：
+然后只对匹配 batch：
+
+```ts
+getEmployeeItem(batchId, employeeUserId)
+```
+
+### 选择原则
+
+选更少代码、更容易测试的方案。
+
+不要增加 query builder / repository framework。
+
+---
+
+## G2.3 employee access helper 依赖 summary 而非 full batch
+
+当前 `employeeAccessibleSlip()` 如果仅为了：
+
+- state；
+- payrollMonth；
+- displaySettings；
+
+却拿完整 batch，应调整。
+
+目标 shape：
+
+```ts
+{
+  batch: SalaryBatchSummary,
+  item: StoredItem
+}
+```
+
+只有管理员详情需要：
+
+```ts
+StoredBatch
+```
+
+员工：
+
+```text
+list
+detail
+view
+confirm
+fingerprint
+```
+
+都不得因为 batch metadata 需求顺带解密所有 items。
+
+---
+
+## G2.4 ReportService 先授权再解密
+
+### 当前问题
+
+当前流程：
+
+```text
+listBatches()
+↓
+解密全部
+↓
+filter canManageBatch()
+```
+
+对 sub-admin / batch-admin 不符合最小读取。
+
+### 新流程
 
 ```text
 listBatchSummaries()
-for each summary:
-  getEmployeeItem(batchId, currentEmployee)
+↓
+filter state
+↓
+filter access
+↓
+filter month
+↓
+得到 allowed IDs
+↓
+仅 allowed IDs getBatch()
+↓
+计算 salaryTotals
 ```
 
-对内部小应用，N 个轻量 metadata + 单员工 row 查询可以接受。
-
-如果当前 DB 实现表明增加：
+返回的：
 
 ```text
-listEmployeeBatchIds(employeeUserId)
+report.batches
 ```
 
-会明显更简单，也可以增加该窄接口。
+继续不能包含：
 
-不要新增泛型 query/repository framework。
+```text
+items
+```
 
-## Task G2.2 — employeeAccessibleSlip 不要求完整 StoredBatch
+---
 
-当前 employee access helper 如果依赖完整 `StoredBatch`，调整成只依赖访问判断所需 metadata：
+## G2.5 Audit / evidence / delivery 也按 allowed batch 过滤
+
+ReportService 当前可以一次读取所有：
+
+```text
+deliveries
+evidence
+```
+
+它们不包含工资明细，但也属于业务记录。
+
+如果 store 当前没有按 batch list 查询接口，不要求本 Phase 建复杂 SQL。
 
 至少：
 
-- id；
-- payrollMonth；
-- state；
-- displaySettings；
-- 必要的 batch metadata。
-
-员工 view / confirm fingerprint 也只应依赖 fingerprint 所需 metadata + 当前 item。
-
-禁止为了 fingerprint 获取同批其他员工 items。
-
-## Task G2.3 — ReportService 先授权，再解密
-
-重构顺序：
-
 ```text
-1. listBatchSummaries()
-2. 用 access/canManageBatch 过滤有权限 IDs
-3. 过滤 payrollMonth
-4. 只对最终允许的 IDs 调 getBatch()
-5. 用这些 items 算 salaryTotals
-6. HTTP response batches 继续只返回 metadata + report metrics
+在内存只统计 allowed batch IDs
 ```
 
-必须保证：
+未来数据量明显增大时再增加窄查询。
+
+本 Phase 的 P1 是：
 
 ```text
-sub-admin 不读取未授权 batch 完整工资 items
+工资字段解密边界
 ```
 
-## Task G2.4 — 增加“没有不必要完整读取”的测试
+不要扩大成全数据库性能重写。
 
-测试重点不是性能 benchmark，而是调用边界。
+---
 
-可以使用 fake/spy store：
+## G2.6 Store contract 只增加窄接口
 
-### Authorization 已有目标
+允许新增：
 
-继续确保：
+```ts
+getBatchSummary(id)
+listEmployeeBatchSummaries(userId)
+```
+
+如果实际实现需要。
+
+禁止新增：
 
 ```text
-accessFor() 不调用 listBatches()
+SalaryRepository
+EmployeeRepository
+ReportRepository
+QueryBus
+DataAccessLayer
 ```
 
-### Employee list
+---
 
-证明：
+## G2.7 测试：用调用边界证明安全
+
+### Employee
+
+使用 fake/spy store：
 
 ```text
-listEmployeeSlips() 不调用 listBatches()
+listBatches() 直接 throw
 ```
 
-并保持：
+员工 list 仍必须成功。
 
-- A 看不到 B；
-- hidden fields 不泄漏；
-- withdrawn/archive/12m 规则不回归。
+并证明：
+
+- A 只能获取 A；
+- hidden fields；
+- withdrawn；
+- archived；
+- 12 months；
+
+全部不回归。
 
 ### Report
 
-fake store 让：
+fake store：
 
 ```text
 getBatch(unauthorizedBatchId)
+=> throw "test_unauthorized_full_batch_read"
 ```
 
-直接抛出特殊测试错误。
+sub-admin summary 应正常成功。
 
-sub-admin summary 必须仍成功，从而证明未读取未授权 batch。
+这证明：
 
-## Task G2.5 — SQLite summary 路径不能解密工资
+```text
+未授权 batch 根本没有进入工资解密路径
+```
 
-检查 `listBatchSummaries()` SQL/mapper：
+### SQLite
 
-- 不读取 encrypted salary payload；
-- 不调用 `decryptSalaryPayload()`；
-- 只读取 batch metadata / display settings。
+测试：
 
-若当前已经满足，只补测试，不重写。
+```text
+listBatchSummaries()
+```
 
-## 验证
+不包含 items。
+
+如果容易 spy：
+
+```text
+不调用 decryptSalaryPayload
+```
+
+否则通过结果/SQL边界测试即可，不为测试改坏生产代码。
+
+---
+
+## G2 验证
 
 ```bash
-pnpm --filter @salary/db test -- sqlite-store.test.ts
+pnpm --filter @salary/db test
 pnpm --filter @salary/api test -- employee-access.test.ts authorization-boundary.test.ts
 pnpm --filter @salary/api test
 
@@ -720,53 +1098,475 @@ pnpm build
 git diff --check
 ```
 
-## 验收标准
+### G2 验收标准
 
-- Authorization 不解密工资；
-- batch list 不解密工资；
+- 权限判断不解密工资；
+- admin batch list 不解密工资；
 - employee list 不解密其他员工工资；
-- report 不解密未授权 batch；
-- report 需要算 totals 的授权工资仍可以正常解密计算；
-- HTTP 行为不回归。
+- sub-admin report 不解密未授权工资；
+- admin detail 完整查看仍可用；
+- 不增加复杂数据访问层。
 
 **完成后停止。**
 
 ---
 
-# Phase G3 — 前端行为测试补强 + App.tsx 按功能拆分
+# Phase G3 — 建立可执行的 Architecture Guardrails
+
+**优先级：P1/P2**
+
+**目标：**
+
+把“轻量架构”从 Markdown 建议变成可自动检查的规则。
+
+新增：
+
+```text
+scripts/check-architecture.mjs
+```
+
+根 package script：
+
+```json
+"architecture:check": "node scripts/check-architecture.mjs"
+```
+
+不增加 npm dependency。
+
+---
+
+## G3.1 Hard Fail：禁止依赖
+
+脚本扫描 workspace `package.json`。
+
+以下出现即失败：
+
+```text
+prisma
+@prisma/client
+typeorm
+sequelize
+redis
+ioredis
+bullmq
+amqplib
+kafkajs
+redux
+@reduxjs/toolkit
+@tanstack/react-query
+@tanstack/react-router
+react-router
+react-router-dom
+tailwindcss
+styled-components
+```
+
+如果未来用户明确授权某项：
+
+必须同时修改：
+
+```text
+AGENTS.md
+architecture script
+architecture decision
+```
+
+不能偷偷删检查。
+
+---
+
+## G3.2 Hard Fail：依赖方向
+
+使用 Node fs 递归扫描：
+
+```text
+.ts
+.tsx
+.mts
+.mjs
+```
+
+跳过：
+
+```text
+dist
+node_modules
+coverage
+```
+
+### Rule A
+
+`packages/domain/**` 禁止 import：
+
+```text
+@salary/db
+@salary/dingtalk
+apps/
+fastify
+react
+better-sqlite3
+```
+
+### Rule B
+
+`packages/db/**` 禁止 import：
+
+```text
+apps/
+@salary/dingtalk
+fastify
+react
+```
+
+### Rule C
+
+`packages/dingtalk/**` 禁止 import：
+
+```text
+apps/
+@salary/db
+fastify route internals
+react
+```
+
+### Rule D
+
+`apps/web/**` 禁止 import：
+
+```text
+@salary/db
+@salary/dingtalk
+apps/api
+better-sqlite3
+node:fs
+node:path
+```
+
+如 Vite config 合理使用 Node path，应：
+
+```text
+只对白名单 config 文件豁免
+```
+
+不要为了规则破坏构建配置。
+
+### Rule E
+
+`apps/worker/**` 禁止 import：
+
+```text
+@salary/dingtalk
+fastify
+react
+apps/api
+apps/web
+```
+
+### Rule F
+
+`packages/**` 禁止 import：
+
+```text
+apps/*
+```
+
+---
+
+## G3.3 Hard Fail：禁止新增 infra manifests
+
+扫描：
+
+```text
+docker-compose.yml
+compose.yaml
+```
+
+如果出现：
+
+```text
+postgres
+mysql
+redis
+rabbitmq
+kafka
+```
+
+失败。
+
+当前如果没有 compose，则不需要创建文件。
+
+---
+
+## G3.4 Warning：文件规模
+
+脚本输出 warning，但 exit code 保持 0：
+
+### Web
+
+```text
+App.tsx > 500
+*.tsx page/feature > 400
+```
+
+### API
+
+```text
+*service.ts > 600
+*routes.ts > 400
+```
+
+### DB
+
+```text
+store implementation > 700
+```
+
+### CSS
+
+```text
+*.css > 650
+```
+
+格式：
+
+```text
+ARCH-WARN file_size apps/web/src/App.tsx 2383 > 500
+```
+
+这些 warning 是后续 Phase 的工作提示。
+
+不要：
+
+```text
+为了让 architecture:check 变绿而把 warning 当 failure
+```
+
+---
+
+## G3.5 Warning：跨 CSS 文件重复 selector
+
+实现轻量检查。
+
+只扫描普通 selector。
+
+可以忽略：
+
+```text
+@media
+@print
+@keyframes
+:root
+```
+
+第一版只要求能发现明显：
+
+```text
+.directory-result
+```
+
+等跨文件重复。
+
+输出：
+
+```text
+ARCH-WARN duplicate_selector .directory-result
+  components.css
+  import.css
+```
+
+不要求第一版完整解析所有 CSS 语法。
+
+如果简单 parser 会产生太多 false positive：
+
+保留 selector check 为单独脚本 warning，并写清 limitation。
+
+不要增加 postcss 依赖。
+
+---
+
+## G3.6 Architecture tests
+
+为脚本增加 fixture 测试。
+
+推荐：
+
+```text
+scripts/check-architecture.test.mjs
+```
+
+或把逻辑拆成：
+
+```text
+scripts/architecture-rules.mjs
+scripts/check-architecture.mjs
+```
+
+测试至少：
+
+- banned dependency 被发现；
+- packages -> apps import 被发现；
+- domain -> db import 被发现；
+- web -> db import 被发现；
+- file-size warning 不导致 hard fail；
+- 合法结构通过。
+
+可以使用 Node 内置：
+
+```text
+node:test
+assert
+fs.mkdtemp
+```
+
+不要为了脚本测试新增 Vitest workspace 配置。
+
+---
+
+## G3.7 Root script
+
+`package.json`：
+
+```json
+{
+  "scripts": {
+    "architecture:check": "node scripts/check-architecture.mjs"
+  }
+}
+```
+
+不要顺带增加 lint framework。
+
+---
+
+## G3.8 将规则补入 AGENTS.md
+
+增加短小“架构依赖方向”章节。
+
+不要把整个本文件复制进 AGENTS。
+
+AGENTS 只保留长期 contract：
+
+```text
+domain/db/dingtalk/api/web/worker 依赖方向
+新依赖原则
+数据最小读取
+架构 hard fail
+规模是 warning
+```
+
+---
+
+## G3 验证
+
+```bash
+pnpm architecture:check
+node --test scripts/check-architecture.test.mjs
+
+pnpm test
+pnpm typecheck
+pnpm build
+git diff --check
+```
+
+### G3 验收标准
+
+- 关键架构边界可自动检测；
+- banned infra 回归会失败；
+- 文件规模只 warning；
+- 不新增第三方依赖；
+- 不为 architecture script 重写业务代码。
+
+**完成后停止。**
+
+---
+
+# Phase G4 — 前端行为测试与功能结构拆分
 
 **优先级：P2**
 
-## 目的
+当前 `apps/web/src/App.tsx` 仍是最大结构债务。
 
-当前：
-
-```text
-apps/web/src/App.tsx ≈ 2383 行
-```
-
-员工端已经抽到：
+目标：
 
 ```text
-pages/EmployeeSalary.tsx
+App.tsx = 顶层 composition
+page = 页面
+feature = 工资业务块
+component = 真正复用 UI
 ```
 
-但 App.tsx 仍包含多个大型管理页面和工资功能组件。
+不是：
 
-本 Phase：
+```text
+把一个大文件机械切成很多 forwarding wrapper
+```
 
-> 先补最低限度行为测试，再机械移动代码。
+---
 
-不改变 UI，不改变 API，不改变业务语义。
+## G4.1 先补管理端行为 smoke tests
 
-## 当前建议结构
+拆分前必须保证关键行为有测试。
 
-允许按实际依赖微调：
+新增按页面分组测试：
+
+```text
+pages/SalaryManagement.test.tsx
+pages/EvidenceCenter.test.tsx
+pages/ReportCenter.test.tsx
+pages/PermissionCenter.test.tsx
+pages/SettingsCenter.test.tsx
+```
+
+不一定每个必须单独文件；如果合理也可按模块合并。
+
+必须覆盖：
+
+### Salary
+
+- GET batch summaries；
+- 自动 GET active batch detail；
+- 打开 ImportWizard；
+- 单员工发送按钮；
+- withdrawn/failed 基础状态渲染。
+
+### Evidence
+
+- 基础请求；
+- empty；
+- 有记录时渲染。
+
+### Report
+
+- 基础请求；
+- 月份筛选；
+- totals 显示。
+
+### Permission
+
+- sub-admin list；
+- directory picker 入口；
+- 不依赖硬编码管理员 UI。
+
+### Settings
+
+- 当前 settings 加载；
+- 真实可配置项渲染。
+
+不要做大 snapshot。
+
+---
+
+## G4.2 目标文件结构
+
+推荐：
 
 ```text
 apps/web/src/
 ├── App.tsx
 ├── api.ts
+├── format.ts
+├── icons.tsx
+│
 ├── pages/
 │   ├── EmployeeSalary.tsx
 │   ├── SalaryManagement.tsx
@@ -774,123 +1574,164 @@ apps/web/src/
 │   ├── ReportCenter.tsx
 │   ├── PermissionCenter.tsx
 │   └── SettingsCenter.tsx
+│
 ├── features/
 │   └── salary/
 │       ├── ImportWizard.tsx
 │       ├── ManualPanel.tsx
 │       ├── BatchDetail.tsx
+│       ├── EmployeeRow.tsx
 │       └── SalarySlipPreview.tsx
+│
 └── components/
     ├── Modal.tsx
     ├── Field.tsx
     ├── Toggle.tsx
     ├── Status.tsx
+    ├── Metric.tsx
+    ├── Loading.tsx
     └── EmptyState.tsx
 ```
 
-不要为了匹配目录树创建没有实际职责的 wrapper。
+如果某组件只有 15 行且只被一个页面使用：
 
-## Task G3.1 — 拆分前补管理端 smoke behavior tests
+留在页面文件。
 
-当前 `App.test.tsx` 只有少量用例。
+不要为了目录树创建空文件。
 
-先覆盖：
+---
 
-1. batch list 请求；
-2. 选择/加载当前 batch detail；
-3. ImportWizard 入口；
-4. Evidence 页面基础请求；
-5. Report 页面基础请求；
-6. Permission 页面基础请求；
-7. Settings 页面基础请求。
+## G4.3 页面与 feature 边界
 
-测试目标：
+### App.tsx
 
-> 移动文件以后能够证明行为未变。
+只保留：
 
-不要测试 CSS class 细节。
+- pathname 顶层入口；
+- session identity；
+- AdminApp shell；
+- module nav；
+- refreshKey；
+- 页面 composition。
 
-## Task G3.2 — 先画真实组件依赖
+### SalaryManagement.tsx
 
-执行：
+保留：
 
-```bash
-rg -n "^export function |^function [A-Z]|^const [A-Z].*=>" apps/web/src/App.tsx
+- batch list；
+- active batch；
+- detail loading；
+- 页面级筛选；
+- salary actions orchestration。
+
+不要继续包含完整 ImportWizard 实现。
+
+### ImportWizard.tsx
+
+保留：
+
+- 三步 UI；
+- preview；
+- match；
+- display settings；
+- template apply/save；
+- commit。
+
+### BatchDetail
+
+保留：
+
+- employee rows；
+- selection；
+- status display；
+- row action UI。
+
+---
+
+## G4.4 每移动一个单元都测试
+
+顺序建议：
+
+```text
+EvidenceCenter
+ReportCenter
+SettingsCenter
+PermissionCenter
+BatchDetail
+ManualPanel
+ImportWizard
+shared UI
+SalaryManagement
 ```
 
-按照职责分类：
-
-- 顶层 App/session/nav -> `App.tsx`
-- 页面 -> `pages`
-- 工资功能 -> `features/salary`
-- 复用无业务组件 -> `components`
-
-只被一个页面使用的小 helper 跟着页面走。
-
-不要创建 `utils.ts` 大杂烩。
-
-## Task G3.3 — 分小步移动
-
-建议顺序：
-
-1. `EvidenceCenter`
-2. `ReportCenter`
-3. `PermissionCenter`
-4. `SettingsCenter`
-5. `BatchDetail`
-6. `ManualPanel`
-7. `ImportWizard`
-8. `SalarySlipPreview`
-9. 通用组件
-10. `SalaryManagement`
-
-每移动一个主要单元：
+每步：
 
 ```bash
 pnpm --filter @salary/web test
 pnpm --filter @salary/web typecheck
 ```
 
-不要一次搬完再修。
+不要一次移动 2000 行后统一修。
 
-## Task G3.4 — App.tsx 最终职责
+---
 
-最终主要保留：
+## G4.5 不建立新的全局状态层
 
-- employee/admin 顶层入口判断；
-- session/identity；
-- module nav；
-- refreshKey 等少量跨页面组合；
-- 顶层 layout。
-
-如果最终 `App.tsx` 仍直接实现：
+禁止：
 
 ```text
-ImportWizard
-ReportCenter
-PermissionCenter
-SettingsCenter
-BatchDetail
+Redux
+Context 作为通用 store
+React Query
+router state framework
+event bus
 ```
 
-则 Phase 尚未完成。
+现有：
 
-## 明确禁止
+```text
+props
+local state
+small callbacks
+```
 
-- 不加 React Router；
-- 不加 Redux；
-- 不加 React Query；
-- 不改视觉；
-- 不顺便重写 API 层；
-- 不做全项目 rename；
-- 不把 props 改成复杂 context 体系。
+足够时继续使用。
 
-## 验证
+---
+
+## G4.6 架构 warning 目标
+
+完成后：
+
+```text
+App.tsx 不应再触发 >500 warning
+```
+
+如果仍略大，但只包含顶层 composition：
+
+可以接受。
+
+关键不是行数本身，而是：
+
+```text
+不再实现大型业务 feature
+```
+
+每个拆出页面原则上 < 400 行。
+
+如果某页面 > 400：
+
+检查自然 feature 边界，不强拆 presentation helper。
+
+---
+
+## G4 验证
 
 ```bash
 pnpm --filter @salary/web test
 pnpm --filter @salary/web typecheck
 pnpm --filter @salary/web build
+pnpm architecture:check
 
 pnpm test
 pnpm typecheck
@@ -898,152 +1739,177 @@ pnpm build
 git diff --check
 ```
 
-## 验收标准
+### G4 验收标准
 
-- App.tsx 明显变成顶层组合文件；
-- 大页面在独立文件；
-- 原行为测试通过；
-- 无新状态/路由框架；
-- UI 不主动 redesign。
+- App.tsx 成为顶层组合文件；
+- page/feature 边界明确；
+- 原行为不变；
+- 测试显著强于当前三个基础用例；
+- 没有新状态/路由框架；
+- 没有 UI redesign。
 
 **完成后停止。**
 
 ---
 
-# Phase G4 — CSS 重复规则和职责收口
+# Phase G5 — CSS 职责与重复规则收口
 
 **优先级：P2**
 
-## 当前状态
-
-CSS 已经成功从旧大单文件拆成：
+当前 CSS 文件拆分方向正确：
 
 ```text
-base.css
-components.css
-employee.css
-import.css
-salary.css
+base
+components
+employee
+import
+salary
 ```
 
-这个拆分方向正确。
+本 Phase 不重新设计视觉。
 
-但当前仍有重复/覆盖。
+---
 
-已确认示例：
+## G5.1 CSS 职责规则
 
-```text
-.directory-result
-```
+### base.css
 
-在 `components.css` 和 `import.css` 都存在不同声明。
+只保留：
 
-`base.css` 仍约 962 行，也混合了 drawer、modal、permission、directory picker 等较多组件/业务样式。
-
-## 目的
-
-不 redesign，只做：
-
-```text
-职责唯一
-+
-消除无意义重复
-+
-保留当前最终 cascade
-```
-
-## Task G4.1 — 用脚本列出重复 selector
-
-写一个一次性 Node/TS 或 shell 检查脚本，输出跨 CSS 文件重复的普通 selector。
-
-该脚本只用于检查，不要求引入 CSS parser 新依赖。
-
-人工区分：
-
-- 正常 media query override；
-- print override；
-- modifier/state；
-- 真正跨文件重复 base selector。
-
-## Task G4.2 — 先处理确定重复
-
-优先检查：
-
-```text
-.directory-result
-directory-search / directory-picker 相关
-modal / drawer 相关
-setting-row
-metric
-salary-heading
-employee-sheet
-```
-
-如果 selector 在两个文件中对应不同页面、只是名字碰撞：
-
-优先改成更具体、现有作用域 class；
-不要依赖 import 顺序“谁最后覆盖谁”。
-
-如果本来就是同一个通用组件：
-
-只保留在 `components.css`。
-
-## Task G4.3 — 减轻 base.css 职责
-
-建议：
-
-`base.css` 保留：
-
-- root variables；
+- variables；
 - reset；
+- typography；
 - body；
 - app shell；
 - sidebar/topbar；
-- page base；
-- typography；
-- 通用 button/input 基础。
+- base buttons/inputs；
+- 通用 layout primitive。
 
-可迁移：
+### components.css
 
-- modal/drawer -> components；
-- permission-specific -> 对应 page/style；
-- directory picker -> components 或 permission；
-- salary-specific -> salary；
-- import-specific -> import。
+保留真正复用：
 
-不要求为了行数拆更多文件。
+- modal；
+- drawer；
+- status；
+- metric；
+- empty/loading；
+- directory generic picker（如果多处复用）。
 
-## Task G4.4 — 保留视觉
+### salary.css
 
-迁移重复规则前，必须对照原 cascade 最终值。
+工资管理页面。
+
+### import.css
+
+ImportWizard 专属。
+
+### employee.css
+
+员工工资条。
+
+---
+
+## G5.2 处理重复 selector
+
+以 G3 architecture warning 为输入。
+
+已知优先检查：
+
+```text
+.directory-result
+.directory-search
+.modal-backdrop
+setting-row
+```
+
+规则：
+
+### 同一组件
+
+只保留一处。
+
+### 不同页面只是 class 撞名
+
+改成更具体的业务 class：
+
+```text
+.import-directory-result
+.permission-directory-result
+```
+
+不要继续依赖：
+
+```text
+styles.css import order
+```
+
+隐式覆盖。
+
+---
+
+## G5.3 保留 cascade 最终视觉
+
+合并规则前必须确定：
+
+```text
+当前最终生效值
+```
+
+迁移后保持。
 
 不改变：
 
 - colors；
 - spacing；
-- layout；
-- responsive；
-- print；
-- employee salary view；
-- modal overlay。
-
-如果环境支持浏览器，人工检查：
-
-- 管理工资页面；
-- ImportWizard；
-- permission；
-- report；
-- modal；
-- employee detail；
+- breakpoint；
 - mobile；
-- print。
+- print；
+- employee layout；
+- modal overlay；
+- import wizard layout。
 
-## 验证
+---
+
+## G5.4 CSS architecture warning 目标
+
+完成后：
+
+```text
+明显跨文件 duplicate selector warning 清零
+```
+
+对于合理：
+
+```text
+media query
+print
+state modifier
+```
+
+允许加入明确 ignore list。
+
+ignore list 必须：
+
+```text
+selector + reason
+```
+
+不能：
+
+```text
+ignore all duplicates
+```
+
+---
+
+## G5 验证
 
 ```bash
 pnpm --filter @salary/web test
 pnpm --filter @salary/web typecheck
 pnpm --filter @salary/web build
+pnpm architecture:check
 
 pnpm test
 pnpm typecheck
@@ -1051,65 +1917,79 @@ pnpm build
 git diff --check
 ```
 
-## 验收标准
+如果有浏览器环境，人工检查：
 
-- 明显跨文件重复 selector 被消除；
-- base.css 不继续承担大量局部业务样式；
-- 视觉不主动改变；
+- SalaryManagement；
+- ImportWizard；
+- Permission；
+- Report；
+- Modal；
+- EmployeeSalary；
+- mobile；
+- print。
+
+### G5 验收标准
+
+- CSS 职责清晰；
+- 不依赖跨文件偶然覆盖；
+- architecture duplicate warning 明显收敛；
+- UI 不 redesign；
 - 不引入 CSS framework。
 
 **完成后停止。**
 
 ---
 
-# Phase G5 — SalaryService 轻量拆分（条件执行）
+# Phase G6 — Backend 轻量职责拆分
 
-**优先级：P2 / Optional**
+**优先级：P2 / 条件执行**
 
-## 当前状态
+执行前先看：
 
-当前：
-
-```text
-apps/api/src/modules/salary/service.ts ≈ 833 行
+```bash
+pnpm architecture:check
+wc -l apps/api/src/modules/salary/service.ts
+wc -l packages/db/src/store.ts
+wc -l packages/db/src/sqlite-store.ts
 ```
 
-而且已经增加：
+只拆自然边界。
 
-- import orchestration；
-- admin batch；
-- delivery；
-- in-flight guard；
-- withdraw；
-- employee access；
-- view/confirm；
-- display settings validation；
-- fingerprint。
+---
 
-文件现在已经到了可以认真评估轻量拆分的规模。
+# G6-A SalaryService
 
 ## 执行条件
 
-只有完成 G1/G2 后仍满足以下任意两项才执行：
-
-- service.ts > 650 行；
-- delivery 逻辑 > 180 行；
-- employee access 逻辑 > 150 行；
-- 修改 employee 行为需要反复跨越 delivery/import 区域；
-- 相关 helper 无法在当前文件中形成清晰局部边界。
-
-否则报告：
+完成 G1/G2 后，如果仍：
 
 ```text
-当前不拆更合理
+service.ts > 600
 ```
 
-并停止。
-
-## 推荐最大结构
+且明确同时承担：
 
 ```text
-apps/api/src/modules/salary/
+import
+delivery
+employee access
+admin/template
+```
+
+则拆。
+
+否则：
+
+```text
+报告当前不拆更合理
+```
+
+---
+
+## 推荐结构
+
+```text
+salary/
 ├── routes.ts
 ├── service.ts
 ├── import.ts
@@ -1117,64 +1997,109 @@ apps/api/src/modules/salary/
 └── employee.ts
 ```
 
-不要超过这个复杂度，除非用户另行授权。
+最多先到这里。
 
-## `delivery.ts`
+---
 
-允许承担：
+## delivery.ts
 
-- target selection；
-- send batch；
+职责：
+
+- batch delivery target；
+- send；
+- sendItem；
 - resend；
-- send single；
 - withdraw；
-- in-flight guard；
-- unique delivered count helper；
+- in-flight；
+- unique delivered count；
 - delivery status mapping。
 
-## `employee.ts`
+不要直接知道 HTTP reply。
 
-允许承担：
+---
 
-- employee accessibility rule；
-- employee response mapping；
-- visible field filter；
-- employee list/detail/view/confirm；
-- employee fingerprint input helper。
+## employee.ts
 
-## `service.ts`
+职责：
+
+- employeeAccessibleSlip；
+- employeeVisibleItem；
+- employeeBatchSummary；
+- list/read/view/confirm；
+- 12-month access；
+- fingerprint input helper。
+
+---
+
+## service.ts
 
 保留：
 
-- 对外编排；
-- batch admin 操作；
-- templates/sub-admin；
-- composition。
+- composition；
+- create draft；
+- templates；
+- admin assignment；
+- directory orchestration；
+- 对外 facade（如 route 已依赖）。
 
-## 明确禁止
+---
+
+## 拆分纪律
+
+第一轮只移动代码。
+
+禁止同时：
+
+- 改 error code；
+- 改 SQL；
+- 改 DTO；
+- 改 notification；
+- 改 access semantics。
+
+---
+
+# G6-B Store 文件职责
+
+当前 `packages/db/src/store.ts` 同时包含：
+
+```text
+interface/types
+MemorySalaryStore
+```
+
+如果在 G2 增加窄接口后明显继续膨胀，可以机械拆：
+
+```text
+store.ts
+memory-store.ts
+```
+
+### store.ts
+
+只保留：
+
+- types；
+- SalaryStore interface。
+
+### memory-store.ts
+
+MemorySalaryStore。
+
+`index.ts` 继续稳定 export。
 
 不要创建：
 
 ```text
-repository/
-usecase/
-controller/
-factory/
-provider/
-domain-service/
-application-service/
+repository.ts
+base-store.ts
+abstract-store.ts
 ```
 
-不要在拆分时改：
+如果 `store.ts` 仍可读，允许不拆。
 
-- API contract；
-- error code；
-- SQL；
-- salary encryption；
-- delivery rule；
-- employee authorization。
+---
 
-## 验证策略
+## G6 测试
 
 移动 employee：
 
@@ -1188,285 +2113,661 @@ pnpm --filter @salary/api test -- employee-access.test.ts authorization-boundary
 pnpm --filter @salary/api test -- salary-delivery.test.ts
 ```
 
+DB split：
+
+```bash
+pnpm --filter @salary/db test
+```
+
 最终：
 
 ```bash
-pnpm --filter @salary/api test
-pnpm --filter @salary/api typecheck
-pnpm --filter @salary/api build
-
+pnpm architecture:check
 pnpm test
 pnpm typecheck
 pnpm build
 git diff --check
 ```
 
-## 验收标准
+### G6 验收标准
 
-- 只有职责清晰度真正提升才拆；
-- 不产生多层空转抽象；
-- routes 不需大改；
-- 行为完全由现有测试保护。
+- 拆分后理解成本下降；
+- 文件边界是业务职责，不是理论层次；
+- routes/API contract 不变；
+- Store contract 不多一层；
+- 如果不拆，必须给出基于职责的理由。
 
 **完成后停止。**
 
 ---
 
-# Phase G6 — GitHub CI 与最终验收
+# Phase G7 — 运行时轻量性与依赖卫生
+
+**优先级：P2**
+
+目标不是做性能工程，而是确认当前运行结构真的保持轻。
+
+---
+
+## G7.1 workspace dependency audit
+
+检查每个：
+
+```text
+package.json
+```
+
+输出表：
+
+```text
+package
+runtime dependency
+实际源码引用
+作用
+```
+
+任何 runtime dependency 无源码引用：
+
+删除。
+
+不要扫描 devDependencies 后就机械删测试工具。
+
+---
+
+## G7.2 root tooling audit
+
+当前 root dev tools：
+
+```text
+Playwright
+TypeScript
+Prettier
+Node types
+```
+
+确认：
+
+- Playwright 是否有实际 e2e 配置/计划；
+- 如果 `test:e2e` 长期无测试且完全未使用，不要在本 Phase擅自删除；
+- 报告即可，除非用户明确允许清理。
+
+原因：
+
+```text
+dev dependency 不影响生产 runtime
+```
+
+不要为了依赖数好看破坏未来 e2e 入口。
+
+---
+
+## G7.3 worker 边界
+
+确认 worker：
+
+- 不常驻；
+- 没有 Redis；
+- 没有 DingTalk；
+- 没有 scheduler loop；
+- 执行一次归档后 close/exit。
+
+增加/保留测试。
+
+---
+
+## G7.4 API startup
+
+检查：
+
+- 不启动多余 timer；
+- 不初始化 unused client；
+- 不加载全量工资到内存作为 cache；
+- 不在 startup 解密工资。
+
+发现问题才改。
+
+不要加入 cache。
+
+---
+
+## G7.5 Web bundle
+
+运行正常 Vite build。
+
+记录：
+
+```text
+dist assets size
+```
+
+只作为基线。
+
+如果没有明显异常，不做 premature optimization。
+
+不要：
+
+- 为了 bundle 加复杂 code splitting；
+- 换 React；
+- 引入 bundler plugin。
+
+只有单个 bundle 出现明确不必要大依赖时才处理。
+
+---
+
+## G7.6 Architecture contract 增加 dependency review 规则
+
+AGENTS 保持一句：
+
+> 新 runtime dependency 必须说明必要性；能用现有依赖/标准库解决时，不新增依赖。
+
+不用创建 ADR 系统。
+
+---
+
+## G7 验证
+
+```bash
+pnpm architecture:check
+pnpm test
+pnpm typecheck
+pnpm build
+git diff --check
+```
+
+### G7 验收标准
+
+- runtime dependency 无明显废弃项；
+- worker 保持 one-shot；
+- API 不出现常驻无用基础设施；
+- Web bundle 有基线记录；
+- 没有为了“性能”引入额外复杂度。
+
+**完成后停止。**
+
+---
+
+# Phase G8 — GitHub CI 与最终架构验收
 
 **优先级：最终**
 
-## 当前 GitHub 状态
+当前目标：
 
-当前 `main` 最新提交没有 GitHub commit status/check 记录。
+> 每次 PR 不仅证明代码能 build/test，还证明架构没有明显回退。
 
-因此：
+---
 
-> GitHub 上目前不能直接证明 `pnpm test / typecheck / build` 每次提交都通过。
+## G8.1 GitHub Actions
 
-本 Phase 分两部分：
+新增：
 
-1. 最终本地验收必须做；
-2. GitHub Actions CI 推荐做，但如果用户不希望增加 CI 文件，可跳过并明确报告。
+```text
+.github/workflows/quality.yml
+```
 
-## Task G6.1 — 本地全量门禁
+触发：
 
-必须真实执行：
+```yaml
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+```
+
+只做 quality gate，不 deploy。
+
+---
+
+## G8.2 CI 步骤
+
+使用：
+
+```text
+Node 22
+pnpm 10.0.0
+```
+
+步骤：
 
 ```bash
+pnpm install --frozen-lockfile
+pnpm architecture:check
 pnpm test
 pnpm typecheck
 pnpm build
 ```
 
-全部成功。
+如 native `better-sqlite3` 构建需要 pnpm allow-build 设置：
 
-## Task G6.2 — 安全回归矩阵
+修现有 pnpm 配置。
 
-至少确认：
+不要：
 
-- employee A 拿不到 employee B 工资；
-- hidden fields 不在员工 JSON；
-- historical/default visibleFields [] 兼容；
-- explicit empty visibleFields 新配置被拒绝；
-- netAmountField 必须可见；
-- withdrawn batch 员工不可访问；
-- withdrawn employee 员工不可访问；
-- confirmation disabled API 409；
-- confirmation disabled UI 无按钮；
-- retry 不重复 delivered；
-- concurrent single send 同实例只发送一次；
-- sent <= total；
-- unique delivered count 正确；
-- Session 8h；
-- production HTTP 拒绝；
-- production relative SQLite path 拒绝；
-- archive >12m 员工不可访问；
-- authorization 不读取完整工资；
-- employee list 不解密其他员工工资；
-- sub-admin report 不解密未授权 batch；
-- admin detail 仍可授权读取完整 batch。
+- 切换 DB；
+- 改成 mock production dependency；
+- 跳过 tests。
 
-## Task G6.3 — 敏感信息扫描
+---
 
-```bash
-git status --short
+## G8.3 architecture warning 在 CI 的处理
 
-find . -maxdepth 5 -type f \
-  \( -name '*.sqlite' -o -name '*.db' -o -name '.env' -o -name '.env.*' \) \
-  -print
+Hard violation：
 
-rg -n "DINGTALK_CLIENT_SECRET|SALARY_ENCRYPTION_KEY|SESSION_SIGNING_KEY" \
-  . --glob '!pnpm-lock.yaml'
+```text
+exit 1
 ```
 
-人工区分：
+Warning：
 
-- env 变量名；
-- `.env.example` 开发 placeholder；
-- 真实 secret。
+```text
+输出
+exit 0
+```
 
-不得把真实 secret 写进报告。
+例如：
 
-## Task G6.4 — Public GitHub 额外检查
+### Hard
 
-因为仓库是 public，检查：
+- Redis；
+- Prisma；
+- packages -> apps；
+- web -> db；
+- domain -> db；
+- prohibited infra。
+
+### Warning
+
+- file size；
+- duplicate CSS（如仍存在合法 allowlist）。
+
+---
+
+## G8.4 安全最终矩阵
+
+至少验证：
+
+- A 不得看到 B 工资；
+- hidden fields 不离开 employee JSON；
+- explicit visibleFields [] 写入被拒绝；
+- historical/default [] 兼容；
+- netAmount visible；
+- batch withdrawn inaccessible；
+- item withdrawn inaccessible；
+- confirmation disabled 409；
+- failed-only resend；
+- concurrent single send；
+- unique delivered count；
+- sent <= total；
+- session 8h；
+- production HTTPS；
+- production absolute DB path；
+- archive 12 months；
+- authorization metadata only；
+- employee list no other employee decrypt；
+- report authorized batches only；
+- admin detail works；
+- architecture dependency direction passes。
+
+---
+
+## G8.5 public GitHub secret/history audit
+
+仓库是 public。
+
+运行：
 
 ```bash
 git log --all --oneline
 git log --all -- .env
-git log --all -- '*.sqlite' '*.db' '*.xlsx' '*.xls'
+git log --all -- '*.sqlite' '*.db'
+git log --all -- '*.xlsx' '*.xls'
 ```
 
-如果任何真实 secret / 工资文件曾进入 Git 历史：
-
-- 不只删除文件；
-- 报告需要 rotate secret；
-- 需要时另行授权进行 history rewrite；
-- 不擅自 force push。
-
-## Task G6.5 — 可选 GitHub Actions CI
-
-如果用户授权增加 CI：
-
-创建简单 workflow：
-
-```text
-push / pull_request
-Node 22
-pnpm 与 packageManager 一致
-install
-test
-typecheck
-build
-```
-
-不要加入 deploy。
-
-CI 只做质量门禁。
-
-CI 首次成功后，GitHub PR review 才能把 status checks 当作可靠证据。
-
-如果 native `better-sqlite3` 安装需要平台构建配置，按 pnpm 当前实际支持方式处理；
-不要为了 CI 改数据库技术。
-
-## Task G6.6 — 最终 diff
+工作树：
 
 ```bash
-git diff --check
-git status --short
-git diff --stat
+find . -maxdepth 5 -type f \
+  \( -name '.env' -o -name '*.sqlite' -o -name '*.db' -o -name '*.xlsx' -o -name '*.xls' \) \
+  -print
 ```
 
-确认：
+敏感变量搜索：
 
-- 没有真实数据库；
-- 没有真实工资文件；
-- 没有 secrets；
-- 没有无关 format；
-- 没有 Prisma/Redis/Postgres/BullMQ 回归；
-- 没有互动卡片接入；
-- 没有未经授权部署配置。
+```bash
+rg -n "DINGTALK_CLIENT_SECRET|SALARY_ENCRYPTION_KEY|SESSION_SIGNING_KEY" .
+```
 
-## 最终报告格式
+区分：
 
-只报告：
+- variable name；
+- `.env.example` placeholder；
+- real secret。
 
-1. 完成的 G Phase；
-2. 跳过的 G Phase及理由；
-3. test/typecheck/build 真实结果；
-4. 安全回归矩阵；
-5. GitHub CI 是否存在/通过；
-6. public repo secret/history 检查结果；
-7. 剩余风险；
-8. 上线前人工项：
-   - HTTPS；
-   - SQLite backup/restore 演练；
-   - secret 管理；
-   - 真实钉钉权限；
-   - cron/systemd archive。
+若真实 secret 曾 commit：
+
+```text
+rotate
+```
+
+只删除当前文件不够。
+
+history rewrite 必须另行用户授权。
 
 ---
 
-# 三、推荐执行顺序
+## G8.6 最终工程指标
+
+最终不追求漂亮数字，但检查：
+
+### Web
 
 ```text
-G0  项目指令 / HANDOFF / CODEX_TASKS 收口
- ↓
-G1  剩余业务正确性 + 前端语义测试
- ↓
-G2  敏感工资最小读取
- ↓
-G3  前端 App.tsx 拆分
- ↓
-G4  CSS 去重
- ↓
-G5  SalaryService 轻量拆分（条件执行）
- ↓
-G6  GitHub CI（可选）+ 最终上线验收
+App.tsx 只负责 composition
+主要 page/feature 职责单一
+```
+
+### API
+
+```text
+SalaryService 不再明显多职责
+或有合理保留说明
+```
+
+### DB
+
+```text
+summary / item / full batch 读取意图清晰
+```
+
+### CSS
+
+```text
+无明显依赖偶然 import order 的跨文件重复
+```
+
+### Dependencies
+
+```text
+无 Redis/Postgres/ORM/MQ 回归
+```
+
+### Runtime
+
+```text
+Web + API + SQLite + one-shot worker
 ```
 
 ---
 
-# 四、Codex 每次执行固定模板
+## G8.7 最终报告
 
-用户例如只说：
+必须报告：
+
+1. 当前 main baseline；
+2. 已完成 Phase；
+3. 未执行 Phase；
+4. test；
+5. typecheck；
+6. build；
+7. architecture:check；
+8. CI；
+9. security matrix；
+10. secret/history audit；
+11. architecture warnings；
+12. 仍存在的合理技术债；
+13. 上线人工项。
+
+---
+
+# 6. 推荐执行顺序
 
 ```text
-执行 CODEX_TASKS.md 的 Phase G2
+G1  正确性小收口
+ ↓
+G2  敏感数据最小读取
+ ↓
+G3  Architecture Guardrails
+ ↓
+G4  Web 测试 + App 结构拆分
+ ↓
+G5  CSS 职责与重复收口
+ ↓
+G6  Backend 条件轻拆
+ ↓
+G7  Runtime / dependency 轻量审查
+ ↓
+G8  CI + 最终验收
+```
+
+为什么把 G3 放在结构拆分前：
+
+> 先建立守门规则，再重构；之后每一次拆分都可以立即知道是否破坏依赖方向。
+
+---
+
+# 7. 当前优先级
+
+## P1
+
+### 1. 数据最小读取
+
+当前最有价值的安全/架构优化。
+
+### 2. delivered 唯一员工计数
+
+低改动、高确定性。
+
+### 3. Architecture Guardrails
+
+防止未来回退。
+
+---
+
+## P2
+
+### 4. App.tsx
+
+当前最大可维护性债务。
+
+### 5. CSS
+
+拆文件已经完成，但职责仍需收口。
+
+### 6. SalaryService
+
+在 G1/G2 后再决定拆分，不提前强拆。
+
+### 7. Runtime dependency
+
+以“无冗余”为目标，不追求极端零依赖。
+
+---
+
+# 8. Codex 固定执行模板
+
+用户：
+
+```text
+执行 CODEX_TASKS.md Phase G2
 ```
 
 Codex 必须：
 
-1. 只执行 G2；
-2. `git status --short`；
-3. 确认当前 branch / commit；
-4. 阅读 G2 涉及当前实现；
-5. 阅读已有测试；
-6. 行为修改先写失败测试；
-7. 确认修复前失败；
-8. 最小修改；
-9. 跑目标测试；
-10. 跑全量 test/typecheck/build；
-11. `git diff --check`；
-12. 报告；
-13. **停止，不自动执行 G3。**
+```text
+1. 只执行 G2
+2. 读取 AGENTS.md
+3. 读取 G2
+4. git status
+5. branch
+6. latest commit
+7. 阅读当前实现
+8. 阅读现有测试
+9. 行为修改测试先行
+10. 最小修改
+11. focused tests
+12. full tests
+13. typecheck
+14. build
+15. architecture:check（G3 完成后）
+16. git diff --check
+17. 报告
+18. STOP
+```
 
-如果当前代码已经正确实现某个 task：
-
-- 不机械改；
-- 补必要验证；
-- 报告“当前已满足，无业务修改”；
-- 不为了产生 diff 而改代码。
-
-如果需要跨 Phase 才能正确解决：
-
-- 停止；
-- 报告阻塞；
-- 等用户重新授权。
+不得自动进入 G3。
 
 ---
 
-# 五、当前最值得优先处理的工程问题
+# 9. Codex 报告必须回答的架构问题
 
-以当前 GitHub `main` 为准，优先级为：
-
-## P1
-
-1. employee list 不必要地通过 `listBatches()` 解密大量工资；
-2. sub-admin report 先 `listBatches()` 再过滤，可能解密未授权工资；
-3. sendItem deliveredCount 应按唯一员工统计；
-4. 根 AGENTS/HANDOFF 与当前整改方向不完全一致。
-
-## P2
-
-5. App.tsx 仍约 2383 行；
-6. web 行为测试太少；
-7. CSS 拆文件已完成，但重复 selector / 职责仍需收口；
-8. SalaryService 约 833 行，完成前面整改后再决定是否轻拆。
-
----
-
-# 六、本轮不要再做的事
-
-以下已经不是当前整改目标：
-
-- 重新实现 Session 8h；
-- 重新实现 employee DTO；
-- 重新实现 withdraw access；
-- 重新实现 failed-only resend；
-- 重新实现 single-send in-flight guard；
-- 重新清 Prisma / Redis / BullMQ；
-- 接互动卡片；
-- 做待办 OAuth；
-- 换数据库；
-- 引入 ORM；
-- 重写前端；
-- 为了“标准化”增加层级。
-
-当前目标是：
+每个 Phase 完成时增加：
 
 ```text
-把已经基本安全的内部工资条应用收口成
-“数据最小读取 + 行为有回归保护 + 文件职责清晰 + GitHub 可持续 review”
+Architecture impact
 ```
+
+回答：
+
+### Dependencies
+
+```text
+是否新增 runtime dependency？
+如有，为什么？
+```
+
+### Processes
+
+```text
+是否新增服务/worker/timer？
+```
+
+### Data access
+
+```text
+是否扩大工资读取/解密范围？
+```
+
+### Boundaries
+
+```text
+是否新增跨 package/app import？
+```
+
+### Size
+
+```text
+哪些文件超过 architecture warning？
+```
+
+### Duplication
+
+```text
+是否新增明显重复业务逻辑 / CSS selector？
+```
+
+这部分不需要长篇解释。
+
+没有变化写：
+
+```text
+none
+```
+
+---
+
+# 10. Definition of Done
+
+项目最终不是“拆成很多小文件”就算完成。
+
+真正完成必须满足：
+
+```text
+Security
+  +
+Correctness
+  +
+Minimal sensitive-data access
+  +
+Clear responsibility boundaries
+  +
+No unnecessary infrastructure
+  +
+No unnecessary runtime dependencies
+  +
+Automated architecture guardrails
+  +
+Tests / typecheck / build / CI
+```
+
+最终目标：
+
+> 让这个工资条应用继续保持为一个小而完整、容易部署、容易审查、容易修改的内部系统。
+
+不是：
+
+> 把它升级成一个需要专业平台团队维护的“企业级框架项目”。
+
+---
+
+# 11. 明确不在本轮范围
+
+除非用户以后单独授权，不执行：
+
+- 互动卡片；
+- action_card；
+- OAuth 待办；
+- token vault；
+- 远程通知撤回；
+- Redis；
+- MQ；
+- ORM；
+- PostgreSQL；
+- BI 集成；
+- microservice；
+- API gateway；
+- Kubernetes；
+- Docker orchestration；
+- React Router；
+- Redux；
+- React Query；
+- UI redesign；
+- 全量端到端真实工资通知测试。
+
+这些未来可以单独设计。
+
+不能因为存在历史文档就认为已经授权。
+
+---
+
+# 12. 下一步
+
+当前 G0 已完成。
+
+下一次 Codex 最合理的执行指令是：
+
+```text
+请先阅读 AGENTS.md 和 CODEX_TASKS.md。
+
+只执行 Phase G1。
+
+严格测试先行；完成 focused tests、pnpm test、pnpm typecheck、pnpm build 和 git diff --check。
+
+完成后报告 Architecture impact，然后停止，不要进入 G2，不要 push/merge，除非我另行授权。
+```
+
+G1 合并后：
+
+```text
+再执行 G2
+```
+
+G2 完成后再建立 G3 architecture guardrails。
+
+这样可以避免：
+
+```text
+一边拆架构
+一边修敏感数据路径
+```
+
+造成难以 review 的大 diff。
