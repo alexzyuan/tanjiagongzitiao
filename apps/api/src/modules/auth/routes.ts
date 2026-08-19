@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { DingTalkClient } from "@salary/dingtalk";
 import { z } from "zod";
-import { SessionService } from "./session.js";
+import { SESSION_MAX_AGE_MS, SessionService } from "./session.js";
 
 const AuthCodeSchema = z.object({ authCode: z.string().min(1) });
 const DevAuthSchema = z.object({
@@ -24,7 +24,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: {
     const input = AuthCodeSchema.parse(request.body);
     const identity = await deps.dingtalk.exchangeAuthCode(input.authCode);
     const token = deps.sessions.create(identity);
-    reply.setCookie("salary_session", token, { httpOnly: true, sameSite: "lax", secure: deps.secureCookie, path: "/" });
+    reply.setCookie("salary_session", token, { httpOnly: true, sameSite: "lax", secure: deps.secureCookie, path: "/", maxAge: SESSION_MAX_AGE_MS / 1000 });
     return reply.code(201).send({ userId: identity.userId, name: identity.name, corpId: identity.corpId });
   });
 
@@ -35,7 +35,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: {
       ? { userId: input.userId, corpId: input.corpId ?? "dev-corp", name: input.name ?? input.userId }
       : await deps.dingtalk.exchangeAuthCode("mock-code");
     const token = deps.sessions.create(identity);
-    reply.setCookie("salary_session", token, { httpOnly: true, sameSite: "lax", secure: deps.secureCookie, path: "/" });
+    reply.setCookie("salary_session", token, { httpOnly: true, sameSite: "lax", secure: deps.secureCookie, path: "/", maxAge: SESSION_MAX_AGE_MS / 1000 });
     return reply.code(201).send({ userId: identity.userId, name: identity.name, corpId: identity.corpId });
   });
 

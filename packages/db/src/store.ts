@@ -73,10 +73,6 @@ interface StoredEncryptedBatch extends Omit<StoredBatch, "items"> {
 
 export interface AppSettings {
   employeeVisibilityMonths: 12;
-  passwordVerification: boolean;
-  notificationMode: "work_notice" | "work_notice_with_todo";
-  payrollReminder: boolean;
-  employeeOnlyView: boolean;
 }
 
 export interface SalaryStore {
@@ -88,6 +84,7 @@ export interface SalaryStore {
     displaySettings?: SalarySlipDisplaySettings;
   }): StoredBatch;
   listBatches(): StoredBatch[];
+  listBatchSummaries(): SalaryBatchSummary[];
   getBatch(id: string): StoredBatch;
   setState(id: string, state: SalaryBatchState): StoredBatch;
   schedule(id: string, scheduledAt: string): StoredBatch;
@@ -130,10 +127,6 @@ export class MemorySalaryStore implements SalaryStore {
   private readonly salaryTemplates: SalarySlipTemplate[] = [];
   private readonly settings: AppSettings = {
     employeeVisibilityMonths: 12,
-    passwordVerification: false,
-    notificationMode: "work_notice",
-    payrollReminder: false,
-    employeeOnlyView: false,
   };
 
   constructor(private readonly encryptionKey: Buffer) {
@@ -181,6 +174,12 @@ export class MemorySalaryStore implements SalaryStore {
 
   listBatches(): StoredBatch[] {
     return [...this.batches.values()].map((batch) => this.publicBatch(batch));
+  }
+
+  listBatchSummaries(): SalaryBatchSummary[] {
+    return [...this.batches.values()].map(({ items: _items, ...batch }) =>
+      structuredClone(batch),
+    );
   }
 
   getBatch(id: string): StoredBatch {
@@ -257,7 +256,16 @@ export class MemorySalaryStore implements SalaryStore {
       (candidate) => candidate.employeeUserId === employeeUserId,
     );
     if (!item) throw new Error(`salary_item_not_found:${employeeUserId}`);
-    if (!item.viewedAt && !item.confirmedAt) current.sent += 1;
+    const alreadyDelivered = this.deliveries.some(
+      (delivery) =>
+        delivery.batchId === id &&
+        delivery.employeeUserId === employeeUserId &&
+        delivery.status === "delivered",
+    );
+    current.sent = Math.min(
+      current.total,
+      current.sent + (alreadyDelivered ? 0 : 1),
+    );
     return this.publicBatch(current);
   }
 

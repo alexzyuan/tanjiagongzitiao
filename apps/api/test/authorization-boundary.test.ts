@@ -22,6 +22,9 @@ describe("authorization boundaries", () => {
     const nowAuthorised = await app.inject({ method: "GET", url: "/v1/salary-batches", headers: { cookie: unauthorised } });
     expect(nowAuthorised.statusCode).toBe(200);
     expect(nowAuthorised.json()).toEqual([]);
+    const mainBatches = await app.inject({ method: "GET", url: "/v1/salary-batches", headers: { cookie: main } });
+    expect(mainBatches.statusCode).toBe(200);
+    expect(mainBatches.json().every((batch: { items?: unknown }) => batch.items === undefined)).toBe(true);
     await app.close();
   });
 });

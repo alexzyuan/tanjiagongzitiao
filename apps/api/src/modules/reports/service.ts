@@ -31,7 +31,11 @@ export class ReportService {
         evidenceEvents: evidence.filter(event => batches.some(batch => batch.id === event.batchId)).length,
         salaryTotals
       },
-      batches: batches.map(batch => ({ ...batch, deliveryFailures: deliveries.filter(event => event.batchId === batch.id && event.status === "failed").length, evidenceEvents: evidence.filter(event => event.batchId === batch.id).length }))
+      batches: batches.map(({ items: _items, ...batch }) => ({
+        ...batch,
+        deliveryFailures: deliveries.filter(event => event.batchId === batch.id && event.status === "failed").length,
+        evidenceEvents: evidence.filter(event => event.batchId === batch.id).length,
+      }))
     };
   }
 

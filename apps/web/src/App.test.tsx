@@ -14,7 +14,7 @@ const batch = {
   id: "batch-1", payrollMonth: "2026-08", title: "2026年08月工资条",
   state: "draft", total: 1, sent: 0, viewed: 0, confirmed: 0,
   assignedAdminIds: [], createdById: "dev-admin", displaySettings: {
-    netAmountField: "实发金额", hideEmptyFields: true, feedbackEnabled: false,
+    netAmountField: "实发金额", hideEmptyFields: true,
     confirmationEnabled: false, notice: "", greeting: "", theme: "default", visibleFields: [], fieldGroups: []
   }
 };

@@ -13,7 +13,6 @@ const SalarySlipDisplaySettingsSchema = z
   .object({
     netAmountField: z.string().trim().min(1).max(120),
     hideEmptyFields: z.boolean(),
-    feedbackEnabled: z.boolean(),
     confirmationEnabled: z.boolean(),
     notice: z.string().max(500),
     greeting: z.string().max(200),

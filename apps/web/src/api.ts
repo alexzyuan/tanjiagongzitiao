@@ -142,7 +142,6 @@ export interface SalarySlipTemplate { id: string; name: string; settings: Salary
 export interface SalarySlipDisplaySettings {
   netAmountField: string;
   hideEmptyFields: boolean;
-  feedbackEnabled: boolean;
   confirmationEnabled: boolean;
   notice: string;
   greeting: string;
@@ -209,8 +208,4 @@ export interface ReportSummary {
 
 export interface Settings {
   employeeVisibilityMonths: 12;
-  passwordVerification: boolean;
-  notificationMode: "work_notice" | "work_notice_with_todo";
-  payrollReminder: boolean;
-  employeeOnlyView: boolean;
 }

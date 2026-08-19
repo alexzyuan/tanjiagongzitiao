@@ -59,13 +59,26 @@ export function buildApp(options: { databasePath?: string } = {}) {
       return reply.code(401).send({ code: message });
     const statusCode =
       message === "salary_item_archived" ||
+      message === "salary_item_withdrawn" ||
       message.startsWith("salary_batch_not_found") ||
       message.startsWith("salary_item_not_found") ||
       message === "salary_import_preview_not_found"
         ? 404
+        : [
+              "salary_item_already_sent",
+              "salary_item_send_in_progress",
+              "salary_item_not_withdrawable",
+              "salary_confirmation_disabled",
+            ].includes(message)
+          ? 409
         : message.startsWith("dingtalk_api_error:identity.") ||
             message.startsWith("dingtalk_auth_code")
-          ? 401
+              ? 401
+          : [
+                "salary_visible_fields_required",
+                "salary_net_amount_field_must_be_visible",
+              ].includes(message)
+            ? 400
           : message.includes("access_denied") || message.endsWith("_required")
             ? 403
             : message.startsWith("salary_import_") ||

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isAbsolute } from "node:path";
 
 const ConfigSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -35,6 +36,13 @@ if (parsed.NODE_ENV === "production") {
     if (!process.env[variable]) throw new Error(`production_requires_${variable.toLowerCase()}`);
   }
   if (parsed.DINGTALK_MODE === "mock") throw new Error("production_requires_real_dingtalk_mode");
+  if (new URL(parsed.APP_BASE_URL).protocol !== "https:")
+    throw new Error("production_requires_https_app_base_url");
+  if (
+    parsed.SALARY_DATABASE_PATH === ":memory:" ||
+    !isAbsolute(parsed.SALARY_DATABASE_PATH)
+  )
+    throw new Error("production_requires_absolute_salary_database_path");
 }
 if (parsed.DINGTALK_MODE === "http" && !parsed.DINGTALK_AGENT_ID) throw new Error("dingtalk_agent_id_required_for_http_mode");
 export const config = parsed;

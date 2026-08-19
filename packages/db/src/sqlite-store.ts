@@ -4,6 +4,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type {
   SalaryBatchState,
+  SalaryBatchSummary,
   SalaryItemInput,
   SalarySlipDisplaySettings,
   SalarySlipTemplate,
@@ -29,10 +30,6 @@ import type {
 
 const defaults: AppSettings = {
   employeeVisibilityMonths: 12,
-  passwordVerification: false,
-  notificationMode: "work_notice",
-  payrollReminder: false,
-  employeeOnlyView: false,
 };
 
 type BatchRow = {
@@ -145,6 +142,15 @@ export class SqliteSalaryStore implements SalaryStore {
         .all() as BatchRow[]
     ).map((row) => this.toBatch(row));
   }
+  listBatchSummaries(): SalaryBatchSummary[] {
+    return (
+      this.db
+        .prepare(
+          "SELECT * FROM salary_batches ORDER BY payroll_month DESC, created_at DESC",
+        )
+        .all() as BatchRow[]
+    ).map((row) => this.toBatchSummary(row));
+  }
   getBatch(id: string): StoredBatch {
     return this.toBatch(this.batchRow(id));
   }
@@ -227,9 +233,18 @@ export class SqliteSalaryStore implements SalaryStore {
   markSent(id: string, employeeUserId: string): StoredBatch {
     this.db.transaction(() => {
       this.itemRow(id, employeeUserId);
+      const current = this.batchRow(id);
+      const alreadyDelivered = this.db
+        .prepare(
+          "SELECT 1 FROM salary_deliveries WHERE batch_id = ? AND employee_user_id = ? AND status = 'delivered' LIMIT 1",
+        )
+        .get(id, employeeUserId);
       this.db
-        .prepare("UPDATE salary_batches SET sent = sent + 1 WHERE id = ?")
-        .run(id);
+        .prepare("UPDATE salary_batches SET sent = ? WHERE id = ?")
+        .run(
+          Math.min(current.total, current.sent + (alreadyDelivered ? 0 : 1)),
+          id,
+        );
     })();
     return this.getBatch(id);
   }
@@ -331,7 +346,11 @@ export class SqliteSalaryStore implements SalaryStore {
     const row = this.db
       .prepare("SELECT value FROM salary_settings WHERE id = 'default'")
       .get() as { value: string } | undefined;
-    return { ...defaults, ...(row ? JSON.parse(row.value) : {}) };
+    const stored = row ? (JSON.parse(row.value) as Partial<AppSettings>) : {};
+    return {
+      employeeVisibilityMonths:
+        stored.employeeVisibilityMonths ?? defaults.employeeVisibilityMonths,
+    };
   }
   setSettings(patch: Partial<AppSettings>): AppSettings {
     const settings = { ...this.getSettings(), ...patch };
@@ -427,6 +446,22 @@ export class SqliteSalaryStore implements SalaryStore {
   }
   private toBatch(row: BatchRow): StoredBatch {
     return {
+      ...this.toBatchSummary(row),
+      createdAt: row.created_at,
+      ...(row.scheduled_at ? { scheduledAt: row.scheduled_at } : {}),
+      ...(row.archived_at ? { archivedAt: row.archived_at } : {}),
+      items: (
+        this.db
+          .prepare("SELECT * FROM salary_items WHERE batch_id = ? ORDER BY id")
+          .all(row.id) as ItemRow[]
+      ).map((item) => this.toItem(item)),
+    };
+  }
+  private toBatchSummary(row: BatchRow): SalaryBatchSummary {
+    const storedSettings = JSON.parse(row.display_settings || "{}");
+    const { feedbackEnabled: _feedbackEnabled, ...currentSettings } =
+      storedSettings as Record<string, unknown>;
+    return {
       id: row.id,
       payrollMonth: row.payroll_month,
       title: row.title,
@@ -439,16 +474,8 @@ export class SqliteSalaryStore implements SalaryStore {
       createdById: row.created_by_id,
       displaySettings: {
         ...defaultSalarySlipDisplaySettings,
-        ...JSON.parse(row.display_settings || "{}"),
+        ...currentSettings,
       },
-      createdAt: row.created_at,
-      ...(row.scheduled_at ? { scheduledAt: row.scheduled_at } : {}),
-      ...(row.archived_at ? { archivedAt: row.archived_at } : {}),
-      items: (
-        this.db
-          .prepare("SELECT * FROM salary_items WHERE batch_id = ? ORDER BY id")
-          .all(row.id) as ItemRow[]
-      ).map((item) => this.toItem(item)),
     };
   }
   private toItem(row: ItemRow): StoredItem {

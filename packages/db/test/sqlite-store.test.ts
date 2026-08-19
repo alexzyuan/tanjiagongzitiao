@@ -23,7 +23,6 @@ describe("SQLite salary store", () => {
         displaySettings: {
           netAmountField: "基本工资",
           hideEmptyFields: true,
-          feedbackEnabled: true,
           confirmationEnabled: false,
           notice: "工资条属于敏感信息，请注意保密",
           greeting: "{name}，工作辛苦啦",
@@ -34,7 +33,7 @@ describe("SQLite salary store", () => {
       });
       first.assignSubAdmin("finance-1");
       const template = first.createSalaryTemplate({ name: "常规工资条", settings: batch.displaySettings });
-      first.setSettings({ passwordVerification: true });
+      first.setSettings({ employeeVisibilityMonths: 12 });
       first.close();
 
       const reopened = new implementation.SqliteSalaryStore(databasePath, encryptionKey);
@@ -42,7 +41,6 @@ describe("SQLite salary store", () => {
       expect(reopened.getBatch(batch.id).displaySettings).toEqual({
         netAmountField: "基本工资",
         hideEmptyFields: true,
-        feedbackEnabled: true,
         confirmationEnabled: false,
         notice: "工资条属于敏感信息，请注意保密",
         greeting: "{name}，工作辛苦啦",
@@ -53,10 +51,32 @@ describe("SQLite salary store", () => {
       expect(reopened.getBatch(batch.id).items[0]?.fields).toEqual({ 基本工资: 12000 });
       expect(reopened.listSubAdmins()).toEqual(["finance-1"]);
       expect(reopened.listSalaryTemplates()).toMatchObject([{ id: template.id, name: "常规工资条", settings: batch.displaySettings }]);
-      expect(reopened.getSettings().passwordVerification).toBe(true);
+      expect(reopened.getSettings()).toEqual({ employeeVisibilityMonths: 12 });
       reopened.close();
 
       expect((await readFile(databasePath)).toString("utf8")).not.toContain("12000");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("counts each employee's successful delivery only once", async () => {
+    const implementation = await import("../src/sqlite-store.js");
+    const directory = await mkdtemp(join(tmpdir(), "salary-sqlite-count-"));
+    const databasePath = join(directory, "salary-slip.sqlite");
+    try {
+      const store = new implementation.SqliteSalaryStore(databasePath, encryptionKey);
+      const batch = store.createBatch({
+        payrollMonth: "2026-08",
+        title: "幂等计数",
+        createdById: "admin-1",
+        items: [{ employeeUserId: "employee-1", employeeName: "员工一", fields: { 实发金额: 1 } }],
+      });
+      expect(store.markSent(batch.id, "employee-1").sent).toBe(1);
+      store.recordDelivery({ batchId: batch.id, employeeUserId: "employee-1", status: "delivered", taskId: "task-1" });
+      expect(store.markSent(batch.id, "employee-1").sent).toBe(1);
+      expect(store.getBatch(batch.id).sent).toBe(1);
+      store.close();
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

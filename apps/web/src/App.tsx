@@ -22,6 +22,9 @@ import {
   type Settings,
 } from "./api";
 import { Icon } from "./icons";
+import { EmployeeHome, EmployeePage, SalarySlipPreview } from "./pages/EmployeeSalary";
+import { formatSalaryValue } from "./format";
+export { formatSalaryValue } from "./format";
 
 type Module = "salary" | "evidence" | "reports" | "permissions" | "settings";
 
@@ -909,283 +912,6 @@ function ManualPanel({
   );
 }
 
-function ImportPanel({
-  onClose,
-  onCreated,
-}: {
-  onClose: () => void;
-  onCreated: () => void;
-}) {
-  const [month, setMonth] = useState(currentMonth());
-  const [title, setTitle] = useState(`${currentMonth()} 工资条`);
-  const [file, setFile] = useState<File>();
-  const [strategy, setStrategy] = useState<EmployeeMatchStrategy>("name");
-  const [preview, setPreview] = useState<SalaryImportPreview>();
-  const [resolutions, setResolutions] = useState<Record<number, DirectoryUser>>(
-    {},
-  );
-  const [activeRow, setActiveRow] = useState<number>();
-  const [directoryQuery, setDirectoryQuery] = useState("");
-  const [directoryResults, setDirectoryResults] = useState<DirectoryUser[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
-  const unresolved =
-    preview?.rows.filter(
-      (row) => row.status !== "matched" && !resolutions[row.row],
-    ) ?? [];
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!file) {
-      setError("请选择 Excel 文件");
-      return;
-    }
-    setBusy(true);
-    setError(undefined);
-    const form = new FormData();
-    form.append("payrollMonth", month);
-    form.append("title", title);
-    form.append("matchStrategy", strategy);
-    form.append("file", file);
-    try {
-      setPreview(
-        await api<SalaryImportPreview>("/v1/salary-batches/import/preview", {
-          method: "POST",
-          body: form,
-        }),
-      );
-      setResolutions({});
-      setActiveRow(undefined);
-      setDirectoryResults([]);
-    } catch (reason) {
-      setError(errorText(reason));
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function searchDirectory() {
-    if (!preview || !activeRow || !directoryQuery.trim()) return;
-    setBusy(true);
-    setError(undefined);
-    try {
-      setDirectoryResults(
-        await api<DirectoryUser[]>(
-          `/v1/salary-batches/import/previews/${encodeURIComponent(preview.previewId)}/users?query=${encodeURIComponent(directoryQuery.trim())}`,
-        ),
-      );
-    } catch (reason) {
-      setError(errorText(reason));
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function commit() {
-    if (!preview || unresolved.length) return;
-    setBusy(true);
-    setError(undefined);
-    try {
-      await api<{ batchId: string }>("/v1/salary-batches/import/commit", {
-        method: "POST",
-        body: JSON.stringify({
-          previewId: preview.previewId,
-          resolutions: Object.entries(resolutions).map(([row, user]) => ({
-            row: Number(row),
-            userId: user.userId,
-          })),
-        }),
-      });
-      onCreated();
-    } catch (reason) {
-      setError(errorText(reason));
-    } finally {
-      setBusy(false);
-    }
-  }
-  function selectUser(row: number, user: DirectoryUser) {
-    setResolutions((value) => ({ ...value, [row]: user }));
-    setActiveRow(undefined);
-    setDirectoryResults([]);
-    setDirectoryQuery("");
-  }
-  if (preview)
-    return (
-      <Modal title="核对企业通讯录匹配" onClose={onClose}>
-        <div className="import-preview">
-          <div className="import-summary">
-            <span>
-              已匹配 <strong>{preview.matched}</strong>
-            </span>
-            <span>
-              待处理 <strong>{preview.unmatched + preview.ambiguous}</strong>
-            </span>
-            {preview.ignoredSummaryRows > 0 && (
-              <span>
-                已忽略汇总行 <strong>{preview.ignoredSummaryRows}</strong>
-              </span>
-            )}
-            <small>
-              预览在{" "}
-              {new Date(preview.expiresAt).toLocaleTimeString("zh-CN", {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}{" "}
-              失效，确认后才会创建工资表。
-            </small>
-          </div>
-          <div className="import-match-list">
-            {preview.rows.map((row) => {
-              const resolution = resolutions[row.row];
-              return (
-                <div className={`import-match-row ${row.status}`} key={row.row}>
-                  <div>
-                    <strong>第 {row.row} 行</strong>
-                    <span>{row.value || "未提供匹配字段"}</span>
-                  </div>
-                  {row.status === "matched" && row.user ? (
-                    <span className="match-success">
-                      已匹配：{directoryLabel(row.user)}
-                    </span>
-                  ) : resolution ? (
-                    <span className="match-success">
-                      已选择：{directoryLabel(resolution)}
-                    </span>
-                  ) : (
-                    <div className="match-actions">
-                      {row.candidates.map((user) => (
-                        <button
-                          type="button"
-                          className="text-button"
-                          key={user.userId}
-                          onClick={() => selectUser(row.row, user)}
-                        >
-                          {directoryLabel(user)}
-                        </button>
-                      ))}
-                      <button
-                        type="button"
-                        className="button secondary"
-                        onClick={() => {
-                          setActiveRow(row.row);
-                          setDirectoryResults([]);
-                        }}
-                      >
-                        选择人员
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          {activeRow && (
-            <div className="directory-search">
-              <strong>为第 {activeRow} 行选择企业人员</strong>
-              <div>
-                <input
-                  autoFocus
-                  value={directoryQuery}
-                  onChange={(event) => setDirectoryQuery(event.target.value)}
-                  placeholder="姓名、工号或钉钉用户 ID"
-                />
-                <button
-                  type="button"
-                  className="button secondary"
-                  disabled={busy || !directoryQuery.trim()}
-                  onClick={() => void searchDirectory()}
-                >
-                  搜索
-                </button>
-              </div>
-              {directoryResults.map((user) => (
-                <button
-                  type="button"
-                  className="directory-result"
-                  key={user.userId}
-                  onClick={() => selectUser(activeRow, user)}
-                >
-                  {directoryLabel(user)}
-                </button>
-              ))}
-            </div>
-          )}
-          {error && <div className="notice error">{error}</div>}
-          <div className="form-actions">
-            <button
-              type="button"
-              className="button secondary"
-              onClick={() => {
-                setPreview(undefined);
-                setError(undefined);
-              }}
-            >
-              重新上传
-            </button>
-            <button
-              type="button"
-              className="button primary"
-              disabled={busy || unresolved.length > 0}
-              onClick={() => void commit()}
-            >
-              <Icon name="check" size={16} />
-              创建工资条
-            </button>
-          </div>
-        </div>
-      </Modal>
-    );
-  return (
-    <Modal title="导入 Excel 工资表" onClose={onClose}>
-      <form className="form-grid" onSubmit={submit}>
-        <Field label="发薪月份">
-          <input
-            value={month}
-            onChange={(event) => setMonth(event.target.value)}
-            pattern="\d{4}-\d{2}"
-            required
-          />
-        </Field>
-        <Field label="工资条标题">
-          <input
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            required
-          />
-        </Field>
-        <Field label="匹配企业人员" wide>
-          <select
-            value={strategy}
-            onChange={(event) =>
-              setStrategy(event.target.value as EmployeeMatchStrategy)
-            }
-          >
-            <option value="name">按姓名匹配</option>
-            <option value="employeeNo">按工号匹配</option>
-            <option value="userId">按钉钉用户 ID 匹配</option>
-          </select>
-          <small className="field-help">
-            姓名同名时必须人工选择；使用工号或钉钉用户 ID 可避免重名。
-          </small>
-        </Field>
-        <Field label="工资表文件" wide>
-          <input
-            type="file"
-            accept=".xlsx,.xls,.csv"
-            onChange={(event) => setFile(event.target.files?.[0])}
-            required
-          />
-          <small className="field-help">
-            首行需包含所选匹配字段和至少一个薪资字段。导入前会读取企业通讯录并核对人员。
-          </small>
-        </Field>
-        {error && <div className="notice error span-2">{error}</div>}
-        <FormActions
-          onClose={onClose}
-          submitLabel={busy ? "正在核对通讯录" : "导入并核对"}
-        />
-      </form>
-    </Modal>
-  );
-}
-
 function ImportWizard({
   onClose,
   onCreated,
@@ -1208,7 +934,6 @@ function ImportWizard({
   const [settings, setSettings] = useState<SalarySlipDisplaySettings>({
     netAmountField: "",
     hideEmptyFields: true,
-    feedbackEnabled: true,
     confirmationEnabled: false,
     notice: "工资条属于敏感信息，请注意保密",
     greeting: "{name}，工作辛苦啦",
@@ -1312,6 +1037,14 @@ function ImportWizard({
 
   async function complete() {
     if (!preview || !settings.netAmountField || unresolved.length) return;
+    if (!settings.visibleFields.length) {
+      setError("至少选择一个显示薪资项");
+      return;
+    }
+    if (!settings.visibleFields.includes(settings.netAmountField)) {
+      setError("实发金额字段必须包含在显示薪资项中");
+      return;
+    }
     setBusy(true);
     setError(undefined);
     try {
@@ -1786,21 +1519,6 @@ function ImportWizard({
                     setSettings((value) => ({
                       ...value,
                       hideEmptyFields: !value.hideEmptyFields,
-                    }))
-                  }
-                >
-                  <span />
-                </button>
-              </div>
-              <div className="toggle-row">
-                <span>员工反馈</span>
-                <button
-                  type="button"
-                  className={`toggle ${settings.feedbackEnabled ? "on" : ""}`}
-                  onClick={() =>
-                    setSettings((value) => ({
-                      ...value,
-                      feedbackEnabled: !value.feedbackEnabled,
                     }))
                   }
                 >
@@ -2431,7 +2149,7 @@ function SettingsCenter() {
       <div className="section-header">
         <div>
           <h2>系统设置</h2>
-          <p>配置员工查看范围、通知方式和安全策略。</p>
+          <p>配置员工工资条的查看范围。</p>
         </div>
         <button className="button primary" onClick={save}>
           <Icon name="check" size={17} />
@@ -2464,39 +2182,6 @@ function SettingsCenter() {
         >
           <span className="fixed-value">待授权</span>
         </SettingRow>
-        <SettingRow
-          title="密码验证"
-          description="员工进入工资条前增加额外密码验证。"
-        >
-          <Toggle
-            checked={settings.passwordVerification}
-            onChange={(value) =>
-              setSettings({ ...settings, passwordVerification: value })
-            }
-          />
-        </SettingRow>
-        <SettingRow
-          title="发薪提醒"
-          description="在发薪日前提醒管理员检查工资表。"
-        >
-          <Toggle
-            checked={settings.payrollReminder}
-            onChange={(value) =>
-              setSettings({ ...settings, payrollReminder: value })
-            }
-          />
-        </SettingRow>
-        <SettingRow
-          title="仅员工展示工资条"
-          description="工资条详情和我的页仅保留工资数据，不展示其他应用内容。"
-        >
-          <Toggle
-            checked={settings.employeeOnlyView}
-            onChange={(value) =>
-              setSettings({ ...settings, employeeOnlyView: value })
-            }
-          />
-        </SettingRow>
       </div>
       <div className="log-link">
         <Icon name="receipt" size={18} />
@@ -2507,326 +2192,6 @@ function SettingsCenter() {
         <span className="muted">在发薪存证中查看</span>
       </div>
     </section>
-  );
-}
-
-function EmployeeHome({ employeeId }: { employeeId: string | undefined }) {
-  const [identity, setIdentity] = useState<Identity>();
-  const [slips, setSlips] = useState<Array<{ batch: Batch; item: SalaryItem }>>(
-    [],
-  );
-  const [month, setMonth] = useState<string>();
-  const [error, setError] = useState<string>();
-  useEffect(() => {
-    ensureSession(employeeId)
-      .then(setIdentity)
-      .then(() =>
-        api<Array<{ batch: Batch; item: SalaryItem }>>("/v1/me/salary-slips"),
-      )
-      .then((value) => {
-        setSlips(value);
-        setMonth(value[0]?.batch.payrollMonth);
-      })
-      .catch((reason) => setError(errorText(reason)));
-  }, [employeeId]);
-  if (error)
-    return (
-      <div className="employee-page">
-        <FullError message={error} />
-      </div>
-    );
-  if (!identity || !month)
-    return (
-      <div className="employee-page">
-        <Loading />
-      </div>
-    );
-  const monthSlips = slips.filter(
-    (entry) => entry.batch.payrollMonth === month,
-  );
-  const total = monthSlips.reduce((sum, entry) => {
-    const value = entry.item.fields[entry.batch.displaySettings.netAmountField];
-    return sum + (typeof value === "number" ? value : 0);
-  }, 0);
-  const months = [...new Set(slips.map((entry) => entry.batch.payrollMonth))];
-  return (
-    <div className="employee-page employee-mobile-shell">
-      <div className="employee-mobile-nav">
-        <span>‹</span>
-        <strong>我的</strong>
-        <span>中文</span>
-      </div>
-      <main className="employee-home">
-        <select
-          className="employee-month-select"
-          value={month}
-          onChange={(event) => setMonth(event.target.value)}
-        >
-          {months.map((value) => (
-            <option key={value} value={value}>
-              {value.replace("-", ".")}
-            </option>
-          ))}
-        </select>
-        <section className="employee-total">
-          <small>{identity.name}</small>
-          <strong>{formatSalaryValue(total)}</strong>
-          <span>实发金额总和</span>
-        </section>
-        <section className="employee-slip-list">
-          {monthSlips.map(({ batch, item }) => {
-            const net = item.fields[batch.displaySettings.netAmountField];
-            return (
-              <button
-                className="employee-slip-card"
-                type="button"
-                key={batch.id}
-                onClick={() =>
-                  window.location.assign(`/employee/salary-slips/${batch.id}`)
-                }
-              >
-                <span>
-                  <b>{batch.title}</b>
-                  <small>
-                    明细 <i>›</i>
-                  </small>
-                </span>
-                <strong>
-                  {typeof net === "number" ? formatSalaryValue(net) : "--"}
-                </strong>
-                <em>{batch.displaySettings.netAmountField}</em>
-              </button>
-            );
-          })}
-        </section>
-      </main>
-      <nav className="employee-bottom-nav">
-        <span>
-          ▣<b>工资条</b>
-        </span>
-        <span>
-          ◇<b>发现</b>
-        </span>
-        <span className="active">
-          ♟<b>我的</b>
-        </span>
-      </nav>
-    </div>
-  );
-}
-
-function EmployeePage({ employeeId }: { employeeId: string | undefined }) {
-  const batchId = window.location.pathname.split("/").filter(Boolean).at(-1);
-  const [identity, setIdentity] = useState<Identity>();
-  const [payload, setPayload] = useState<{ batch: Batch; item: SalaryItem }>();
-  const [error, setError] = useState<string>();
-  const [confirmed, setConfirmed] = useState(false);
-  useEffect(() => {
-    ensureSession(employeeId)
-      .then(setIdentity)
-      .then(() =>
-        batchId
-          ? api<{ batch: Batch; item: SalaryItem }>(
-              `/v1/me/salary-slips/${batchId}`,
-            ).then(setPayload)
-          : Promise.resolve(),
-      )
-      .catch((reason) => setError(errorText(reason)));
-  }, [batchId, employeeId]);
-  useEffect(() => {
-    if (!payload || !batchId || payload.item.viewedAt) return;
-    api(`/v1/me/salary-slips/${batchId}/view`, { method: "POST" })
-      .then(() =>
-        setPayload((value) =>
-          value
-            ? {
-                ...value,
-                item: { ...value.item, viewedAt: new Date().toISOString() },
-              }
-            : value,
-        ),
-      )
-      .catch((reason) => setError(errorText(reason)));
-  }, [batchId, payload]);
-  async function confirm() {
-    if (!batchId) return;
-    try {
-      await api(`/v1/me/salary-slips/${batchId}/view`, { method: "POST" });
-      await api(`/v1/me/salary-slips/${batchId}/confirm`, { method: "POST" });
-      setConfirmed(true);
-      if (payload)
-        setPayload({
-          ...payload,
-          item: {
-            ...payload.item,
-            confirmedAt: new Date().toISOString(),
-            viewedAt: payload.item.viewedAt ?? new Date().toISOString(),
-          },
-        });
-    } catch (reason) {
-      setError(errorText(reason));
-    }
-  }
-  if (error)
-    return (
-      <div className="employee-page">
-        <FullError message={error} />
-      </div>
-    );
-  if (!identity || !payload)
-    return (
-      <div className="employee-page">
-        <Loading />
-      </div>
-    );
-  const allFields = Object.entries(payload.item.fields);
-  const settings = payload.batch.displaySettings;
-  const netValue = payload.item.fields[settings.netAmountField];
-  const visible = settings.visibleFields.length
-    ? settings.visibleFields
-    : allFields.map(([key]) => key);
-  const fields = allFields.filter(
-    ([key, value]) =>
-      key !== settings.netAmountField &&
-      visible.includes(key) &&
-      (!settings.hideEmptyFields ||
-        (value !== null && value !== "" && value !== 0)),
-  );
-  const fieldByKey = new Map(fields);
-  const groupedKeys = new Set(
-    settings.fieldGroups.flatMap((group) => group.fieldKeys),
-  );
-  const renderField = ([key, value]: [string, string | number | null]) => (
-    <div className="salary-field" key={key}>
-      <span>{key}</span>
-      <strong>{formatSalaryValue(value)}</strong>
-    </div>
-  );
-  return (
-    <div className="employee-page">
-      <div className="employee-top">
-        <span className="brand-mark">
-          <Icon name="wallet" size={18} />
-        </span>
-        <div>
-          <strong>工资条</strong>
-          <small>仅本人可见</small>
-        </div>
-        <span className="employee-security">
-          <Icon name="shield" size={15} />
-          加密
-        </span>
-      </div>
-      <main className="employee-sheet">
-        <div className="employee-title">
-          <span className="eyebrow">{payload.batch.payrollMonth}</span>
-          <h1>{payload.batch.title}</h1>
-          <p>
-            {identity.name} ·{" "}
-            {payload.item.employeeNo ?? payload.item.employeeUserId}
-          </p>
-        </div>
-        <div className="net-card">
-          <span>实发金额（元）</span>
-          <strong>
-            {typeof netValue === "number" ? formatSalaryValue(netValue) : "--"}
-          </strong>
-          <small>工资信息属于个人敏感数据，请妥善保管</small>
-        </div>
-        <div className="salary-fields">
-          {settings.fieldGroups.map((group) => {
-            const groupFields = group.fieldKeys.flatMap((key) => {
-              const value = fieldByKey.get(key);
-              return value === undefined
-                ? []
-                : [[key, value] as [string, string | number | null]];
-            });
-            return groupFields.length ? (
-              <section className="salary-field-group" key={group.id}>
-                <h2>{group.name}</h2>
-                {groupFields.map(renderField)}
-              </section>
-            ) : null;
-          })}
-          {fields.filter(([key]) => !groupedKeys.has(key)).map(renderField)}
-        </div>
-        <button
-          className={`employee-confirm ${confirmed || payload.item.confirmedAt ? "confirmed" : ""}`}
-          onClick={confirm}
-          disabled={Boolean(confirmed || payload.item.confirmedAt)}
-        >
-          <Icon name="check" size={19} />
-          {confirmed || payload.item.confirmedAt ? "已确认查看" : "确认已查看"}
-        </button>
-        <p className="employee-footnote">
-          本工资条通过企业内部工作通知送达，查看和确认时间将生成存证记录。
-        </p>
-      </main>
-    </div>
-  );
-}
-
-function SalarySlipPreview({
-  title,
-  settings,
-  fields,
-  sample,
-}: {
-  title: string;
-  settings: SalarySlipDisplaySettings;
-  fields: string[];
-  sample: Record<string, unknown>;
-}) {
-  const visibleFields = fields.filter((field) =>
-    settings.visibleFields.includes(field),
-  );
-  const groupedKeys = new Set(
-    settings.fieldGroups.flatMap((group) => group.fieldKeys),
-  );
-  const renderField = (field: string) => (
-    <div className="salary-preview-field" key={field}>
-      <span>{field}</span>
-      <strong>
-        {formatSalaryValue(sample[field] as string | number | null | undefined)}
-      </strong>
-    </div>
-  );
-  return (
-    <aside
-      className={`salary-slip-preview theme-${settings.theme}`}
-      aria-label="工资条预览"
-    >
-      <strong>{title}</strong>
-      <span>{settings.greeting.replace("{name}", "员工")}</span>
-      <b>
-        {formatSalaryValue(
-          sample[settings.netAmountField] as string | number | null | undefined,
-        )}
-      </b>
-      <small>{settings.netAmountField || "实发金额"}</small>
-      <div className="salary-preview-scroll">
-        {settings.notice && (
-          <p>
-            <strong>温馨提示</strong>
-            {settings.notice}
-          </p>
-        )}
-        {settings.fieldGroups.map((group) => {
-          const groupFields = group.fieldKeys.filter((field) =>
-            visibleFields.includes(field),
-          );
-          return groupFields.length ? (
-            <section key={group.id}>
-              <h4>{group.name}</h4>
-              {groupFields.map(renderField)}
-            </section>
-          ) : null;
-        })}
-        {visibleFields
-          .filter((field) => !groupedKeys.has(field))
-          .map(renderField)}
-      </div>
-    </aside>
   );
 }
 
@@ -2990,22 +2355,6 @@ function formatDate(value: string) {
 }
 function formatMoney(value: number) {
   return formatSalaryValue(value, true);
-}
-export function formatSalaryValue(
-  value: string | number | null | undefined,
-  grouping = false,
-): string {
-  if (value === null || value === undefined || value === "") return "-";
-  if (typeof value !== "number") return String(value);
-  const rounded =
-    (Math.round((Math.abs(value) + Number.EPSILON) * 100) / 100) *
-    Math.sign(value || 1);
-  return grouping
-    ? rounded.toLocaleString("zh-CN", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      })
-    : rounded.toFixed(2);
 }
 function defaultFieldGroups(fields: string[]): SalarySlipFieldGroup[] {
   const group = (id: string, name: string, matcher: RegExp) => ({

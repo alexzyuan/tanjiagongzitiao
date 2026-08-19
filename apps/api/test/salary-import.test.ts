@@ -58,6 +58,34 @@ describe("salary draft routes", () => {
     expect(response.json().errors).toEqual([]);
     await app.close();
   });
+
+  it("rejects an explicitly empty visible field selection", async () => {
+    const { app } = buildApp();
+    const cookie = await cookieFor(app);
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/salary-batches",
+      headers: { cookie },
+      payload: {
+        payrollMonth: "2026-08",
+        title: "空白字段工资条",
+        rows: [{ userId: "employee-a", name: "员工A", 基本工资: 9000 }],
+        displaySettings: {
+          netAmountField: "基本工资",
+          hideEmptyFields: true,
+          confirmationEnabled: false,
+          notice: "",
+          greeting: "{name}",
+          theme: "default",
+          visibleFields: [],
+          fieldGroups: [],
+        },
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBe("salary_visible_fields_required");
+    await app.close();
+  });
 });
 
 describe("directory matching", () => {
@@ -133,11 +161,12 @@ describe("directory matched import workflow", () => {
     const result = salary.commitImport("dev-admin", preview.previewId, [{ row: 3, userId: "employee-b" }], {
       netAmountField: "实发工资",
       hideEmptyFields: true,
-      feedbackEnabled: true,
       confirmationEnabled: false,
       notice: "工资条属于敏感信息，请注意保密",
       greeting: "{name}，工作辛苦啦",
       theme: "default"
+      ,visibleFields: ["实发工资"]
+      ,fieldGroups: []
     });
     expect(result.batchId).toMatch(/^batch-/);
     const batch = salary.getBatch({ kind: "main_admin", userId: "dev-admin" }, result.batchId ?? "");

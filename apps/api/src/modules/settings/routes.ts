@@ -7,11 +7,7 @@ import type { AuditService } from "../audit/service.js";
 
 const SettingsPatch = z.object({
   employeeVisibilityMonths: z.literal(12).optional(),
-  passwordVerification: z.boolean().optional(),
-  notificationMode: z.literal("work_notice").optional(),
-  payrollReminder: z.boolean().optional(),
-  employeeOnlyView: z.boolean().optional(),
-});
+}).strict();
 
 function actor(
   request: FastifyRequest,

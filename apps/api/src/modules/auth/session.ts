@@ -3,6 +3,8 @@ import type { DingTalkIdentity } from "@salary/dingtalk";
 
 export interface SessionIdentity extends DingTalkIdentity { issuedAt: number; }
 
+export const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000;
+
 export class SessionService {
   constructor(private readonly signingKey: string) {}
 
@@ -18,7 +20,17 @@ export class SessionService {
     const expected = this.sign(payload);
     if (signature.length !== expected.length || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) throw new Error("session_signature_invalid");
     const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as SessionIdentity;
-    if (!decoded.userId || !decoded.corpId || !decoded.name || !decoded.issuedAt) throw new Error("session_payload_invalid");
+    if (
+      !decoded.userId ||
+      !decoded.corpId ||
+      !decoded.name ||
+      !Number.isSafeInteger(decoded.issuedAt) ||
+      decoded.issuedAt <= 0
+    )
+      throw new Error("session_payload_invalid");
+    const age = Date.now() - decoded.issuedAt;
+    if (age < 0 || age > SESSION_MAX_AGE_MS)
+      throw new Error("session_expired");
     return decoded;
   }
 

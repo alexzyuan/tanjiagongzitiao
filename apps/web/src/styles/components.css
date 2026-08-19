@@ -1,0 +1,269 @@
+.toggle-row {
+  height: 50px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #eef2f6;
+  font-size: 14px;
+}
+.salary-slip-preview {
+  position: sticky;
+  top: 20px;
+  height: min(680px, calc(100vh - 150px));
+  display: grid;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
+  align-content: start;
+  gap: 13px;
+  overflow: hidden;
+  border: 1px solid #dce5ef;
+  border-radius: 21px;
+  padding: 28px 22px;
+  background: #fff;
+  box-shadow: 0 12px 30px rgb(16 34 53 / 8%);
+}
+.salary-field-group h2 {
+  margin: 14px 0 5px;
+  padding: 0 4px;
+  color: #8d9aaa;
+  font-size: 12px;
+  font-weight: 650;
+}
+.salary-slip-preview > strong {
+  text-align: center;
+  font-size: 16px;
+}
+.salary-slip-preview > span {
+  margin: 12px -22px 0;
+  padding: 30px 18px 0;
+  color: #dceeff;
+  background: #1682f4;
+  text-align: center;
+}
+.salary-slip-preview > b {
+  margin: -13px -22px 0;
+  padding: 0 18px 28px;
+  color: #fff;
+  background: #1682f4;
+  font-size: 34px;
+  text-align: center;
+}
+.salary-slip-preview > small {
+  margin: -13px -22px 0;
+  padding: 0 18px 26px;
+  color: #cfe8ff;
+  background: #1682f4;
+  text-align: center;
+}
+.salary-preview-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.salary-slip-preview p {
+  display: grid;
+  gap: 7px;
+  margin: 0 0 10px;
+  padding: 13px;
+  color: #786b39;
+  background: #fff8dc;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.salary-preview-scroll section {
+  margin: 0 0 10px;
+}
+.salary-preview-scroll h4 {
+  margin: 0;
+  padding: 10px 2px 6px;
+  color: #8b99a8;
+  font-size: 11px;
+  font-weight: 650;
+}
+.salary-preview-field {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 9px;
+  border-bottom: 1px solid #edf1f5;
+  background: #fff;
+  color: #516172;
+  font-size: 12px;
+}
+.salary-preview-field strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.theme-technology > span,
+.theme-technology > b,
+.theme-technology > small {
+  background: #304bcf;
+}
+.theme-night > span,
+.theme-night > b,
+.theme-night > small {
+  background: #102244;
+}
+.theme-gold > span,
+.theme-gold > b,
+.theme-gold > small {
+  background: #d08a11;
+}
+.theme-lotus > span,
+.theme-lotus > b,
+.theme-lotus > small {
+  background: #168971;
+}
+.match-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.directory-search {
+  display: grid;
+  gap: 10px;
+  margin-top: 15px;
+  padding: 15px;
+  border: 1px solid #bfdbfb;
+  border-radius: 6px;
+  background: #f8fbff;
+}
+.directory-search > strong {
+  color: #38536e;
+  font-size: 13px;
+}
+.directory-search > div {
+  display: flex;
+  gap: 8px;
+}
+.directory-search input {
+  min-width: 0;
+  flex: 1;
+  height: 36px;
+  border: 1px solid #d7e0e9;
+  border-radius: 5px;
+  padding: 0 10px;
+}
+.directory-result {
+  border: 1px solid #e0e9f1;
+  border-radius: 5px;
+  background: #fff;
+  padding: 9px 10px;
+  text-align: left;
+  color: #36516b;
+  font-size: 12px;
+}
+.directory-result:hover {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+@media (max-width: 700px) {
+  .salary-heading {
+    gap: 8px;
+  }
+  .salary-heading h2 {
+    font-size: 15px;
+  }
+  .salary-heading .security-badge {
+    font-size: 0;
+    padding: 6px;
+  }
+  .salary-alert {
+    align-items: flex-start;
+    gap: 7px 9px;
+    padding: 13px 14px;
+  }
+  .alert-divider {
+    display: none;
+  }
+  .manager-card {
+    width: 100%;
+    margin: 4px 0 0;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+  }
+  .salary-controls {
+    align-items: stretch;
+  }
+  .salary-controls > .button,
+  .salary-controls .self-send-tip,
+  .month-picker-wrap {
+    flex: 1 1 calc(50% - 5px);
+  }
+  .self-send-tip {
+    justify-content: center;
+  }
+  .month-picker {
+    width: 100%;
+  }
+  .month-panel {
+    left: auto;
+    right: 0;
+    width: min(280px, calc(100vw - 30px));
+  }
+  .salary-overview {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 15px;
+    padding: 16px;
+  }
+  .overview-title {
+    grid-column: 1 / -1;
+  }
+  .overview-stat {
+    border-left: 0;
+    padding-left: 0;
+  }
+  .overview-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    padding: 13px 0 0;
+  }
+  .employee-toolbar {
+    align-items: stretch;
+    flex-wrap: wrap;
+    padding: 12px;
+  }
+  .employee-toolbar .search {
+    width: 100%;
+  }
+  .employee-toolbar .filter-select,
+  .employee-toolbar .more-wrap,
+  .employee-toolbar > .button {
+    flex: 1;
+  }
+  .employee-toolbar > .button:nth-last-child(2) {
+    margin-left: 0;
+  }
+  .more-menu {
+    left: 0;
+    right: auto;
+  }
+}
+@media print {
+  .sidebar,
+  .topbar,
+  .salary-controls,
+  .employee-toolbar,
+  .back-button,
+  .salary-alert .manager-card,
+  .salary-heading .security-badge {
+    display: none !important;
+  }
+  body,
+  .main-content,
+  .page-wrap {
+    background: #fff;
+    padding: 0;
+  }
+  .salary-workspace {
+    gap: 8px;
+  }
+  .salary-overview,
+  .employee-table-card {
+    border-color: #cfd7df;
+  }
+}

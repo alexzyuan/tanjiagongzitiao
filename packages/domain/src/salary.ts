@@ -40,7 +40,6 @@ export interface SalarySlipFieldGroup {
 export interface SalarySlipDisplaySettings {
   netAmountField: string;
   hideEmptyFields: boolean;
-  feedbackEnabled: boolean;
   confirmationEnabled: boolean;
   notice: string;
   greeting: string;
@@ -59,7 +58,6 @@ export interface SalarySlipTemplate {
 export const defaultSalarySlipDisplaySettings: SalarySlipDisplaySettings = {
   netAmountField: "实发金额",
   hideEmptyFields: true,
-  feedbackEnabled: false,
   confirmationEnabled: false,
   notice: "工资条属于敏感信息，请注意保密",
   greeting: "{name}，工作辛苦啦",

@@ -2,7 +2,19 @@
   "name": "@salary/worker",
   "private": true,
   "type": "module",
-  "scripts": { "dev": "tsx watch src/worker.ts", "build": "tsc -p tsconfig.json", "test": "vitest run", "lint": "tsc --noEmit -p tsconfig.json", "typecheck": "tsc --noEmit -p tsconfig.json" },
-  "dependencies": { "@salary/db": "workspace:*", "@salary/dingtalk": "workspace:*", "bullmq": "^5.34.10", "ioredis": "^5.4.1" },
-  "devDependencies": { "tsx": "^4.19.3", "vitest": "^3.0.5" }
+  "scripts": {
+    "dev": "tsx watch src/worker.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/worker.js",
+    "test": "vitest run",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@salary/db": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.3",
+    "vitest": "^3.0.5"
+  }
 }
