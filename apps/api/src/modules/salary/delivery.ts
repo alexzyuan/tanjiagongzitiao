@@ -18,6 +18,15 @@ export class SalaryDeliveryService {
     private readonly appBaseUrl: string,
   ) {}
 
+  isItemSendInFlight(batchId: string, employeeUserId: string) {
+    return this.inFlightItemSends.has(`${batchId}:${employeeUserId}`);
+  }
+
+  hasBatchSendInFlight(batchId: string) {
+    const prefix = `${batchId}:`;
+    return [...this.inFlightItemSends].some((key) => key.startsWith(prefix));
+  }
+
   async send(actor: Access, batchId: string, scheduledAt?: string) {
     if (!canManageBatch(actor, batchId))
       throw new Error("salary_batch_access_denied");
@@ -48,20 +57,12 @@ export class SalaryDeliveryService {
     if (!item) throw new Error("salary_item_not_found");
     if (["archived", "sending"].includes(batch.state))
       throw new Error(`salary_item_not_sendable:${batch.state}`);
-    const alreadyDelivered = this.store
-      .listDeliveries(batchId)
-      .some(
-        (delivery) =>
-          delivery.employeeUserId === item.employeeUserId &&
-          delivery.status === "delivered",
-      );
-    if (alreadyDelivered) throw new Error("salary_item_already_sent");
     const latestDelivery = this.store
       .listDeliveries(batchId)
       .filter((delivery) => delivery.employeeUserId === item.employeeUserId)
       .at(-1);
-    if (latestDelivery?.status === "withdrawn")
-      throw new Error("salary_item_withdrawn");
+    if (latestDelivery?.status === "delivered")
+      throw new Error("salary_item_already_sent");
     const sendKey = `${batchId}:${item.employeeUserId}`;
     if (this.inFlightItemSends.has(sendKey))
       throw new Error("salary_item_send_in_progress");

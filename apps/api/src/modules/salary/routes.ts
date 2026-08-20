@@ -54,6 +54,11 @@ const MatchStrategySchema = z.enum(["userId", "employeeNo", "name"]);
 const DirectoryQuerySchema = z
   .object({ query: z.string().trim().max(120).optional() })
   .strict();
+const SalaryItemEditSchema = z
+  .object({
+    fields: z.record(z.union([z.string(), z.number(), z.null()])),
+  })
+  .strict();
 
 function user(request: FastifyRequest, sessions: SessionService) {
   return sessions.read(request.cookies.salary_session);
@@ -177,6 +182,27 @@ export function registerSalaryRoutes(
       (request.params as { batchId: string }).batchId,
     );
   });
+  app.delete("/v1/salary-batches/:batchId", async (request) => {
+    const identity = user(request, deps.sessions);
+    return deps.salary.deleteBatch(
+      deps.authz.accessFor(identity.userId),
+      (request.params as { batchId: string }).batchId,
+    );
+  });
+  app.patch(
+    "/v1/salary-batches/:batchId/items/:itemId",
+    async (request) => {
+      const identity = user(request, deps.sessions);
+      const params = request.params as { batchId: string; itemId: string };
+      const body = SalaryItemEditSchema.parse(request.body);
+      return deps.salary.editItem(
+        deps.authz.accessFor(identity.userId),
+        params.batchId,
+        params.itemId,
+        body.fields,
+      );
+    },
+  );
   app.post("/v1/salary-batches/:batchId/send", async (request) => {
     const identity = user(request, deps.sessions);
     return deps.salary.send(

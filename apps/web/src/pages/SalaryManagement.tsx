@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+} from "react";
 import { api, type Batch, type SalaryItem } from "../api";
 import { Icon } from "../icons";
 import { formatSalaryValue } from "../format";
@@ -6,7 +12,9 @@ import { currentMonth } from "../utils/ui";
 import { errorText } from "../utils/errors";
 import { EmptyState } from "../components/EmptyState";
 import { Status } from "../components/Status";
-import { BatchDetail } from "../features/salary/BatchDetail";
+import { Field } from "../components/Field";
+import { FormActions } from "../components/FormActions";
+import { Modal } from "../components/Modal";
 import { ImportWizard } from "../features/salary/ImportWizard";
 import { ManualPanel } from "../features/salary/ManualPanel";
 
@@ -27,6 +35,8 @@ export function SalaryManagement({
   const [activeBatchId, setActiveBatchId] = useState<string>();
   const [detailBatchId, setDetailBatchId] = useState<string>();
   const [detail, setDetail] = useState<Batch>();
+  const [editingItem, setEditingItem] = useState<SalaryItem>();
+  const [editFields, setEditFields] = useState<Record<string, string>>({});
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [moreOpen, setMoreOpen] = useState(false);
   const [mode, setMode] = useState<"manual" | "import">();
@@ -55,6 +65,7 @@ export function SalaryManagement({
   const loadDetail = useCallback(async (batchId: string) => {
     const next = await api<Batch>(`/v1/salary-batches/${batchId}`);
     setDetail(next);
+    return next;
   }, []);
   useEffect(() => {
     setActiveBatchId((current) =>
@@ -65,13 +76,14 @@ export function SalaryManagement({
     setSelectedItems([]);
   }, [monthBatches]);
   useEffect(() => {
-    if (!activeBatch) {
+    if (!detailBatchId) {
       setDetail(undefined);
       return;
     }
-    loadDetail(activeBatch.id)
+    loadDetail(detailBatchId)
       .catch((reason) => setError(errorText(reason)));
-  }, [activeBatch?.id, loadDetail]);
+  }, [detailBatchId, loadDetail]);
+  const selectedBatch = detailBatch ?? activeBatch;
   const employees = useMemo(() => {
     const items = detail?.items ?? [];
     const needle = query.trim().toLowerCase();
@@ -86,14 +98,16 @@ export function SalaryManagement({
         (statusFilter === "unread" && !item.viewedAt) ||
         (statusFilter === "unconfirmed" && !item.confirmedAt) ||
         (statusFilter === "failed" &&
-          activeBatch?.state === "partially_failed");
+          selectedBatch?.state === "partially_failed");
       return matchesQuery && matchesStatus;
     });
-  }, [activeBatch?.state, detail?.items, query, statusFilter]);
-  const unread = (detail?.items ?? []).filter((item) => !item.viewedAt).length;
-  const unconfirmed = (detail?.items ?? []).filter(
-    (item) => !item.confirmedAt,
-  ).length;
+  }, [detail?.items, query, selectedBatch?.state, statusFilter]);
+  const unread = detailBatchId
+    ? (detail?.items ?? []).filter((item) => !item.viewedAt).length
+    : Math.max((activeBatch?.total ?? 0) - (activeBatch?.viewed ?? 0), 0);
+  const unconfirmed = detailBatchId
+    ? (detail?.items ?? []).filter((item) => !item.confirmedAt).length
+    : Math.max((activeBatch?.total ?? 0) - (activeBatch?.confirmed ?? 0), 0);
 
   async function send(batch: Batch, action: "send" | "resend" | "withdraw") {
     setBusy(true);
@@ -163,6 +177,68 @@ export function SalaryManagement({
     }
   }
 
+  async function deleteBatch(batch: Batch) {
+    if (!window.confirm(`确定删除 ${batch.title} 吗？`)) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      await api(`/v1/salary-batches/${batch.id}`, { method: "DELETE" });
+      if (detailBatchId === batch.id) setDetailBatchId(undefined);
+      setMessage("工资条已删除");
+      await load();
+      onChanged();
+    } catch (reason) {
+      setError(errorText(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function startEdit(item: SalaryItem) {
+    if (item.deliveryStatus !== "withdrawn") return;
+    setEditingItem(item);
+    setEditFields(
+      Object.fromEntries(
+        Object.entries(item.fields).map(([key, value]) => [
+          key,
+          value === null || value === undefined ? "" : String(value),
+        ]),
+      ),
+    );
+  }
+
+  async function saveEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingItem || !selectedBatch) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const fields = Object.fromEntries(
+        Object.entries(editFields).map(([key, value]) => {
+          const original = editingItem.fields[key];
+          if (typeof original === "number") {
+            const numeric = Number(value);
+            return [key, Number.isFinite(numeric) ? numeric : value];
+          }
+          return [key, value];
+        }),
+      );
+      const updated = await api<Batch>(
+        `/v1/salary-batches/${selectedBatch.id}/items/${editingItem.id}`,
+        { method: "PATCH", body: JSON.stringify({ fields }) },
+      );
+      setDetail(updated);
+      setEditingItem(undefined);
+      setMessage(`${editingItem.employeeName} 的工资字段已更新`);
+      await load();
+      onChanged();
+    } catch (reason) {
+      setError(errorText(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function shiftMonth(delta: number) {
     const [yearText = "0", valueText = "1"] = month.split("-");
     const year = Number(yearText);
@@ -182,12 +258,24 @@ export function SalaryManagement({
   return (
     <section className="salary-workspace">
       <div className="salary-heading">
-        <button className="back-button" onClick={() => window.history.back()}>
+        <button
+          className="back-button"
+          aria-label="返回"
+          onClick={() =>
+            detailBatchId ? setDetailBatchId(undefined) : window.history.back()
+          }
+        >
           ‹ <span>返回</span>
         </button>
         <h2>
-          {month.replace("-", "年")}月工资条{" "}
-          <small>{month.replace("-", "/")}</small>
+          {detailBatch
+            ? detailBatch.title
+            : `${month.replace("-", "年")}月工资条`} {" "}
+          <small>
+            {detailBatch
+              ? detailBatch.payrollMonth.replace("-", "/")
+              : month.replace("-", "/")}
+          </small>
         </h2>
         <span className="security-badge">
           <Icon name="shield" size={14} />
@@ -239,7 +327,7 @@ export function SalaryManagement({
           </button>
         </div>
       </div>
-      <div className="salary-controls">
+      {!detailBatchId && <div className="salary-controls">
         <button className="button primary" onClick={() => setMode("import")}>
           <Icon name="plus" size={17} />
           上传工资表
@@ -283,50 +371,54 @@ export function SalaryManagement({
             </div>
           )}
         </div>
-      </div>
-      <div className="salary-overview">
-        <div className="overview-title">
-          <strong>
-            {activeBatch?.title ?? `${month.replace("-", "年")}月工资条`}
-          </strong>
-          <span>
-            {activeBatch ? <Status state={activeBatch.state} /> : "暂无工资表"}
-          </span>
+      </div>}
+      {!detailBatchId ? (
+        <div className="salary-batch-list">
+          {monthBatches.map((batch) => {
+            const allSent = batch.total > 0 && batch.sent >= batch.total;
+            const canDelete = batch.state === "draft" && batch.sent === 0;
+            return (
+              <article className="salary-overview" key={batch.id}>
+                <div className="overview-title">
+                  <strong>{batch.title}</strong>
+                  <span><Status state={batch.state} /></span>
+                </div>
+                <div className="overview-stat">
+                  <span>已发送</span>
+                  <strong>{batch.sent}/{batch.total}</strong>
+                </div>
+                <div className="overview-stat">
+                  <span>已查看</span>
+                  <strong>{batch.viewed}</strong>
+                </div>
+                <div className="overview-stat">
+                  <span>已确认</span>
+                  <strong>{batch.confirmed}</strong>
+                </div>
+                <div className="overview-actions">
+                  <button
+                    className="text-button muted"
+                    disabled={!canDelete || busy}
+                    onClick={() => void deleteBatch(batch)}
+                  >
+                    删除
+                  </button>
+                  <button
+                    className="button secondary"
+                    onClick={() => {
+                      setActiveBatchId(batch.id);
+                      setDetailBatchId(batch.id);
+                    }}
+                  >
+                    {allSent ? "查看发送" : "前往发送"}
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+          {!monthBatches.length && <EmptyState label="当前月份暂无工资表" />}
         </div>
-        <div className="overview-stat">
-          <span>已发送</span>
-          <strong>
-            {activeBatch?.sent ?? 0}/{activeBatch?.total ?? 0}
-          </strong>
-        </div>
-        <div className="overview-stat">
-          <span>已查看</span>
-          <strong>{activeBatch?.viewed ?? 0}</strong>
-        </div>
-        <div className="overview-stat">
-          <span>已确认</span>
-          <strong>{activeBatch?.confirmed ?? 0}</strong>
-        </div>
-        <div className="overview-actions">
-          <button
-            className="text-button"
-            onClick={() =>
-              window.dispatchEvent(new CustomEvent("salary-open-settings"))
-            }
-          >
-            设置
-          </button>
-          <button className="text-button muted" disabled>
-            删除
-          </button>
-          <button
-            className="button secondary"
-            onClick={() => activeBatch && setDetailBatchId(activeBatch.id)}
-          >
-            查看发送
-          </button>
-        </div>
-      </div>
+      ) : (
       <div className="employee-table-card">
         <div className="employee-toolbar">
           <label className="search">
@@ -359,25 +451,15 @@ export function SalaryManagement({
             {moreOpen && (
               <div className="more-menu">
                 <button
-                  onClick={() => {
-                    setMoreOpen(false);
-                    window.dispatchEvent(
-                      new CustomEvent("salary-open-settings"),
-                    );
-                  }}
-                >
-                  设置工资条
-                </button>
-                <button
-                  disabled={!activeBatch || activeBatch.state === "withdrawn"}
+                  disabled={!selectedBatch || selectedBatch.state === "withdrawn"}
                   onClick={() => void sendActive("withdraw")}
                 >
                   全部撤回
                 </button>
                 <a
                   href={
-                    activeBatch
-                      ? `/v1/reports/summary.csv?payrollMonth=${activeBatch.payrollMonth}`
+                    selectedBatch
+                      ? `/v1/reports/summary.csv?payrollMonth=${selectedBatch.payrollMonth}`
                       : "/v1/reports/summary.csv"
                   }
                   onClick={() => setMoreOpen(false)}
@@ -393,10 +475,10 @@ export function SalaryManagement({
           </button>
           <button
             className="button primary"
-            disabled={!activeBatch || busy}
+            disabled={!selectedBatch || busy}
             onClick={() =>
               void sendActive(
-                activeBatch?.state === "draft" ? "send" : "resend",
+                selectedBatch?.state === "draft" ? "send" : "resend",
               )
             }
           >
@@ -436,8 +518,8 @@ export function SalaryManagement({
             </thead>
             <tbody>
               {employees.map((item) => {
-                const net = activeBatch
-                  ? item.fields[activeBatch.displaySettings.netAmountField]
+                const net = selectedBatch
+                  ? item.fields[selectedBatch.displaySettings.netAmountField]
                   : undefined;
                 return (
                   <tr key={item.id}>
@@ -501,28 +583,48 @@ export function SalaryManagement({
                       />
                     </td>
                     <td>
-                      {item.deliveryStatus === "delivered" ? (
-                        <button
-                          className="text-button danger"
-                          disabled={!activeBatch || busy}
-                          onClick={() =>
-                            activeBatch &&
-                            void withdrawIndividual(activeBatch, item)
-                          }
-                        >
-                          撤回
-                        </button>
-                      ) : (
+                      <div className="salary-row-actions">
+                        {item.deliveryStatus === "delivered" && (
+                          <button
+                            className="text-button danger"
+                            disabled={!selectedBatch || busy}
+                            onClick={() =>
+                              selectedBatch &&
+                              void withdrawIndividual(selectedBatch, item)
+                            }
+                          >
+                            撤回
+                          </button>
+                        )}
                         <button
                           className="text-button"
-                          disabled={!activeBatch || busy}
-                          onClick={() =>
-                            activeBatch && void sendIndividual(activeBatch, item)
-                          }
+                          disabled={item.deliveryStatus !== "withdrawn" || busy}
+                          onClick={() => startEdit(item)}
                         >
-                          单独发送
+                          编辑
                         </button>
-                      )}
+                        {item.deliveryStatus === "withdrawn" ? (
+                          <button
+                            className="text-button"
+                            disabled={!selectedBatch || busy}
+                            onClick={() =>
+                              selectedBatch && void sendIndividual(selectedBatch, item)
+                            }
+                          >
+                            重新发送
+                          </button>
+                        ) : item.deliveryStatus !== "delivered" ? (
+                          <button
+                            className="text-button"
+                            disabled={!selectedBatch || busy}
+                            onClick={() =>
+                              selectedBatch && void sendIndividual(selectedBatch, item)
+                            }
+                          >
+                            单独发送
+                          </button>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -532,17 +634,39 @@ export function SalaryManagement({
           {!employees.length && (
             <EmptyState
               label={
-                activeBatch ? "当前筛选条件下暂无员工" : "当前月份暂无工资表"
+                selectedBatch ? "当前筛选条件下暂无员工" : "当前月份暂无工资表"
               }
             />
           )}
         </div>
       </div>
-      {detailBatch && (
-        <BatchDetail
-          batch={detailBatch}
-          onClose={() => setDetailBatchId(undefined)}
-        />
+      )}
+      {editingItem && (
+        <Modal
+          title={`编辑 ${editingItem.employeeName} 的工资条`}
+          onClose={() => setEditingItem(undefined)}
+        >
+          <form className="form-grid" onSubmit={(event) => void saveEdit(event)}>
+            {Object.keys(editFields).map((field) => (
+              <Field label={field} key={field}>
+                <input
+                  aria-label={field}
+                  value={editFields[field] ?? ""}
+                  onChange={(event) =>
+                    setEditFields((current) => ({
+                      ...current,
+                      [field]: event.target.value,
+                    }))
+                  }
+                />
+              </Field>
+            ))}
+            <FormActions
+              onClose={() => setEditingItem(undefined)}
+              submitLabel="保存并关闭"
+            />
+          </form>
+        </Modal>
       )}
       {mode === "manual" && (
         <ManualPanel
