@@ -24,6 +24,28 @@ export interface StoredItem extends SalaryItemInput {
   deliveryStatus?: DeliveryRecord["status"];
 }
 
+export interface StoredItemMetadata {
+  id: string;
+  batchId: string;
+  employeeUserId: string;
+  employeeName: string;
+  employeeNo?: string;
+  department?: string;
+  position?: string;
+  viewedAt?: string;
+  confirmedAt?: string;
+}
+
+export interface StoredEmployeeEvidenceSummary {
+  employeeUserId: string;
+  employeeName: string;
+  employeeNo?: string;
+  department?: string;
+  position?: string;
+  evidenceCount: number;
+  latestEvidenceAt?: string;
+}
+
 interface StoredEncryptedItem extends Omit<StoredItem, "fields"> {
   encryptedFields: EncryptedPayload;
 }
@@ -85,6 +107,8 @@ export interface SalaryStore {
   }): StoredBatch;
   listBatches(): StoredBatch[];
   listBatchSummaries(): SalaryBatchSummary[];
+  listBatchItemMetadata(batchId: string): StoredItemMetadata[];
+  listEmployeeEvidenceSummaries(batchIds: string[]): StoredEmployeeEvidenceSummary[];
   getBatchSummary(id: string): SalaryBatchSummary;
   getBatch(id: string): StoredBatch;
   deleteBatch(id: string): void;
@@ -187,6 +211,59 @@ export class MemorySalaryStore implements SalaryStore {
     return [...this.batches.values()].map(({ items: _items, ...batch }) =>
       structuredClone(batch),
     );
+  }
+
+  listBatchItemMetadata(batchId: string): StoredItemMetadata[] {
+    const batch = this.batches.get(batchId);
+    if (!batch) throw new Error(`salary_batch_not_found:${batchId}`);
+    return batch.items.map((item) => {
+      const metadata: StoredItemMetadata = {
+        id: item.id,
+        batchId: item.batchId,
+        employeeUserId: item.employeeUserId,
+        employeeName: item.employeeName,
+        ...(item.employeeNo ? { employeeNo: item.employeeNo } : {}),
+        ...(item.department ? { department: item.department } : {}),
+        ...(item.position ? { position: item.position } : {}),
+        ...(item.viewedAt ? { viewedAt: item.viewedAt } : {}),
+        ...(item.confirmedAt ? { confirmedAt: item.confirmedAt } : {}),
+      };
+      return structuredClone(metadata);
+    });
+  }
+
+  listEmployeeEvidenceSummaries(batchIds: string[]): StoredEmployeeEvidenceSummary[] {
+    const allowedBatchIds = new Set(batchIds);
+    const employees = new Map<string, StoredEmployeeEvidenceSummary>();
+    for (const batchId of allowedBatchIds) {
+      const batch = this.batches.get(batchId);
+      if (!batch) throw new Error(`salary_batch_not_found:${batchId}`);
+      for (const item of batch.items) {
+        const previous = employees.get(item.employeeUserId);
+        employees.set(item.employeeUserId, {
+          ...(previous ?? {
+            employeeUserId: item.employeeUserId,
+            employeeName: item.employeeName,
+            ...(item.employeeNo ? { employeeNo: item.employeeNo } : {}),
+            ...(item.department ? { department: item.department } : {}),
+            ...(item.position ? { position: item.position } : {}),
+            evidenceCount: 0,
+          }),
+          evidenceCount: (previous?.evidenceCount ?? 0) + 1,
+        });
+      }
+    }
+    for (const event of this.evidence) {
+      if (!allowedBatchIds.has(event.batchId)) continue;
+      const employee = employees.get(event.employeeUserId);
+      if (!employee) continue;
+      const latestEvidenceAt = latestTimestamp(
+        employee.latestEvidenceAt,
+        event.createdAt,
+      );
+      if (latestEvidenceAt) employee.latestEvidenceAt = latestEvidenceAt;
+    }
+    return structuredClone([...employees.values()]);
   }
 
   getBatchSummary(id: string): SalaryBatchSummary {
@@ -449,4 +526,8 @@ export class MemorySalaryStore implements SalaryStore {
       ) as StoredItem["fields"],
     };
   }
+}
+
+function latestTimestamp(current: string | undefined, candidate: string): string {
+  return current && current > candidate ? current : candidate;
 }

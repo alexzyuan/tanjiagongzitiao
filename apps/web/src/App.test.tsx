@@ -199,13 +199,13 @@ describe("admin module smoke tests", () => {
     ensureSessionMock.mockResolvedValue(identity);
     apiMock.mockImplementation((path: string) => {
       if (path === "/v1/salary-batches") return Promise.resolve([]);
-      if (path === "/v1/payment-evidence") return Promise.resolve([]);
+      if (path === "/v1/payment-evidence/employees?employmentStatus=active") return Promise.resolve([]);
       return Promise.reject(new Error(`unexpected_request:${path}`));
     });
     render(<App />);
     await user.click(await screen.findByRole("button", { name: "发薪存证" }));
-    expect(await screen.findByText("暂无存证事件")).toBeInTheDocument();
-    expect(apiMock).toHaveBeenCalledWith("/v1/payment-evidence");
+    expect(await screen.findByText("暂无发薪存证")).toBeInTheDocument();
+    expect(apiMock).toHaveBeenCalledWith("/v1/payment-evidence/employees?employmentStatus=active");
   });
 
   it("renders a non-empty evidence record", async () => {
@@ -213,21 +213,52 @@ describe("admin module smoke tests", () => {
     ensureSessionMock.mockResolvedValue(identity);
     apiMock.mockImplementation((path: string) => {
       if (path === "/v1/salary-batches") return Promise.resolve([]);
-      if (path === "/v1/payment-evidence") return Promise.resolve([{
-        id: "evidence-1",
-        batchId: "batch-2026-08",
+      if (path === "/v1/payment-evidence/employees?employmentStatus=active") return Promise.resolve([{
         employeeUserId: "employee-a",
-        eventType: "notification_sent",
-        fingerprint: "0123456789abcdef0123456789abcdef",
-        createdAt: "2026-08-01T08:00:00.000Z",
+        employeeName: "员工A",
+        employeeNo: "A001",
+        position: "会计",
+        employmentStatus: "active",
+        evidenceCount: 1,
+        latestEvidenceAt: "2026-08-01T08:00:00.000Z",
       }]);
+      if (path === "/v1/payment-evidence/employees/employee-a") return Promise.resolve({
+        employee: {
+          employeeUserId: "employee-a",
+          employeeName: "员工A",
+          employeeNo: "A001",
+          position: "会计",
+          employmentStatus: "active",
+          evidenceCount: 1,
+          latestEvidenceAt: "2026-08-01T08:00:00.000Z",
+        },
+        availableFields: ["实发金额"],
+        rows: [{
+          batchId: "batch-2026-08",
+          itemId: "item-1",
+          payrollMonth: "2026-08",
+          title: "2026年08月工资条",
+          state: "sent",
+          employeeUserId: "employee-a",
+          employeeName: "员工A",
+          employeeNo: "A001",
+          position: "会计",
+          fields: { 实发金额: 9000 },
+          sendStatus: "sent",
+          viewStatus: "viewed",
+          confirmStatus: "confirmed",
+          confirmedAt: "2026-08-01T08:00:00.000Z",
+          confirmedBy: "employee-a",
+        }],
+      });
       return Promise.reject(new Error(`unexpected_request:${path}`));
     });
     render(<App />);
     await user.click(await screen.findByRole("button", { name: "发薪存证" }));
-    expect(await screen.findByText("batch-2026-08")).toBeInTheDocument();
-    expect(screen.getByText("employee-a")).toBeInTheDocument();
-    expect(screen.getByText("notification_sent")).toBeInTheDocument();
+    expect(await screen.findByText("员工A")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "查看发薪存证" }));
+    expect(await screen.findByText("2026年08月工资条")).toBeInTheDocument();
+    expect(screen.getByText("已确认")).toBeInTheDocument();
   });
 
   it("loads the report and renders salary totals", async () => {

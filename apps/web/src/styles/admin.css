@@ -297,3 +297,66 @@
   .setting-row { min-height: 98px; }
   .setting-row > div { max-width: 72%; }
 }
+
+/* Payment evidence center */
+.evidence-center .section-header { align-items: flex-start; }
+.evidence-back { margin-bottom: 12px; }
+.evidence-tabs {
+  display: flex;
+  gap: 26px;
+  margin: 0 0 18px;
+  border-bottom: 1px solid var(--line);
+}
+.evidence-tabs button {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 15px;
+  padding: 10px 4px;
+}
+.evidence-tabs button.active { border-bottom-color: var(--blue); color: var(--ink); font-weight: 700; }
+.evidence-search {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 18px;
+  max-width: 560px;
+}
+.evidence-search input { flex: 1; min-width: 0; }
+.evidence-detail-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  color: var(--muted);
+}
+.evidence-detail-toolbar > div { display: flex; gap: 10px; }
+.evidence-filter-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+  background: #f7f9fc;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.evidence-filter-panel label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; }
+.evidence-filter-panel input, .evidence-filter-panel select { min-width: 140px; }
+.evidence-muted { display: block; color: var(--muted); font-size: 12px; }
+.evidence-center td small { display: block; color: var(--muted); font-size: 11px; margin-top: 4px; }
+.evidence-fields { display: grid; grid-template-columns: repeat(2, minmax(110px, 1fr)); gap: 5px 14px; min-width: 250px; }
+.evidence-fields span { display: grid; gap: 2px; color: var(--ink); }
+.evidence-fields b { color: var(--muted); font-size: 11px; font-weight: 500; }
+.evidence-field-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 14px 0; }
+.evidence-field-list label { display: flex; gap: 7px; align-items: center; }
+.evidence-export-modal { max-width: 540px; }
+.modal-description { color: var(--muted); font-size: 12px; line-height: 1.6; }
+@media (max-width: 700px) {
+  .evidence-detail-toolbar { align-items: flex-start; flex-direction: column; }
+  .evidence-filter-panel label, .evidence-filter-panel input, .evidence-filter-panel select { width: 100%; }
+  .evidence-fields { grid-template-columns: 1fr; min-width: 160px; }
+}
