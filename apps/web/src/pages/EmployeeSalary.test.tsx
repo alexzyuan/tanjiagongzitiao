@@ -41,6 +41,24 @@ function mockEmployeePage(displaySettings: ReturnType<typeof settings>) {
 afterEach(() => vi.clearAllMocks());
 
 describe("employee salary semantics", () => {
+  it("shows an update notice when the salary item has been withdrawn", async () => {
+    window.history.pushState({}, "", "/employee/salary-slips/batch-1");
+    sessionMock.mockResolvedValue({ userId: "employee-a", name: "员工A", corpId: "corp" });
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/v1/me/salary-slips/batch-1")
+        return Promise.reject(new Error("salary_item_withdrawn"));
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+    render(<EmployeePage employeeId="employee-a" />);
+    expect(
+      await screen.findByText(
+        "工资条信息正在更新，后续将通过钉钉通知发送更新信息。如有疑问，请联系财务同事。",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("页面加载失败")).not.toBeInTheDocument();
+    expect(screen.queryByText("salary_item_withdrawn")).not.toBeInTheDocument();
+  });
+
   it("hides confirmation control and wording when confirmation is disabled", async () => {
     mockEmployeePage(settings(false));
     render(<EmployeePage employeeId="employee-a" />);
