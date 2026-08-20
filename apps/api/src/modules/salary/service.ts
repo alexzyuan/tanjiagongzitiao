@@ -1,6 +1,10 @@
 import type { DingTalkClient } from "@salary/dingtalk";
 import type { DirectoryUser } from "@salary/dingtalk";
-import type { Access, SalarySlipDisplaySettings } from "@salary/domain";
+import type {
+  Access,
+  SalaryFieldValue,
+  SalarySlipDisplaySettings,
+} from "@salary/domain";
 import { canManageBatch } from "@salary/domain";
 import type { SalaryStore } from "@salary/db";
 import type { AuditService } from "../audit/service.js";
@@ -318,6 +322,55 @@ export class SalaryService {
     if (batch.state === "archived" && access.kind !== "main_admin")
       throw new Error("salary_archive_access_denied");
     return this.delivery.withDeliveryStatus(batch);
+  }
+
+  deleteBatch(actor: Access, batchId: string) {
+    if (!canManageBatch(actor, batchId))
+      throw new Error("salary_batch_access_denied");
+    const batch = this.store.getBatchSummary(batchId);
+    if (batch.state !== "draft" || this.store.listDeliveries(batchId).length > 0)
+      throw new Error("salary_batch_not_deletable");
+    this.store.deleteBatch(batchId);
+    this.audit.record({
+      correlationId: `batch:${batchId}`,
+      actorUserId: actor.userId,
+      action: "salary_batch.delete",
+      targetType: "salary_batch",
+      targetId: batchId,
+      outcome: "completed",
+      metadata: { payrollMonth: batch.payrollMonth },
+    });
+    return { deleted: true, batchId };
+  }
+
+  editItem(
+    actor: Access,
+    batchId: string,
+    itemId: string,
+    fields: Record<string, SalaryFieldValue>,
+  ) {
+    if (!canManageBatch(actor, batchId))
+      throw new Error("salary_batch_access_denied");
+    const batch = this.store.getBatch(batchId);
+    const item = batch.items.find((candidate) => candidate.id === itemId);
+    if (!item) throw new Error("salary_item_not_found");
+    const latestDelivery = this.store
+      .listDeliveries(batchId)
+      .filter((delivery) => delivery.employeeUserId === item.employeeUserId)
+      .at(-1);
+    if (latestDelivery?.status !== "withdrawn")
+      throw new Error("salary_item_not_editable");
+    this.store.updateItemFields(batchId, itemId, fields);
+    this.audit.record({
+      correlationId: `item:${itemId}`,
+      actorUserId: actor.userId,
+      action: "salary_item.edit",
+      targetType: "salary_item",
+      targetId: itemId,
+      outcome: "completed",
+      metadata: { fieldCount: Object.keys(fields).length },
+    });
+    return this.delivery.withDeliveryStatus(this.store.getBatch(batchId));
   }
 
   assignAdmin(actor: Access, batchId: string, userId: string) {

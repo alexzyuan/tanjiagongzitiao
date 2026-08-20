@@ -87,6 +87,12 @@ export interface SalaryStore {
   listBatchSummaries(): SalaryBatchSummary[];
   getBatchSummary(id: string): SalaryBatchSummary;
   getBatch(id: string): StoredBatch;
+  deleteBatch(id: string): void;
+  updateItemFields(
+    batchId: string,
+    itemId: string,
+    fields: SalaryItemInput["fields"],
+  ): StoredItem;
   setState(id: string, state: SalaryBatchState): StoredBatch;
   schedule(id: string, scheduledAt: string): StoredBatch;
   listScheduledDue(now?: Date): string[];
@@ -194,6 +200,28 @@ export class MemorySalaryStore implements SalaryStore {
     const batch = this.batches.get(id);
     if (!batch) throw new Error(`salary_batch_not_found:${id}`);
     return this.publicBatch(batch);
+  }
+
+  deleteBatch(id: string): void {
+    if (!this.batches.delete(id))
+      throw new Error(`salary_batch_not_found:${id}`);
+    for (let index = this.deliveries.length - 1; index >= 0; index -= 1)
+      if (this.deliveries[index]?.batchId === id) this.deliveries.splice(index, 1);
+    for (let index = this.evidence.length - 1; index >= 0; index -= 1)
+      if (this.evidence[index]?.batchId === id) this.evidence.splice(index, 1);
+  }
+
+  updateItemFields(
+    batchId: string,
+    itemId: string,
+    fields: SalaryItemInput["fields"],
+  ): StoredItem {
+    const batch = this.batches.get(batchId);
+    if (!batch) throw new Error(`salary_batch_not_found:${batchId}`);
+    const item = batch.items.find((candidate) => candidate.id === itemId);
+    if (!item) throw new Error("salary_item_not_found");
+    item.encryptedFields = encryptSalaryPayload(fields, this.encryptionKey);
+    return this.publicItem(item);
   }
 
   setState(id: string, state: SalaryBatchState): StoredBatch {
