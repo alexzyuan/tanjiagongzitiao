@@ -58,6 +58,7 @@ export function buildApp(options: { databasePath?: string } = {}) {
     const statusCode =
       message === "salary_item_archived" ||
       message === "salary_item_withdrawn" ||
+      message === "salary_evidence_employee_not_found" ||
       message.startsWith("salary_batch_not_found") ||
       message.startsWith("salary_item_not_found") ||
       message === "salary_import_preview_not_found"
@@ -111,7 +112,7 @@ export function buildApp(options: { databasePath?: string } = {}) {
     secureCookie: config.APP_BASE_URL.startsWith("https://"),
   });
   registerSalaryRoutes(app, { sessions, authz, salary, dingtalk });
-  registerReportRoutes(app, { sessions, authz, store, audit });
+  registerReportRoutes(app, { sessions, authz, store, audit, dingtalk });
   registerSettingsRoutes(app, { sessions, authz, store, audit });
   return { app, store, dingtalk, sessions, audit, authz, salary };
 }
