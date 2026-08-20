@@ -14,7 +14,6 @@
     "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^10.0.2",
     "@fastify/multipart": "^9.2.1",
-    "@fastify/sensible": "^6.0.3",
     "@salary/db": "workspace:*",
     "@salary/dingtalk": "workspace:*",
     "@salary/domain": "workspace:*",
