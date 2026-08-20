@@ -25,6 +25,7 @@ import type {
   PaymentEvidenceRecord,
   SalaryStore,
   StoredBatch,
+  StoredEmployeeEvidenceSummary,
   StoredItem,
   StoredItemMetadata,
 } from "./store.js";
@@ -181,6 +182,44 @@ export class SqliteSalaryStore implements SalaryStore {
       ...(row.viewed_at ? { viewedAt: row.viewed_at } : {}),
       ...(row.confirmed_at ? { confirmedAt: row.confirmed_at } : {}),
     }));
+  }
+  listEmployeeEvidenceSummaries(batchIds: string[]): StoredEmployeeEvidenceSummary[] {
+    if (batchIds.length === 0) return [];
+    const placeholders = batchIds.map(() => "?").join(", ");
+    return this.db
+      .prepare(
+        `SELECT i.employee_user_id, i.employee_name, i.employee_no, i.department, i.position,
+                COUNT(DISTINCT i.id) AS evidence_count, MAX(e.created_at) AS latest_evidence_at
+           FROM salary_items i
+           LEFT JOIN salary_evidence e
+             ON e.batch_id = i.batch_id AND e.employee_user_id = i.employee_user_id
+          WHERE i.batch_id IN (${placeholders})
+          GROUP BY i.employee_user_id
+          ORDER BY i.employee_name, i.employee_user_id`,
+      )
+      .all(...batchIds)
+      .map((row) => {
+        const value = row as {
+          employee_user_id: string;
+          employee_name: string;
+          employee_no: string | null;
+          department: string | null;
+          position: string | null;
+          evidence_count: number;
+          latest_evidence_at: string | null;
+        };
+        return {
+          employeeUserId: value.employee_user_id,
+          employeeName: value.employee_name,
+          ...(value.employee_no ? { employeeNo: value.employee_no } : {}),
+          ...(value.department ? { department: value.department } : {}),
+          ...(value.position ? { position: value.position } : {}),
+          evidenceCount: value.evidence_count,
+          ...(value.latest_evidence_at
+            ? { latestEvidenceAt: value.latest_evidence_at }
+            : {}),
+        };
+      });
   }
   getBatchSummary(id: string): SalaryBatchSummary {
     return this.toBatchSummary(this.batchRow(id));

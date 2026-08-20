@@ -244,6 +244,7 @@ export interface PaymentEvidenceRow {
   fields: Record<string, string | number | null>;
   sendStatus: PaymentEvidenceSendStatus;
   sentAt?: string;
+  withdrawnAt?: string;
   viewStatus: PaymentEvidenceViewStatus;
   viewedAt?: string;
   confirmStatus: PaymentEvidenceConfirmStatus;

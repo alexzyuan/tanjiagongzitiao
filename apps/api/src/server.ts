@@ -73,6 +73,7 @@ export function buildApp(options: { databasePath?: string } = {}) {
               "salary_item_not_editable",
               "salary_batch_not_deletable",
               "salary_confirmation_disabled",
+              "salary_evidence_export_empty",
             ].includes(message)
           ? 409
         : message.startsWith("dingtalk_api_error:identity.") ||

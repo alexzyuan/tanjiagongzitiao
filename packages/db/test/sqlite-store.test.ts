@@ -77,6 +77,60 @@ describe("SQLite salary store", () => {
     store.close();
   });
 
+  it("aggregates SQLite employee evidence summaries without decrypting salary fields", async () => {
+    const implementation = await import("../src/sqlite-store.js");
+    const store = new implementation.SqliteSalaryStore(":memory:", encryptionKey);
+    const first = store.createBatch({
+      payrollMonth: "2026-08",
+      title: "存证汇总一",
+      createdById: "admin-1",
+      items: [
+        {
+          employeeUserId: "employee-1",
+          employeeName: "员工一",
+          employeeNo: "A001",
+          department: "财务",
+          position: "会计",
+          fields: { 实发金额: 14000 },
+        },
+      ],
+    });
+    const second = store.createBatch({
+      payrollMonth: "2026-07",
+      title: "存证汇总二",
+      createdById: "admin-1",
+      items: [
+        {
+          employeeUserId: "employee-1",
+          employeeName: "员工一",
+          employeeNo: "A001",
+          department: "财务",
+          position: "会计",
+          fields: { 实发金额: 15000 },
+        },
+      ],
+    });
+
+    const summaries = store.listEmployeeEvidenceSummaries([
+      first.id,
+      second.id,
+    ]);
+
+    expect(summaries).toEqual([
+      {
+        employeeUserId: "employee-1",
+        employeeName: "员工一",
+        employeeNo: "A001",
+        department: "财务",
+        position: "会计",
+        evidenceCount: 2,
+      },
+    ]);
+    expect(JSON.stringify(summaries)).not.toContain("14000");
+    expect(JSON.stringify(summaries)).not.toContain("15000");
+    store.close();
+  });
+
   it("persists encrypted salary data, roles, and settings after reopening", async () => {
     const implementation = await import("../src/sqlite-store.js").catch(() => null);
     expect(implementation).not.toBeNull();

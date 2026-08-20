@@ -36,6 +36,15 @@ function formatEvidenceDate(value: string | undefined): string {
   return date.toISOString().slice(0, 16).replace("T", " ");
 }
 
+function evidenceErrorText(reason: unknown): string {
+  if (
+    reason instanceof Error &&
+    reason.message === "salary_evidence_export_empty"
+  )
+    return "当前筛选条件下暂无可导出的存证明细。";
+  return errorText(reason);
+}
+
 function queryString(filters: PaymentEvidenceFilters): string {
   const params = new URLSearchParams();
   for (const key of [
@@ -155,7 +164,16 @@ export function EvidenceCenter({ refreshKey }: { refreshKey: number }) {
           ...filters,
         }),
       });
-      if (!response.ok) throw new Error(`http_${response.status}`);
+      if (!response.ok) {
+        let code = `http_${response.status}`;
+        try {
+          const body = (await response.json()) as { code?: unknown };
+          if (typeof body.code === "string" && body.code) code = body.code;
+        } catch {
+          // Keep the HTTP status when an upstream error is not JSON.
+        }
+        throw new Error(code);
+      }
       const blob = await response.blob();
       const href = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -165,7 +183,7 @@ export function EvidenceCenter({ refreshKey }: { refreshKey: number }) {
       URL.revokeObjectURL(href);
       setShowExport(false);
     } catch (reason) {
-      setError(errorText(reason));
+      setError(evidenceErrorText(reason));
     }
   };
 
@@ -238,7 +256,7 @@ export function EvidenceCenter({ refreshKey }: { refreshKey: number }) {
                 <td>{row.payrollMonth}</td>
                 <td>{row.title}</td>
                 <td><div className="evidence-fields">{Object.entries(row.fields).map(([field, value]) => <span key={field}><b>{field}</b>{String(value ?? "—")}</span>)}</div></td>
-                <td><Status state={row.sendStatus} />{row.sentAt && <small>{formatEvidenceDate(row.sentAt)}</small>}</td>
+                <td><Status state={row.sendStatus} />{row.sentAt && <small>{formatEvidenceDate(row.sentAt)}</small>}{row.withdrawnAt && <small>撤回时间 {formatEvidenceDate(row.withdrawnAt)}</small>}</td>
                 <td><Status state={row.viewStatus === "viewed" ? "viewed" : "unread"} /></td>
                 <td><Status state={row.confirmStatus === "confirmed" ? "confirmed" : "unconfirmed"} /></td>
                 <td>{formatEvidenceDate(row.confirmedAt)}</td>

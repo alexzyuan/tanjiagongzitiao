@@ -7,7 +7,7 @@ import type {
 import type {
   DeliveryRecord,
   SalaryStore,
-  StoredBatch,
+  StoredEmployeeEvidenceSummary,
   StoredItem,
   StoredItemMetadata,
 } from "@salary/db";
@@ -57,6 +57,7 @@ export interface EvidenceRow {
   fields: Record<string, SalaryFieldValue>;
   sendStatus: SendStatus;
   sentAt?: string;
+  withdrawnAt?: string;
   viewStatus: ViewStatus;
   viewedAt?: string;
   confirmStatus: ConfirmStatus;
@@ -108,45 +109,18 @@ export class EvidenceService {
     const summaries = this.visibleBatchSummaries(access).filter(
       (batch) => batch.state !== "draft",
     );
+    const employees = this.store.listEmployeeEvidenceSummaries(
+      summaries.map((batch) => batch.id),
+    );
     const directoryUsers = await this.dingtalk.listDirectoryUsers();
     const activeUserIds = new Set(directoryUsers.map((user) => user.userId));
-    const employees = new Map<
-      string,
-      {
-        metadata: StoredItemMetadata;
-        evidenceCount: number;
-        latestEvidenceAt?: string;
-      }
-    >();
-
-    for (const summary of summaries) {
-      const evidence = this.store.listEvidence(summary.id);
-      for (const metadata of this.store.listBatchItemMetadata(summary.id)) {
-        const previous = employees.get(metadata.employeeUserId);
-        const latestEvidenceAt = latestDate(
-          previous?.latestEvidenceAt,
-          ...evidence
-            .filter(
-              (event) => event.employeeUserId === metadata.employeeUserId,
-            )
-            .map((event) => event.createdAt),
-        );
-        employees.set(metadata.employeeUserId, {
-          metadata: previous?.metadata ?? metadata,
-          evidenceCount: (previous?.evidenceCount ?? 0) + 1,
-          ...(latestEvidenceAt ? { latestEvidenceAt } : {}),
-        });
-      }
-    }
 
     const needle = query.query?.trim().toLocaleLowerCase();
-    return [...employees.values()]
-      .map(({ metadata, evidenceCount, latestEvidenceAt }) => ({
+    return employees
+      .map((employee) => ({
         ...employeeSummary(
-          metadata,
-          activeUserIds.has(metadata.employeeUserId),
-          evidenceCount,
-          latestEvidenceAt,
+          employee,
+          activeUserIds.has(employee.employeeUserId),
         ),
       }))
       .filter((employee) =>
@@ -200,6 +174,7 @@ export class EvidenceService {
         this.store
           .listDeliveries(summary.id)
           .filter((delivery) => delivery.employeeUserId === employeeUserId),
+        evidence,
       );
       if (!matchesFilters(summary.payrollMonth, status, filters)) continue;
       candidates.push({
@@ -257,12 +232,15 @@ export class EvidenceService {
     access: Access,
     input: EvidenceExportInput,
   ): Promise<Buffer> {
-    const { employeeUserId, fields, ...filters } = input;
+    const { employeeUserId, fields: requestedFields, ...filters } = input;
+    const fields = [...new Set(requestedFields)];
     const detail = await this.getEmployeeDetail(
       access,
       employeeUserId,
       filters,
     );
+    if (detail.rows.length === 0)
+      throw new Error("salary_evidence_export_empty");
     for (const field of fields) {
       if (
         FIXED_EXPORT_COLUMNS.includes(
@@ -321,10 +299,12 @@ export class EvidenceService {
 }
 
 function employeeSummary(
-  metadata: StoredItemMetadata,
+  metadata: StoredEmployeeEvidenceSummary | StoredItemMetadata,
   active: boolean,
-  evidenceCount: number,
-  latestEvidenceAt: string | undefined,
+  evidenceCount = "evidenceCount" in metadata ? metadata.evidenceCount : 0,
+  latestEvidenceAt = "latestEvidenceAt" in metadata
+    ? metadata.latestEvidenceAt
+    : undefined,
 ): EvidenceEmployeeSummary {
   return {
     employeeUserId: metadata.employeeUserId,
@@ -341,6 +321,7 @@ function employeeSummary(
 function evidenceRowStatus(
   metadata: StoredItemMetadata,
   deliveries: DeliveryRecord[],
+  evidence: Array<{ eventType: string; createdAt: string }> = [],
 ): EvidenceCandidate["status"] {
   const sortedDeliveries = [...deliveries].sort((left, right) =>
     left.createdAt.localeCompare(right.createdAt),
@@ -354,9 +335,22 @@ function evidenceRowStatus(
     : latestDelivery.status === "delivered"
       ? "sent"
       : latestDelivery.status;
+  const withdrawnAt =
+    sendStatus === "withdrawn"
+      ? latestDate(
+          undefined,
+          ...sortedDeliveries
+            .filter((delivery) => delivery.status === "withdrawn")
+            .map((delivery) => delivery.createdAt),
+          ...evidence
+            .filter((event) => event.eventType === "withdrawn")
+            .map((event) => event.createdAt),
+        )
+      : undefined;
   return {
     sendStatus,
     ...(deliveredAt ? { sentAt: deliveredAt } : {}),
+    ...(withdrawnAt ? { withdrawnAt } : {}),
     viewStatus: metadata.viewedAt ? "viewed" : "not_viewed",
     ...(metadata.viewedAt ? { viewedAt: metadata.viewedAt } : {}),
     confirmStatus: metadata.confirmedAt ? "confirmed" : "not_confirmed",

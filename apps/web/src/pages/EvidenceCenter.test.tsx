@@ -49,6 +49,18 @@ const detail = {
   ],
 };
 
+const withdrawnDetail = {
+  ...detail,
+  rows: [
+    {
+      ...detail.rows[0],
+      state: "withdrawn",
+      sendStatus: "withdrawn",
+      withdrawnAt: "2026-08-11T10:00:00.000Z",
+    },
+  ],
+};
+
 afterEach(() => {
   vi.clearAllMocks();
   vi.restoreAllMocks();
@@ -126,5 +138,46 @@ describe("EvidenceCenter", () => {
     apiMock.mockResolvedValue([]);
     render(<EvidenceCenter refreshKey={0} />);
     expect(await screen.findByText("暂无发薪存证")).toBeInTheDocument();
+  });
+
+  it("renders the withdrawal timestamp without changing the withdrawn status", async () => {
+    const user = userEvent.setup();
+    apiMock.mockImplementation((path: string) => {
+      if (path.startsWith("/v1/payment-evidence/employees/employee-a"))
+        return Promise.resolve(withdrawnDetail);
+      if (path.startsWith("/v1/payment-evidence/employees"))
+        return Promise.resolve([employee]);
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+
+    render(<EvidenceCenter refreshKey={0} />);
+    await user.click(await screen.findByRole("button", { name: "查看发薪存证" }));
+
+    expect(await screen.findByText("已撤回")).toBeInTheDocument();
+    expect(screen.getByText("撤回时间 2026-08-11 10:00")).toBeInTheDocument();
+  });
+
+  it("shows a friendly message when the filtered export is empty", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: () => Promise.resolve({ code: "salary_evidence_export_empty" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    apiMock.mockImplementation((path: string) => {
+      if (path.startsWith("/v1/payment-evidence/employees/employee-a"))
+        return Promise.resolve({ ...detail, rows: [], availableFields: [] });
+      if (path.startsWith("/v1/payment-evidence/employees"))
+        return Promise.resolve([employee]);
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+
+    render(<EvidenceCenter refreshKey={0} />);
+    await user.click(await screen.findByRole("button", { name: "查看发薪存证" }));
+    await user.click(screen.getByRole("button", { name: "导出 Excel" }));
+    await user.click(screen.getByRole("button", { name: "下载 Excel" }));
+
+    expect(await screen.findByText("当前筛选条件下暂无可导出的存证明细。")).toBeInTheDocument();
   });
 });

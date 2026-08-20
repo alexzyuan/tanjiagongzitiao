@@ -8,11 +8,23 @@ import { buildApp } from "../src/server.js";
 
 class BoundaryStore extends MemorySalaryStore {
   listBatchesCalled = false;
+  listBatchItemMetadataCalls = 0;
+  listEvidenceCalls = 0;
   forbiddenBatchId?: string;
 
   override listBatches() {
     this.listBatchesCalled = true;
     throw new Error("test_list_batches_must_not_be_called");
+  }
+
+  override listBatchItemMetadata(batchId: string) {
+    this.listBatchItemMetadataCalls += 1;
+    return super.listBatchItemMetadata(batchId);
+  }
+
+  override listEvidence(batchId?: string) {
+    this.listEvidenceCalls += 1;
+    return super.listEvidence(batchId);
   }
 
   override getBatch(id: string) {
@@ -154,6 +166,43 @@ describe("payment evidence service", () => {
     expect(detail.rows.map((row) => row.batchId)).toEqual([allowed.id]);
   });
 
+  it("aggregates employee list evidence without per-batch metadata or event queries", async () => {
+    const store = new BoundaryStore(Buffer.alloc(32, 10));
+    createBatch(store, {
+      employeeUserId: "employee-a",
+      employeeName: "员工A",
+      position: "财务",
+    });
+    createBatch(store, {
+      employeeUserId: "employee-a",
+      employeeName: "员工A",
+      position: "财务",
+    });
+    const service = new EvidenceService(
+      store,
+      directoryClient([
+        {
+          userId: "employee-a",
+          name: "员工A",
+          position: "财务",
+          departmentIds: [],
+        },
+      ]),
+      new AuditService(store),
+    );
+
+    const employees = await service.listEmployees({
+      kind: "main_admin",
+      userId: "admin",
+    });
+
+    expect(employees).toEqual([
+      expect.objectContaining({ employeeUserId: "employee-a", evidenceCount: 2 }),
+    ]);
+    expect(store.listBatchItemMetadataCalls).toBe(0);
+    expect(store.listEvidenceCalls).toBe(0);
+  });
+
   it("serves scoped employee list and detail routes to sub-admins", async () => {
     const { app } = buildApp();
     const main = cookie(
@@ -245,6 +294,57 @@ describe("payment evidence service", () => {
     await app.close();
   });
 
+  it("includes the existing withdrawal timestamp in employee evidence detail", async () => {
+    const { app } = buildApp();
+    const main = cookie(
+      await app.inject({ method: "POST", url: "/v1/auth/dev" }),
+    );
+    const draft = await app.inject({
+      method: "POST",
+      url: "/v1/salary-batches",
+      headers: { cookie: main },
+      payload: {
+        payrollMonth: "2026-08",
+        title: "撤回存证测试",
+        rows: [{ userId: "employee-a", name: "员工A", 实发金额: 9000 }],
+      },
+    });
+    const batchId = draft.json().batchId as string;
+    const detail = await app.inject({
+      method: "GET",
+      url: `/v1/salary-batches/${batchId}`,
+      headers: { cookie: main },
+    });
+    const itemId = detail.json().items[0].id as string;
+
+    await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${batchId}/items/${itemId}/send`,
+      headers: { cookie: main },
+      payload: {},
+    });
+    await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${batchId}/items/${itemId}/withdraw`,
+      headers: { cookie: main },
+      payload: {},
+    });
+
+    const evidence = await app.inject({
+      method: "GET",
+      url: "/v1/payment-evidence/employees/employee-a",
+      headers: { cookie: main },
+    });
+    expect(evidence.statusCode).toBe(200);
+    expect(evidence.json().rows).toEqual([
+      expect.objectContaining({
+        sendStatus: "withdrawn",
+        withdrawnAt: expect.any(String),
+      }),
+    ]);
+    await app.close();
+  });
+
   it("exports fixed evidence columns and only selected salary fields", async () => {
     const { app } = buildApp();
     const main = cookie(
@@ -308,6 +408,44 @@ describe("payment evidence service", () => {
       "实发金额",
     ]);
     expect(rows[1]).toContain(9000);
+
+    const duplicateFields = await app.inject({
+      method: "POST",
+      url: "/v1/payment-evidence/export.xlsx",
+      headers: { cookie: main },
+      payload: { employeeUserId: "employee-a", fields: ["实发金额", "实发金额"] },
+    });
+    expect(duplicateFields.statusCode).toBe(200);
+    const duplicateWorkbook = XLSX.read(duplicateFields.rawPayload, { type: "buffer" });
+    const duplicateHeader = XLSX.utils.sheet_to_json<string[]>(
+      duplicateWorkbook.Sheets["发薪存证"]!,
+      { header: 1 },
+    )[0];
+    expect(duplicateHeader?.filter((field) => field === "实发金额")).toHaveLength(1);
+
+    const duplicateUnauthorizedField = await app.inject({
+      method: "POST",
+      url: "/v1/payment-evidence/export.xlsx",
+      headers: { cookie: main },
+      payload: {
+        employeeUserId: "employee-a",
+        fields: ["实发金额", "实发金额", "不存在字段"],
+      },
+    });
+    expect(duplicateUnauthorizedField.statusCode).toBe(400);
+
+    const duplicateEmptyResult = await app.inject({
+      method: "POST",
+      url: "/v1/payment-evidence/export.xlsx",
+      headers: { cookie: main },
+      payload: {
+        employeeUserId: "employee-a",
+        fromMonth: "2026-09",
+        fields: ["实发金额", "实发金额"],
+      },
+    });
+    expect(duplicateEmptyResult.statusCode).toBe(409);
+    expect(duplicateEmptyResult.json().code).toBe("salary_evidence_export_empty");
 
     const invalidField = await app.inject({
       method: "POST",
