@@ -1,0 +1,3546 @@
+diff --git a/.github/workflows/quality.yml b/.github/workflows/quality.yml
+new file mode 100644
+index 0000000..6a560b9
+--- /dev/null
++++ b/.github/workflows/quality.yml
+@@ -0,0 +1,28 @@
++name: Quality
++
++on:
++  pull_request:
++  push:
++    branches:
++      - main
++
++permissions:
++  contents: read
++
++jobs:
++  quality:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++      - uses: pnpm/action-setup@v4
++        with:
++          version: 10.0.0
++      - uses: actions/setup-node@v4
++        with:
++          node-version: 22
++          cache: pnpm
++      - run: pnpm install --frozen-lockfile
++      - run: pnpm architecture:check
++      - run: pnpm test
++      - run: pnpm typecheck
++      - run: pnpm build
+diff --git a/apps/api/src/modules/reports/evidence.ts b/apps/api/src/modules/reports/evidence.ts
+new file mode 100644
+index 0000000..31bdc17
+--- /dev/null
++++ b/apps/api/src/modules/reports/evidence.ts
+@@ -0,0 +1,429 @@
++import type { DingTalkClient } from "@salary/dingtalk";
++import type {
++  Access,
++  SalaryBatchState,
++  SalaryFieldValue,
++} from "@salary/domain";
++import type {
++  DeliveryRecord,
++  SalaryStore,
++  StoredBatch,
++  StoredItem,
++  StoredItemMetadata,
++} from "@salary/db";
++import * as XLSX from "xlsx";
++import type { AuditService } from "../audit/service.js";
++
++export type EmploymentStatus = "active" | "departed";
++export type SendStatus = "not_sent" | "sent" | "failed" | "withdrawn";
++export type ViewStatus = "not_viewed" | "viewed";
++export type ConfirmStatus = "not_confirmed" | "confirmed";
++
++export interface EvidenceEmployeeSummary {
++  employeeUserId: string;
++  employeeName: string;
++  employeeNo?: string;
++  department?: string;
++  position?: string;
++  employmentStatus: EmploymentStatus;
++  evidenceCount: number;
++  latestEvidenceAt?: string;
++}
++
++export interface EvidenceFilters {
++  fromMonth?: string;
++  toMonth?: string;
++  sendStatus?: SendStatus;
++  viewStatus?: ViewStatus;
++  confirmStatus?: ConfirmStatus;
++}
++
++export interface EvidenceExportInput extends EvidenceFilters {
++  employeeUserId: string;
++  fields: string[];
++}
++
++export interface EvidenceRow {
++  batchId: string;
++  itemId: string;
++  payrollMonth: string;
++  title: string;
++  state: SalaryBatchState;
++  employeeUserId: string;
++  employeeName: string;
++  employeeNo?: string;
++  department?: string;
++  position?: string;
++  fields: Record<string, SalaryFieldValue>;
++  sendStatus: SendStatus;
++  sentAt?: string;
++  viewStatus: ViewStatus;
++  viewedAt?: string;
++  confirmStatus: ConfirmStatus;
++  confirmedAt?: string;
++  confirmedBy?: string;
++}
++
++export interface EvidenceEmployeeDetail {
++  employee: EvidenceEmployeeSummary;
++  rows: EvidenceRow[];
++  availableFields: string[];
++}
++
++interface EvidenceCandidate {
++  summary: {
++    id: string;
++    payrollMonth: string;
++    title: string;
++    state: SalaryBatchState;
++  };
++  metadata: StoredItemMetadata;
++  status: Omit<EvidenceRow, "batchId" | "itemId" | "payrollMonth" | "title" | "state" | "employeeUserId" | "employeeName" | "employeeNo" | "department" | "position" | "fields">;
++}
++
++const FIXED_EXPORT_COLUMNS = [
++  "员工姓名",
++  "工号",
++  "职位",
++  "工资月份",
++  "工资条标题",
++  "发送状态",
++  "查看状态",
++  "确认状态",
++  "确认时间",
++  "确认人",
++] as const;
++
++export class EvidenceService {
++  constructor(
++    private readonly store: SalaryStore,
++    private readonly dingtalk: Pick<DingTalkClient, "listDirectoryUsers">,
++    private readonly audit: AuditService,
++  ) {}
++
++  async listEmployees(
++    access: Access,
++    query: { employmentStatus?: EmploymentStatus; query?: string } = {},
++  ): Promise<EvidenceEmployeeSummary[]> {
++    const summaries = this.visibleBatchSummaries(access).filter(
++      (batch) => batch.state !== "draft",
++    );
++    const directoryUsers = await this.dingtalk.listDirectoryUsers();
++    const activeUserIds = new Set(directoryUsers.map((user) => user.userId));
++    const employees = new Map<
++      string,
++      {
++        metadata: StoredItemMetadata;
++        evidenceCount: number;
++        latestEvidenceAt?: string;
++      }
++    >();
++
++    for (const summary of summaries) {
++      const evidence = this.store.listEvidence(summary.id);
++      for (const metadata of this.store.listBatchItemMetadata(summary.id)) {
++        const previous = employees.get(metadata.employeeUserId);
++        const latestEvidenceAt = latestDate(
++          previous?.latestEvidenceAt,
++          ...evidence
++            .filter(
++              (event) => event.employeeUserId === metadata.employeeUserId,
++            )
++            .map((event) => event.createdAt),
++        );
++        employees.set(metadata.employeeUserId, {
++          metadata: previous?.metadata ?? metadata,
++          evidenceCount: (previous?.evidenceCount ?? 0) + 1,
++          ...(latestEvidenceAt ? { latestEvidenceAt } : {}),
++        });
++      }
++    }
++
++    const needle = query.query?.trim().toLocaleLowerCase();
++    return [...employees.values()]
++      .map(({ metadata, evidenceCount, latestEvidenceAt }) => ({
++        ...employeeSummary(
++          metadata,
++          activeUserIds.has(metadata.employeeUserId),
++          evidenceCount,
++          latestEvidenceAt,
++        ),
++      }))
++      .filter((employee) =>
++        query.employmentStatus
++          ? employee.employmentStatus === query.employmentStatus
++          : true,
++      )
++      .filter((employee) =>
++        needle
++          ? [employee.employeeName, employee.employeeNo, employee.position]
++              .filter(Boolean)
++              .some((value) => value!.toLocaleLowerCase().includes(needle))
++          : true,
++      )
++      .sort((left, right) =>
++        left.employeeName.localeCompare(right.employeeName),
++      );
++  }
++
++  async getEmployeeDetail(
++    access: Access,
++    employeeUserId: string,
++    filters: EvidenceFilters = {},
++  ): Promise<EvidenceEmployeeDetail> {
++    const summaries = this.visibleBatchSummaries(access).filter(
++      (batch) => batch.state !== "draft",
++    );
++    const directoryUsers = await this.dingtalk.listDirectoryUsers();
++    const activeUserIds = new Set(directoryUsers.map((user) => user.userId));
++    const candidates: EvidenceCandidate[] = [];
++    let employeeMetadata: StoredItemMetadata | undefined;
++    let evidenceCount = 0;
++    let latestEvidenceAt: string | undefined;
++
++    for (const summary of summaries) {
++      const metadata = this.store
++        .listBatchItemMetadata(summary.id)
++        .find((item) => item.employeeUserId === employeeUserId);
++      if (!metadata) continue;
++      employeeMetadata ??= metadata;
++      evidenceCount += 1;
++      const evidence = this.store
++        .listEvidence(summary.id)
++        .filter((event) => event.employeeUserId === employeeUserId);
++      latestEvidenceAt = latestDate(
++        latestEvidenceAt,
++        ...evidence.map((event) => event.createdAt),
++      );
++      const status = evidenceRowStatus(
++        metadata,
++        this.store
++          .listDeliveries(summary.id)
++          .filter((delivery) => delivery.employeeUserId === employeeUserId),
++      );
++      if (!matchesFilters(summary.payrollMonth, status, filters)) continue;
++      candidates.push({
++        summary: {
++          id: summary.id,
++          payrollMonth: summary.payrollMonth,
++          title: summary.title,
++          state: summary.state,
++        },
++        metadata,
++        status,
++      });
++    }
++
++    if (!employeeMetadata)
++      throw new Error("salary_evidence_employee_not_found");
++
++    const rows: EvidenceRow[] = [];
++    for (const candidate of candidates) {
++      const batch = this.store.getBatch(candidate.summary.id);
++      const item = batch.items.find(
++        (storedItem) => storedItem.id === candidate.metadata.id,
++      );
++      if (!item) throw new Error("salary_item_not_found");
++      rows.push(toEvidenceRow(candidate.summary, item, candidate.status));
++    }
++    const availableFields = [
++      ...new Set(rows.flatMap((row) => Object.keys(row.fields))),
++    ].sort((left, right) => left.localeCompare(right));
++
++    return {
++      employee: employeeSummary(
++        employeeMetadata,
++        activeUserIds.has(employeeUserId),
++        evidenceCount,
++        latestEvidenceAt,
++      ),
++      rows,
++      availableFields,
++    };
++  }
++
++  private visibleBatchSummaries(access: Access) {
++    const summaries = this.store.listBatchSummaries();
++    if (access.kind === "main_admin") return summaries;
++    if (access.kind === "sub_admin")
++      return summaries.filter(
++        (batch) =>
++          batch.state !== "archived" && access.batchIds.includes(batch.id),
++      );
++    throw new Error("salary_admin_required");
++  }
++
++  async exportXlsx(
++    access: Access,
++    input: EvidenceExportInput,
++  ): Promise<Buffer> {
++    const { employeeUserId, fields, ...filters } = input;
++    const detail = await this.getEmployeeDetail(
++      access,
++      employeeUserId,
++      filters,
++    );
++    for (const field of fields) {
++      if (
++        FIXED_EXPORT_COLUMNS.includes(
++          field as (typeof FIXED_EXPORT_COLUMNS)[number],
++        ) ||
++        !detail.availableFields.includes(field)
++      )
++        throw new Error("salary_evidence_export_field_invalid");
++    }
++    const rows = detail.rows.map((row) => {
++      const exportRow: Record<string, string | number | null> = {
++        员工姓名: row.employeeName,
++        工号: row.employeeNo ?? null,
++        职位: row.position ?? null,
++        工资月份: row.payrollMonth,
++        工资条标题: row.title,
++        发送状态: sendStatusLabel(row.sendStatus),
++        查看状态: viewStatusLabel(row.viewStatus),
++        确认状态: confirmStatusLabel(row.confirmStatus),
++        确认时间: row.confirmedAt ?? null,
++        确认人: row.confirmedBy ?? null,
++      };
++      for (const field of fields) exportRow[field] = row.fields[field] ?? null;
++      return exportRow;
++    });
++    const worksheet = XLSX.utils.json_to_sheet(rows, {
++      header: [...FIXED_EXPORT_COLUMNS, ...fields],
++    });
++    const workbook = XLSX.utils.book_new();
++    XLSX.utils.book_append_sheet(workbook, worksheet, "发薪存证");
++    const buffer = XLSX.write(workbook, {
++      type: "buffer",
++      bookType: "xlsx",
++    }) as Buffer;
++    this.audit.record({
++      correlationId: `payment-evidence.export:${access.userId}:${Date.now()}`,
++      actorUserId: access.userId,
++      action: "payment_evidence.export",
++      targetType: "payment_evidence",
++      targetId: employeeUserId,
++      outcome: "completed",
++      metadata: {
++        queryPresent: Boolean(
++          filters.fromMonth ||
++            filters.toMonth ||
++            filters.sendStatus ||
++            filters.viewStatus ||
++            filters.confirmStatus,
++        ),
++        fieldCount: fields.length,
++        rowCount: rows.length,
++      },
++    });
++    return buffer;
++  }
++}
++
++function employeeSummary(
++  metadata: StoredItemMetadata,
++  active: boolean,
++  evidenceCount: number,
++  latestEvidenceAt: string | undefined,
++): EvidenceEmployeeSummary {
++  return {
++    employeeUserId: metadata.employeeUserId,
++    employeeName: metadata.employeeName,
++    ...(metadata.employeeNo ? { employeeNo: metadata.employeeNo } : {}),
++    ...(metadata.department ? { department: metadata.department } : {}),
++    ...(metadata.position ? { position: metadata.position } : {}),
++    employmentStatus: active ? "active" : "departed",
++    evidenceCount,
++    ...(latestEvidenceAt ? { latestEvidenceAt } : {}),
++  };
++}
++
++function evidenceRowStatus(
++  metadata: StoredItemMetadata,
++  deliveries: DeliveryRecord[],
++): EvidenceCandidate["status"] {
++  const sortedDeliveries = [...deliveries].sort((left, right) =>
++    left.createdAt.localeCompare(right.createdAt),
++  );
++  const latestDelivery = sortedDeliveries.at(-1);
++  const deliveredAt = sortedDeliveries
++    .filter((delivery) => delivery.status === "delivered")
++    .at(-1)?.createdAt;
++  const sendStatus: SendStatus = !latestDelivery
++    ? "not_sent"
++    : latestDelivery.status === "delivered"
++      ? "sent"
++      : latestDelivery.status;
++  return {
++    sendStatus,
++    ...(deliveredAt ? { sentAt: deliveredAt } : {}),
++    viewStatus: metadata.viewedAt ? "viewed" : "not_viewed",
++    ...(metadata.viewedAt ? { viewedAt: metadata.viewedAt } : {}),
++    confirmStatus: metadata.confirmedAt ? "confirmed" : "not_confirmed",
++    ...(metadata.confirmedAt ? { confirmedAt: metadata.confirmedAt } : {}),
++    ...(metadata.confirmedAt ? { confirmedBy: metadata.employeeUserId } : {}),
++  };
++}
++
++function matchesFilters(
++  payrollMonth: string,
++  status: EvidenceCandidate["status"],
++  filters: EvidenceFilters,
++): boolean {
++  if (filters.fromMonth && payrollMonth < filters.fromMonth) return false;
++  if (filters.toMonth && payrollMonth > filters.toMonth) return false;
++  if (filters.sendStatus && status.sendStatus !== filters.sendStatus)
++    return false;
++  if (filters.viewStatus && status.viewStatus !== filters.viewStatus)
++    return false;
++  if (filters.confirmStatus && status.confirmStatus !== filters.confirmStatus)
++    return false;
++  return true;
++}
++
++function toEvidenceRow(
++  summary: EvidenceCandidate["summary"],
++  item: StoredItem,
++  status: EvidenceCandidate["status"],
++): EvidenceRow {
++  return {
++    batchId: summary.id,
++    itemId: item.id,
++    payrollMonth: summary.payrollMonth,
++    title: summary.title,
++    state: summary.state,
++    employeeUserId: item.employeeUserId,
++    employeeName: item.employeeName,
++    ...(item.employeeNo ? { employeeNo: item.employeeNo } : {}),
++    ...(item.department ? { department: item.department } : {}),
++    ...(item.position ? { position: item.position } : {}),
++    fields: item.fields,
++    ...status,
++  };
++}
++
++function latestDate(
++  current: string | undefined,
++  ...candidates: string[]
++): string | undefined {
++  return [...(current ? [current] : []), ...candidates].sort().at(-1);
++}
++
++function sendStatusLabel(status: SendStatus): string {
++  return {
++    not_sent: "未发送",
++    sent: "已发送",
++    failed: "发送失败",
++    withdrawn: "已撤回",
++  }[status];
++}
++
++function viewStatusLabel(status: ViewStatus): string {
++  return status === "viewed" ? "已查看" : "未查看";
++}
++
++function confirmStatusLabel(status: ConfirmStatus): string {
++  return status === "confirmed" ? "已确认" : "未确认";
++}
++
++export { FIXED_EXPORT_COLUMNS };
+diff --git a/apps/api/src/modules/reports/routes.ts b/apps/api/src/modules/reports/routes.ts
+index fac1cb2..e621f1c 100644
+--- a/apps/api/src/modules/reports/routes.ts
++++ b/apps/api/src/modules/reports/routes.ts
+@@ -1,15 +1,40 @@
+ import type { FastifyInstance, FastifyRequest } from "fastify";
+ import { z } from "zod";
++import type { DingTalkClient } from "@salary/dingtalk";
+ import type { SessionService } from "../auth/session.js";
+ import type { AuthorizationService } from "../authorization/service.js";
+ import type { SalaryStore } from "@salary/db";
+ import type { AuditService } from "../audit/service.js";
++import { EvidenceService, type EvidenceFilters } from "./evidence.js";
+ import { ReportService } from "./service.js";
+ 
++const EvidenceListQuerySchema = z
++  .object({
++    employmentStatus: z.enum(["active", "departed"]).optional(),
++    query: z.string().trim().max(120).optional(),
++  })
++  .strict();
++const EvidenceFiltersSchema = z
++  .object({
++    fromMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),
++    toMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),
++    sendStatus: z
++      .enum(["not_sent", "sent", "failed", "withdrawn"])
++      .optional(),
++    viewStatus: z.enum(["not_viewed", "viewed"]).optional(),
++    confirmStatus: z.enum(["not_confirmed", "confirmed"]).optional(),
++  })
++  .strict();
++const EvidenceExportSchema = EvidenceFiltersSchema.extend({
++  employeeUserId: z.string().trim().min(1).max(200),
++  fields: z.array(z.string().trim().min(1).max(120)).max(300),
++}).strict();
++
+ function identity(request: FastifyRequest, sessions: SessionService) { return sessions.read(request.cookies.salary_session); }
+ 
+-export function registerReportRoutes(app: FastifyInstance, deps: { sessions: SessionService; authz: AuthorizationService; store: SalaryStore; audit: AuditService }): void {
++export function registerReportRoutes(app: FastifyInstance, deps: { sessions: SessionService; authz: AuthorizationService; store: SalaryStore; audit: AuditService; dingtalk: DingTalkClient }): void {
+   const reports = new ReportService(deps.store);
++  const evidence = new EvidenceService(deps.store, deps.dingtalk, deps.audit);
+   app.get("/v1/reports/summary", async request => {
+     const actor = identity(request, deps.sessions);
+     const query = z.object({ payrollMonth: z.string().regex(/^\d{4}-\d{2}$/).optional() }).parse(request.query);
+@@ -33,9 +58,68 @@ export function registerReportRoutes(app: FastifyInstance, deps: { sessions: Ses
+     const query = z.object({ batchId: z.string().min(1).optional() }).parse(request.query);
+     return deps.store.listEvidence(query.batchId);
+   });
++  app.get("/v1/payment-evidence/employees", async (request) => {
++    const actor = identity(request, deps.sessions);
++    const query = EvidenceListQuerySchema.parse(request.query);
++    return evidence.listEmployees(
++      deps.authz.accessFor(actor.userId),
++      {
++        ...(query.employmentStatus
++          ? { employmentStatus: query.employmentStatus }
++          : {}),
++        ...(query.query ? { query: query.query } : {}),
++      },
++    );
++  });
++  app.get(
++    "/v1/payment-evidence/employees/:employeeUserId",
++    async (request) => {
++      const actor = identity(request, deps.sessions);
++      const params = request.params as { employeeUserId: string };
++      const filters = EvidenceFiltersSchema.parse(request.query);
++      return evidence.getEmployeeDetail(
++        deps.authz.accessFor(actor.userId),
++        params.employeeUserId,
++        normalizeEvidenceFilters(filters),
++      );
++    },
++  );
++  app.post("/v1/payment-evidence/export.xlsx", async (request, reply) => {
++    const actor = identity(request, deps.sessions);
++    const body = EvidenceExportSchema.parse(request.body);
++    const buffer = await evidence.exportXlsx(
++      deps.authz.accessFor(actor.userId),
++      {
++        employeeUserId: body.employeeUserId,
++        fields: body.fields,
++        ...normalizeEvidenceFilters(body),
++      },
++    );
++    reply.header(
++      "content-type",
++      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
++    );
++    reply.header(
++      "content-disposition",
++      'attachment; filename="payment-evidence.xlsx"',
++    );
++    return reply.send(buffer);
++  });
+   app.get("/v1/audits", async request => {
+     const actor = identity(request, deps.sessions);
+     if (deps.authz.accessFor(actor.userId).kind !== "main_admin") throw new Error("main_admin_required");
+     return deps.store.listAudits();
+   });
+ }
++
++function normalizeEvidenceFilters(
++  input: z.infer<typeof EvidenceFiltersSchema>,
++): EvidenceFilters {
++  return {
++    ...(input.fromMonth ? { fromMonth: input.fromMonth } : {}),
++    ...(input.toMonth ? { toMonth: input.toMonth } : {}),
++    ...(input.sendStatus ? { sendStatus: input.sendStatus } : {}),
++    ...(input.viewStatus ? { viewStatus: input.viewStatus } : {}),
++    ...(input.confirmStatus ? { confirmStatus: input.confirmStatus } : {}),
++  };
++}
+diff --git a/apps/api/src/modules/salary/delivery.ts b/apps/api/src/modules/salary/delivery.ts
+index 15cdd22..7892d5d 100644
+--- a/apps/api/src/modules/salary/delivery.ts
++++ b/apps/api/src/modules/salary/delivery.ts
+@@ -18,6 +18,15 @@ export class SalaryDeliveryService {
+     private readonly appBaseUrl: string,
+   ) {}
+ 
++  isItemSendInFlight(batchId: string, employeeUserId: string) {
++    return this.inFlightItemSends.has(`${batchId}:${employeeUserId}`);
++  }
++
++  hasBatchSendInFlight(batchId: string) {
++    const prefix = `${batchId}:`;
++    return [...this.inFlightItemSends].some((key) => key.startsWith(prefix));
++  }
++
+   async send(actor: Access, batchId: string, scheduledAt?: string) {
+     if (!canManageBatch(actor, batchId))
+       throw new Error("salary_batch_access_denied");
+@@ -48,20 +57,12 @@ export class SalaryDeliveryService {
+     if (!item) throw new Error("salary_item_not_found");
+     if (["archived", "sending"].includes(batch.state))
+       throw new Error(`salary_item_not_sendable:${batch.state}`);
+-    const alreadyDelivered = this.store
+-      .listDeliveries(batchId)
+-      .some(
+-        (delivery) =>
+-          delivery.employeeUserId === item.employeeUserId &&
+-          delivery.status === "delivered",
+-      );
+-    if (alreadyDelivered) throw new Error("salary_item_already_sent");
+     const latestDelivery = this.store
+       .listDeliveries(batchId)
+       .filter((delivery) => delivery.employeeUserId === item.employeeUserId)
+       .at(-1);
+-    if (latestDelivery?.status === "withdrawn")
+-      throw new Error("salary_item_withdrawn");
++    if (latestDelivery?.status === "delivered")
++      throw new Error("salary_item_already_sent");
+     const sendKey = `${batchId}:${item.employeeUserId}`;
+     if (this.inFlightItemSends.has(sendKey))
+       throw new Error("salary_item_send_in_progress");
+diff --git a/apps/api/src/modules/salary/routes.ts b/apps/api/src/modules/salary/routes.ts
+index 120c6c7..b4b7eb4 100644
+--- a/apps/api/src/modules/salary/routes.ts
++++ b/apps/api/src/modules/salary/routes.ts
+@@ -54,6 +54,11 @@ const MatchStrategySchema = z.enum(["userId", "employeeNo", "name"]);
+ const DirectoryQuerySchema = z
+   .object({ query: z.string().trim().max(120).optional() })
+   .strict();
++const SalaryItemEditSchema = z
++  .object({
++    fields: z.record(z.union([z.string(), z.number(), z.null()])),
++  })
++  .strict();
+ 
+ function user(request: FastifyRequest, sessions: SessionService) {
+   return sessions.read(request.cookies.salary_session);
+@@ -177,6 +182,27 @@ export function registerSalaryRoutes(
+       (request.params as { batchId: string }).batchId,
+     );
+   });
++  app.delete("/v1/salary-batches/:batchId", async (request) => {
++    const identity = user(request, deps.sessions);
++    return deps.salary.deleteBatch(
++      deps.authz.accessFor(identity.userId),
++      (request.params as { batchId: string }).batchId,
++    );
++  });
++  app.patch(
++    "/v1/salary-batches/:batchId/items/:itemId",
++    async (request) => {
++      const identity = user(request, deps.sessions);
++      const params = request.params as { batchId: string; itemId: string };
++      const body = SalaryItemEditSchema.parse(request.body);
++      return deps.salary.editItem(
++        deps.authz.accessFor(identity.userId),
++        params.batchId,
++        params.itemId,
++        body.fields,
++      );
++    },
++  );
+   app.post("/v1/salary-batches/:batchId/send", async (request) => {
+     const identity = user(request, deps.sessions);
+     return deps.salary.send(
+diff --git a/apps/api/src/modules/salary/service.ts b/apps/api/src/modules/salary/service.ts
+index 5bf837f..b6115cb 100644
+--- a/apps/api/src/modules/salary/service.ts
++++ b/apps/api/src/modules/salary/service.ts
+@@ -1,6 +1,10 @@
+ import type { DingTalkClient } from "@salary/dingtalk";
+ import type { DirectoryUser } from "@salary/dingtalk";
+-import type { Access, SalarySlipDisplaySettings } from "@salary/domain";
++import type {
++  Access,
++  SalaryFieldValue,
++  SalarySlipDisplaySettings,
++} from "@salary/domain";
+ import { canManageBatch } from "@salary/domain";
+ import type { SalaryStore } from "@salary/db";
+ import type { AuditService } from "../audit/service.js";
+@@ -320,6 +324,64 @@ export class SalaryService {
+     return this.delivery.withDeliveryStatus(batch);
+   }
+ 
++  deleteBatch(actor: Access, batchId: string) {
++    if (!canManageBatch(actor, batchId))
++      throw new Error("salary_batch_access_denied");
++    const batch = this.store.getBatchSummary(batchId);
++    if (
++      this.delivery.hasBatchSendInFlight(batchId) ||
++      batch.state !== "draft" ||
++      this.store.listDeliveries(batchId).length > 0
++    )
++      throw new Error("salary_batch_not_deletable");
++    this.store.deleteBatch(batchId);
++    this.audit.record({
++      correlationId: `batch:${batchId}`,
++      actorUserId: actor.userId,
++      action: "salary_batch.delete",
++      targetType: "salary_batch",
++      targetId: batchId,
++      outcome: "completed",
++      metadata: { payrollMonth: batch.payrollMonth },
++    });
++    return { deleted: true, batchId };
++  }
++
++  editItem(
++    actor: Access,
++    batchId: string,
++    itemId: string,
++    fields: Record<string, SalaryFieldValue>,
++  ) {
++    if (!canManageBatch(actor, batchId))
++      throw new Error("salary_batch_access_denied");
++    const batch = this.store.getBatch(batchId);
++    const item = batch.items.find((candidate) => candidate.id === itemId);
++    if (!item) throw new Error("salary_item_not_found");
++    if (
++      batch.state === "archived" ||
++      this.delivery.isItemSendInFlight(batchId, item.employeeUserId)
++    )
++      throw new Error("salary_item_not_editable");
++    const latestDelivery = this.store
++      .listDeliveries(batchId)
++      .filter((delivery) => delivery.employeeUserId === item.employeeUserId)
++      .at(-1);
++    if (latestDelivery?.status !== "withdrawn")
++      throw new Error("salary_item_not_editable");
++    this.store.updateItemFields(batchId, itemId, fields);
++    this.audit.record({
++      correlationId: `item:${itemId}`,
++      actorUserId: actor.userId,
++      action: "salary_item.edit",
++      targetType: "salary_item",
++      targetId: itemId,
++      outcome: "completed",
++      metadata: { fieldCount: Object.keys(fields).length },
++    });
++    return this.delivery.withDeliveryStatus(this.store.getBatch(batchId));
++  }
++
+   assignAdmin(actor: Access, batchId: string, userId: string) {
+     if (actor.kind !== "main_admin") throw new Error("main_admin_required");
+     const batch = this.store.assignAdmin(batchId, userId);
+diff --git a/apps/api/src/server.ts b/apps/api/src/server.ts
+index 57ccef6..c96bb3a 100644
+--- a/apps/api/src/server.ts
++++ b/apps/api/src/server.ts
+@@ -58,6 +58,7 @@ export function buildApp(options: { databasePath?: string } = {}) {
+     const statusCode =
+       message === "salary_item_archived" ||
+       message === "salary_item_withdrawn" ||
++      message === "salary_evidence_employee_not_found" ||
+       message.startsWith("salary_batch_not_found") ||
+       message.startsWith("salary_item_not_found") ||
+       message === "salary_import_preview_not_found"
+@@ -69,6 +70,8 @@ export function buildApp(options: { databasePath?: string } = {}) {
+               "salary_item_already_sent",
+               "salary_item_send_in_progress",
+               "salary_item_not_withdrawable",
++              "salary_item_not_editable",
++              "salary_batch_not_deletable",
+               "salary_confirmation_disabled",
+             ].includes(message)
+           ? 409
+@@ -84,7 +87,8 @@ export function buildApp(options: { databasePath?: string } = {}) {
+             ? 403
+             : message.startsWith("salary_import_") ||
+                 message.startsWith("salary_workbook_") ||
+-                message === "directory_user_not_found"
++                message === "directory_user_not_found" ||
++                message === "salary_evidence_export_field_invalid"
+               ? 400
+               : error &&
+                   typeof error === "object" &&
+@@ -109,7 +113,7 @@ export function buildApp(options: { databasePath?: string } = {}) {
+     secureCookie: config.APP_BASE_URL.startsWith("https://"),
+   });
+   registerSalaryRoutes(app, { sessions, authz, salary, dingtalk });
+-  registerReportRoutes(app, { sessions, authz, store, audit });
++  registerReportRoutes(app, { sessions, authz, store, audit, dingtalk });
+   registerSettingsRoutes(app, { sessions, authz, store, audit });
+   return { app, store, dingtalk, sessions, audit, authz, salary };
+ }
+diff --git a/apps/api/test/payment-evidence.test.ts b/apps/api/test/payment-evidence.test.ts
+new file mode 100644
+index 0000000..a568794
+--- /dev/null
++++ b/apps/api/test/payment-evidence.test.ts
+@@ -0,0 +1,321 @@
++import { describe, expect, it } from "vitest";
++import * as XLSX from "xlsx";
++import type { DirectoryUser, DingTalkClient } from "@salary/dingtalk";
++import { MemorySalaryStore } from "@salary/db";
++import { AuditService } from "../src/modules/audit/service.js";
++import { EvidenceService } from "../src/modules/reports/evidence.js";
++import { buildApp } from "../src/server.js";
++
++class BoundaryStore extends MemorySalaryStore {
++  listBatchesCalled = false;
++  forbiddenBatchId?: string;
++
++  override listBatches() {
++    this.listBatchesCalled = true;
++    throw new Error("test_list_batches_must_not_be_called");
++  }
++
++  override getBatch(id: string) {
++    if (id === this.forbiddenBatchId)
++      throw new Error("test_unauthorized_full_batch_read");
++    return super.getBatch(id);
++  }
++}
++
++function createBatch(
++  store: BoundaryStore,
++  input: {
++    employeeUserId: string;
++    employeeName: string;
++    position: string;
++  },
++) {
++  const batch = store.createBatch({
++    payrollMonth: "2026-08",
++    title: "存证测试工资条",
++    createdById: "admin",
++    items: [
++      {
++        employeeUserId: input.employeeUserId,
++        employeeName: input.employeeName,
++        employeeNo: `${input.employeeUserId}-001`,
++        department: "测试部门",
++        position: input.position,
++        fields: { 实发金额: 9000 },
++      },
++    ],
++  });
++  store.setState(batch.id, "sending");
++  store.setState(batch.id, "sent");
++  return batch;
++}
++
++function directoryClient(users: DirectoryUser[]): DingTalkClient {
++  return {
++    exchangeAuthCode: async () => ({
++      userId: "admin",
++      corpId: "corp",
++      name: "管理员",
++    }),
++    sendWorkNotification: async () => ({ taskId: "task" }),
++    createTodo: async () => ({ todoId: "todo" }),
++    listDirectoryUsers: async () => users,
++  };
++}
++
++function cookie(response: {
++  headers: Record<string, string | string[] | undefined>;
++}): string {
++  const value = response.headers["set-cookie"];
++  const first = Array.isArray(value) ? value[0] : value;
++  if (!first) throw new Error("test_session_cookie_missing");
++  return first.split(";")[0]!;
++}
++
++describe("payment evidence service", () => {
++  it("lists employee metadata without full batch reads and classifies directory status", async () => {
++    const store = new BoundaryStore(Buffer.alloc(32, 7));
++    createBatch(store, {
++      employeeUserId: "employee-a",
++      employeeName: "员工A",
++      position: "财务",
++    });
++    createBatch(store, {
++      employeeUserId: "former-a",
++      employeeName: "离职员工",
++      position: "运营",
++    });
++    const service = new EvidenceService(
++      store,
++      directoryClient([
++        {
++          userId: "employee-a",
++          name: "员工A",
++          employeeNo: "employee-a-001",
++          position: "财务",
++          departmentIds: [1],
++        },
++      ]),
++      new AuditService(store),
++    );
++
++    const activeAndDeparted = await service.listEmployees({
++      kind: "main_admin",
++      userId: "admin",
++    });
++    const finance = await service.listEmployees(
++      { kind: "main_admin", userId: "admin" },
++      { query: "财务" },
++    );
++
++    expect(store.listBatchesCalled).toBe(false);
++    expect(activeAndDeparted).toEqual(
++      expect.arrayContaining([
++        expect.objectContaining({
++          employeeUserId: "employee-a",
++          employmentStatus: "active",
++        }),
++        expect.objectContaining({
++          employeeUserId: "former-a",
++          employmentStatus: "departed",
++        }),
++      ]),
++    );
++    expect(finance.map((employee) => employee.employeeUserId)).toEqual([
++      "employee-a",
++    ]);
++  });
++
++  it("only reads full batches inside a sub-admin's allowed batch scope", async () => {
++    const store = new BoundaryStore(Buffer.alloc(32, 8));
++    const allowed = createBatch(store, {
++      employeeUserId: "employee-a",
++      employeeName: "员工A",
++      position: "财务",
++    });
++    const forbidden = createBatch(store, {
++      employeeUserId: "employee-a",
++      employeeName: "员工A",
++      position: "财务",
++    });
++    store.forbiddenBatchId = forbidden.id;
++    const service = new EvidenceService(
++      store,
++      directoryClient([]),
++      new AuditService(store),
++    );
++
++    const detail = await service.getEmployeeDetail(
++      { kind: "sub_admin", userId: "sub-admin", batchIds: [allowed.id] },
++      "employee-a",
++      {},
++    );
++
++    expect(detail.rows.map((row) => row.batchId)).toEqual([allowed.id]);
++  });
++
++  it("serves scoped employee list and detail routes to sub-admins", async () => {
++    const { app } = buildApp();
++    const main = cookie(
++      await app.inject({ method: "POST", url: "/v1/auth/dev" }),
++    );
++    const allowedDraft = await app.inject({
++      method: "POST",
++      url: "/v1/salary-batches",
++      headers: { cookie: main },
++      payload: {
++        payrollMonth: "2026-08",
++        title: "可见工资条",
++        rows: [{ userId: "employee-a", name: "员工A", 实发金额: 9000 }],
++      },
++    });
++    const allowedBatchId = allowedDraft.json().batchId as string;
++    await app.inject({
++      method: "POST",
++      url: `/v1/salary-batches/${allowedBatchId}/send`,
++      headers: { cookie: main },
++      payload: {},
++    });
++    const hiddenDraft = await app.inject({
++      method: "POST",
++      url: "/v1/salary-batches",
++      headers: { cookie: main },
++      payload: {
++        payrollMonth: "2026-07",
++        title: "不可见工资条",
++        rows: [{ userId: "former-a", name: "离职员工", 实发金额: 8000 }],
++      },
++    });
++    const hiddenBatchId = hiddenDraft.json().batchId as string;
++    await app.inject({
++      method: "POST",
++      url: `/v1/salary-batches/${hiddenBatchId}/send`,
++      headers: { cookie: main },
++      payload: {},
++    });
++    await app.inject({
++      method: "POST",
++      url: "/v1/sub-admins",
++      headers: { cookie: main },
++      payload: { userId: "hr-user" },
++    });
++    await app.inject({
++      method: "POST",
++      url: `/v1/salary-batches/${allowedBatchId}/admins`,
++      headers: { cookie: main },
++      payload: { userId: "hr-user" },
++    });
++    const subAdmin = cookie(
++      await app.inject({
++        method: "POST",
++        url: "/v1/auth/dev",
++        payload: { userId: "hr-user", name: "人事管理员" },
++      }),
++    );
++
++    const list = await app.inject({
++      method: "GET",
++      url: "/v1/payment-evidence/employees?query=%E5%91%98%E5%B7%A5A",
++      headers: { cookie: subAdmin },
++    });
++    expect(list.statusCode).toBe(200);
++    expect(list.json()).toEqual([
++      expect.objectContaining({
++        employeeUserId: "employee-a",
++        employmentStatus: "active",
++      }),
++    ]);
++
++    const detail = await app.inject({
++      method: "GET",
++      url: "/v1/payment-evidence/employees/employee-a",
++      headers: { cookie: subAdmin },
++    });
++    expect(detail.statusCode).toBe(200);
++    expect(detail.json().rows).toEqual([
++      expect.objectContaining({ batchId: allowedBatchId }),
++    ]);
++
++    const hiddenDetail = await app.inject({
++      method: "GET",
++      url: "/v1/payment-evidence/employees/former-a",
++      headers: { cookie: subAdmin },
++    });
++    expect(hiddenDetail.statusCode).toBe(404);
++    await app.close();
++  });
++
++  it("exports fixed evidence columns and only selected salary fields", async () => {
++    const { app } = buildApp();
++    const main = cookie(
++      await app.inject({ method: "POST", url: "/v1/auth/dev" }),
++    );
++    const draft = await app.inject({
++      method: "POST",
++      url: "/v1/salary-batches",
++      headers: { cookie: main },
++      payload: {
++        payrollMonth: "2026-08",
++        title: "导出测试工资条",
++        rows: [
++          {
++            userId: "employee-a",
++            name: "员工A",
++            基本工资: 10000,
++            实发金额: 9000,
++          },
++        ],
++      },
++    });
++    const batchId = draft.json().batchId as string;
++    await app.inject({
++      method: "POST",
++      url: `/v1/salary-batches/${batchId}/send`,
++      headers: { cookie: main },
++      payload: {},
++    });
++
++    const response = await app.inject({
++      method: "POST",
++      url: "/v1/payment-evidence/export.xlsx",
++      headers: { cookie: main },
++      payload: {
++        employeeUserId: "employee-a",
++        fields: ["实发金额"],
++      },
++    });
++
++    expect(response.statusCode).toBe(200);
++    expect(response.headers["content-type"]).toContain(
++      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
++    );
++    const workbook = XLSX.read(response.rawPayload, { type: "buffer" });
++    const rows = XLSX.utils.sheet_to_json<string[]>(
++      workbook.Sheets["发薪存证"]!,
++      { header: 1 },
++    );
++    expect(rows[0]).toEqual([
++      "员工姓名",
++      "工号",
++      "职位",
++      "工资月份",
++      "工资条标题",
++      "发送状态",
++      "查看状态",
++      "确认状态",
++      "确认时间",
++      "确认人",
++      "实发金额",
++    ]);
++    expect(rows[1]).toContain(9000);
++
++    const invalidField = await app.inject({
++      method: "POST",
++      url: "/v1/payment-evidence/export.xlsx",
++      headers: { cookie: main },
++      payload: { employeeUserId: "employee-a", fields: ["不存在字段"] },
++    });
++    expect(invalidField.statusCode).toBe(400);
++    await app.close();
++  });
++});
+diff --git a/apps/api/test/salary-management-actions.test.ts b/apps/api/test/salary-management-actions.test.ts
+new file mode 100644
+index 0000000..668b2aa
+--- /dev/null
++++ b/apps/api/test/salary-management-actions.test.ts
+@@ -0,0 +1,297 @@
++import { describe, expect, it } from "vitest";
++import { buildApp } from "../src/server.js";
++
++function sessionCookie(response: {
++  headers: Record<string, string | string[] | undefined>;
++}): string {
++  const value = response.headers["set-cookie"];
++  const first = Array.isArray(value) ? value[0] : value;
++  if (!first) throw new Error("test_session_cookie_missing");
++  return first.split(";")[0];
++}
++
++async function createDraft(
++  app: ReturnType<typeof buildApp>["app"],
++  cookie: string,
++  rows = [{ userId: "employee-a", name: "员工A", 实发金额: 9000 }],
++) {
++  const response = await app.inject({
++    method: "POST",
++    url: "/v1/salary-batches",
++    headers: { cookie },
++    payload: {
++      payrollMonth: "2026-08",
++      title: "工资管理动作测试",
++      rows,
++    },
++  });
++  expect(response.statusCode).toBe(200);
++  const batchId = response.json().batchId as string;
++  const detail = await app.inject({
++    method: "GET",
++    url: `/v1/salary-batches/${batchId}`,
++    headers: { cookie },
++  });
++  return { batchId, detail: detail.json() as { items: Array<{ id: string }> } };
++}
++
++function deferred<T>() {
++  let resolve!: (value: T) => void;
++  const promise = new Promise<T>((resolvePromise) => {
++    resolve = resolvePromise;
++  });
++  return { promise, resolve };
++}
++
++describe("salary management actions", () => {
++  it("deletes an untouched draft but rejects a partially delivered batch", async () => {
++    const { app } = buildApp();
++    const admin = sessionCookie(
++      await app.inject({ method: "POST", url: "/v1/auth/dev" }),
++    );
++
++    const untouched = await createDraft(app, admin);
++    const deleted = await app.inject({
++      method: "DELETE",
++      url: `/v1/salary-batches/${untouched.batchId}`,
++      headers: { cookie: admin },
++    });
++    expect(deleted.statusCode).toBe(200);
++    expect(deleted.json()).toEqual({ deleted: true, batchId: untouched.batchId });
++    expect(
++      (
++        await app.inject({
++          method: "GET",
++          url: `/v1/salary-batches/${untouched.batchId}`,
++          headers: { cookie: admin },
++        })
++      ).statusCode,
++    ).toBe(404);
++
++    const partial = await createDraft(app, admin, [
++      { userId: "employee-a", name: "员工A", 实发金额: 9000 },
++      { userId: "employee-b", name: "员工B", 实发金额: 8000 },
++    ]);
++    const sendOne = await app.inject({
++      method: "POST",
++      url: `/v1/salary-batches/${partial.batchId}/items/${partial.detail.items[0].id}/send`,
++      headers: { cookie: admin },
++      payload: {},
++    });
++    expect(sendOne.statusCode).toBe(200);
++    const rejected = await app.inject({
++      method: "DELETE",
++      url: `/v1/salary-batches/${partial.batchId}`,
++      headers: { cookie: admin },
++    });
++    expect(rejected.statusCode).toBe(409);
++    expect(rejected.json().code).toBe("salary_batch_not_deletable");
++    await app.close();
++  });
++
++  it("edits only a withdrawn item and allows it to be sent again", async () => {
++    const { app } = buildApp();
++    const admin = sessionCookie(
++      await app.inject({ method: "POST", url: "/v1/auth/dev" }),
++    );
++    const draft = await createDraft(app, admin);
++    const itemId = draft.detail.items[0].id;
++
++    const beforeWithdraw = await app.inject({
++      method: "PATCH",
++      url: `/v1/salary-batches/${draft.batchId}/items/${itemId}`,
++      headers: { cookie: admin },
++      payload: { fields: { 实发金额: 9100 } },
++    });
++    expect(beforeWithdraw.statusCode).toBe(409);
++    expect(beforeWithdraw.json().code).toBe("salary_item_not_editable");
++
++    await app.inject({
++      method: "POST",
++      url: `/v1/salary-batches/${draft.batchId}/items/${itemId}/send`,
++      headers: { cookie: admin },
++      payload: {},
++    });
++    const withdrawn = await app.inject({
++      method: "POST",
++      url: `/v1/salary-batches/${draft.batchId}/items/${itemId}/withdraw`,
++      headers: { cookie: admin },
++      payload: {},
++    });
++    expect(withdrawn.statusCode).toBe(200);
++
++    const edited = await app.inject({
++      method: "PATCH",
++      url: `/v1/salary-batches/${draft.batchId}/items/${itemId}`,
++      headers: { cookie: admin },
++      payload: { fields: { 实发金额: 9100, 奖金: 300 } },
++    });
++    expect(edited.statusCode).toBe(200);
++    expect(edited.json().items.find((item: { id: string }) => item.id === itemId).fields).toEqual({
++      实发金额: 9100,
++      奖金: 300,
++    });
++    expect(
++      edited.json().items.find((item: { id: string }) => item.id === itemId)
++        .deliveryStatus,
++    ).toBe("withdrawn");
++
++    const resent = await app.inject({
++      method: "POST",
++      url: `/v1/salary-batches/${draft.batchId}/items/${itemId}/send`,
++      headers: { cookie: admin },
++      payload: {},
++    });
++    expect(resent.statusCode).toBe(200);
++    expect(
++      resent.json().batch.items.find((item: { id: string }) => item.id === itemId)
++        .deliveryStatus,
++    ).toBe("delivered");
++    await app.close();
++  });
++
++  it("rejects editing a withdrawn item after its batch is archived", async () => {
++    const { app, store } = buildApp();
++    const admin = sessionCookie(
++      await app.inject({ method: "POST", url: "/v1/auth/dev" }),
++    );
++    const draft = await createDraft(app, admin);
++    const itemId = draft.detail.items[0].id;
++
++    await app.inject({
++      method: "POST",
++      url: `/v1/salary-batches/${draft.batchId}/items/${itemId}/send`,
++      headers: { cookie: admin },
++      payload: {},
++    });
++    await app.inject({
++      method: "POST",
++      url: `/v1/salary-batches/${draft.batchId}/items/${itemId}/withdraw`,
++      headers: { cookie: admin },
++      payload: {},
++    });
++    store.archiveExpired("2026-09");
++
++    const before = await app.inject({
++      method: "GET",
++      url: `/v1/salary-batches/${draft.batchId}`,
++      headers: { cookie: admin },
++    });
++    const edited = await app.inject({
++      method: "PATCH",
++      url: `/v1/salary-batches/${draft.batchId}/items/${itemId}`,
++      headers: { cookie: admin },
++      payload: { fields: { 实发金额: 9100 } },
++    });
++    const after = await app.inject({
++      method: "GET",
++      url: `/v1/salary-batches/${draft.batchId}`,
++      headers: { cookie: admin },
++    });
++
++    expect(edited.statusCode).toBe(409);
++    expect(edited.json().code).toBe("salary_item_not_editable");
++    expect(after.json().items[0].fields).toEqual(before.json().items[0].fields);
++    await app.close();
++  });
++
++  it("rejects deleting a batch while a single-item send is in flight", async () => {
++    const { app, dingtalk } = buildApp();
++    const admin = sessionCookie(
++      await app.inject({ method: "POST", url: "/v1/auth/dev" }),
++    );
++    const draft = await createDraft(app, admin);
++    const itemId = draft.detail.items[0].id;
++    const gate = deferred<{ taskId: string }>();
++    const started = deferred<void>();
++    dingtalk.sendWorkNotification = async () => {
++      started.resolve();
++      return gate.promise;
++    };
++
++    const sending = app.inject({
++      method: "POST",
++      url: `/v1/salary-batches/${draft.batchId}/items/${itemId}/send`,
++      headers: { cookie: admin },
++      payload: {},
++    });
++    await started.promise;
++    const deleted = await app.inject({
++      method: "DELETE",
++      url: `/v1/salary-batches/${draft.batchId}`,
++      headers: { cookie: admin },
++    });
++    gate.resolve({ taskId: "notice-in-flight-delete" });
++    const sent = await sending;
++    const remaining = await app.inject({
++      method: "GET",
++      url: `/v1/salary-batches/${draft.batchId}`,
++      headers: { cookie: admin },
++    });
++
++    expect(deleted.statusCode).toBe(409);
++    expect(deleted.json().code).toBe("salary_batch_not_deletable");
++    expect(sent.statusCode).toBe(200);
++    expect(remaining.statusCode).toBe(200);
++    await app.close();
++  });
++
++  it("rejects editing an item while its resend is in flight", async () => {
++    const { app, dingtalk } = buildApp();
++    const admin = sessionCookie(
++      await app.inject({ method: "POST", url: "/v1/auth/dev" }),
++    );
++    const draft = await createDraft(app, admin);
++    const itemId = draft.detail.items[0].id;
++    await app.inject({
++      method: "POST",
++      url: `/v1/salary-batches/${draft.batchId}/items/${itemId}/send`,
++      headers: { cookie: admin },
++      payload: {},
++    });
++    await app.inject({
++      method: "POST",
++      url: `/v1/salary-batches/${draft.batchId}/items/${itemId}/withdraw`,
++      headers: { cookie: admin },
++      payload: {},
++    });
++    const before = await app.inject({
++      method: "GET",
++      url: `/v1/salary-batches/${draft.batchId}`,
++      headers: { cookie: admin },
++    });
++    const gate = deferred<{ taskId: string }>();
++    const started = deferred<void>();
++    dingtalk.sendWorkNotification = async () => {
++      started.resolve();
++      return gate.promise;
++    };
++
++    const resending = app.inject({
++      method: "POST",
++      url: `/v1/salary-batches/${draft.batchId}/items/${itemId}/send`,
++      headers: { cookie: admin },
++      payload: {},
++    });
++    await started.promise;
++    const edited = await app.inject({
++      method: "PATCH",
++      url: `/v1/salary-batches/${draft.batchId}/items/${itemId}`,
++      headers: { cookie: admin },
++      payload: { fields: { 实发金额: 9100 } },
++    });
++    gate.resolve({ taskId: "notice-in-flight-edit" });
++    const resent = await resending;
++    const after = await app.inject({
++      method: "GET",
++      url: `/v1/salary-batches/${draft.batchId}`,
++      headers: { cookie: admin },
++    });
++
++    expect(edited.statusCode).toBe(409);
++    expect(edited.json().code).toBe("salary_item_not_editable");
++    expect(resent.statusCode).toBe(200);
++    expect(after.json().items[0].fields).toEqual(before.json().items[0].fields);
++    await app.close();
++  });
++});
+diff --git a/apps/web/src/App.test.tsx b/apps/web/src/App.test.tsx
+index 8c0488f..30ac5b9 100644
+--- a/apps/web/src/App.test.tsx
++++ b/apps/web/src/App.test.tsx
+@@ -60,17 +60,20 @@ describe("salary management", () => {
+   });
+ 
+   it("labels the per-employee action as a work notification send without DING", async () => {
++    const user = userEvent.setup();
+     apiMock.mockImplementation((path: string) => {
+       if (path === "/v1/salary-batches") return Promise.resolve([batch]);
+       if (path === "/v1/salary-batches/batch-1") return Promise.resolve({ ...batch, items: [{ id: "item-1", employeeName: "员工A", employeeUserId: "employee-a", fields: { 实发金额: 10000 } }] });
+       return Promise.reject(new Error(`unexpected_request:${path}`));
+     });
+     render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
++    await user.click(await screen.findByRole("button", { name: "前往发送" }));
+     await screen.findByRole("button", { name: "单独发送" });
+     expect(screen.queryByText(/DING/)).not.toBeInTheDocument();
+   });
+ 
+   it("renders failed and withdrawn employee delivery states", async () => {
++    const user = userEvent.setup();
+     apiMock.mockImplementation((path: string) => {
+       if (path === "/v1/salary-batches") return Promise.resolve([{ ...batch, state: "partially_failed", total: 2 }]);
+       if (path === "/v1/salary-batches/batch-1") return Promise.resolve({
+@@ -85,12 +88,13 @@ describe("salary management", () => {
+       return Promise.reject(new Error(`unexpected_request:${path}`));
+     });
+     render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
++    await user.click(await screen.findByRole("button", { name: "前往发送" }));
+     expect(await screen.findByText("员工失败")).toBeInTheDocument();
+     expect(document.querySelector(".status-failed")).toHaveTextContent("发送失败");
+     expect(document.querySelector(".status-withdrawn")).toHaveTextContent("已撤回");
+   });
+ 
+-  it("loads batch summaries and the active batch detail, then opens the import wizard", async () => {
++  it("loads only summaries until a batch is opened, then opens the import wizard", async () => {
+     const user = userEvent.setup();
+     apiMock.mockImplementation((path: string) => {
+       if (path === "/v1/salary-batches") return Promise.resolve([batch]);
+@@ -99,10 +103,94 @@ describe("salary management", () => {
+     });
+     render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
+     await screen.findByText("0/1");
++    expect(apiMock).not.toHaveBeenCalledWith("/v1/salary-batches/batch-1");
++    await user.click(screen.getByRole("button", { name: "前往发送" }));
+     await waitFor(() => expect(apiMock).toHaveBeenCalledWith("/v1/salary-batches/batch-1"));
++    await user.click(screen.getByRole("button", { name: "返回" }));
+     await user.click(screen.getByRole("button", { name: "上传工资表" }));
+     expect(await screen.findByRole("heading", { name: "上传工资表" })).toBeInTheDocument();
+   });
++
++  it("shows monthly actions from delivery progress and never exposes batch settings", async () => {
++    const user = userEvent.setup();
++    apiMock.mockImplementation((path: string) => {
++      if (path === "/v1/salary-batches")
++        return Promise.resolve([
++          { ...batch, id: "draft-batch", title: "未发送工资条", total: 2 },
++          { ...batch, id: "partial-batch", title: "部分发送工资条", total: 2, sent: 1, state: "partially_failed" },
++          { ...batch, id: "sent-batch", title: "已发送工资条", sent: 1, total: 1, state: "sent" },
++        ]);
++      if (path === "/v1/salary-batches/sent-batch")
++        return Promise.resolve({ ...batch, id: "sent-batch", title: "已发送工资条", sent: 1, total: 1, state: "sent", items: [] });
++      return Promise.reject(new Error(`unexpected_request:${path}`));
++    });
++    render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
++    expect(await screen.findByText("未发送工资条")).toBeInTheDocument();
++    const sendButtons = screen.getAllByRole("button", { name: "前往发送" });
++    expect(sendButtons[0]).toBeEnabled();
++    expect(sendButtons).toHaveLength(2);
++    expect(screen.getByRole("button", { name: "查看发送" })).toBeInTheDocument();
++    expect(screen.queryByRole("button", { name: "设置" })).not.toBeInTheDocument();
++    const deleteButtons = screen.getAllByRole("button", { name: "删除" });
++    expect(deleteButtons[0]).toBeEnabled();
++    expect(deleteButtons[1]).toBeDisabled();
++    expect(deleteButtons[2]).toBeDisabled();
++    const viewButtons = screen.getAllByRole("button", { name: "查看发送" });
++    await user.click(viewButtons[0]!);
++    expect(await screen.findByRole("columnheader", { name: "姓名" })).toBeInTheDocument();
++  });
++
++  it("deletes an untouched draft from the monthly card", async () => {
++    const user = userEvent.setup();
++    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
++    apiMock.mockImplementation((path: string, options?: { method?: string }) => {
++      if (path === "/v1/salary-batches" && !options?.method)
++        return Promise.resolve([{ ...batch, total: 2 }]);
++      if (path === "/v1/salary-batches/batch-1" && options?.method === "DELETE")
++        return Promise.resolve({ deleted: true, batchId: batch.id });
++      if (path === "/v1/salary-batches/batch-1" && !options?.method)
++        return Promise.resolve({ ...batch, total: 2, items: [] });
++      return Promise.reject(new Error(`unexpected_request:${path}`));
++    });
++    render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
++    await user.click(await screen.findByRole("button", { name: "删除" }));
++    await waitFor(() => expect(apiMock).toHaveBeenCalledWith(
++      "/v1/salary-batches/batch-1",
++      expect.objectContaining({ method: "DELETE" }),
++    ));
++    expect(confirm).toHaveBeenCalled();
++  });
++
++  it("enables editing only after withdrawal and saves revised salary fields", async () => {
++    const user = userEvent.setup();
++    const delivered = { id: "item-1", employeeName: "员工A", employeeUserId: "employee-a", fields: { 实发金额: 10000 }, deliveryStatus: "delivered" };
++    const withdrawn = { ...delivered, fields: { 实发金额: 10100 }, deliveryStatus: "withdrawn" as const };
++    let withdrawnState = false;
++    apiMock.mockImplementation((path: string, options?: { method?: string; body?: string }) => {
++      if (path === "/v1/salary-batches") return Promise.resolve([{ ...batch, sent: 1, total: 1, state: "sent" }]);
++      if (path === "/v1/salary-batches/batch-1/items/item-1" && options?.method === "PATCH") return Promise.resolve({ ...batch, sent: 1, total: 1, state: "sent", items: [withdrawn] });
++      if (path === "/v1/salary-batches/batch-1/items/item-1/withdraw") {
++        withdrawnState = true;
++        return Promise.resolve({ ...batch, sent: 1, total: 1, state: "sent", items: [withdrawn] });
++      }
++      if (path === "/v1/salary-batches/batch-1") return Promise.resolve({ ...batch, sent: 1, total: 1, state: "sent", items: [withdrawnState ? withdrawn : delivered] });
++      return Promise.reject(new Error(`unexpected_request:${path}`));
++    });
++    render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
++    await user.click(await screen.findByRole("button", { name: "查看发送" }));
++    expect(await screen.findByRole("button", { name: "编辑" })).toBeDisabled();
++    await user.click(screen.getByRole("button", { name: "撤回" }));
++    await waitFor(() => expect(screen.getByRole("button", { name: "编辑" })).toBeEnabled());
++    await user.click(screen.getByRole("button", { name: "编辑" }));
++    const amount = await screen.findByLabelText("实发金额");
++    await user.clear(amount);
++    await user.type(amount, "10100");
++    await user.click(screen.getByRole("button", { name: "保存并关闭" }));
++    await waitFor(() => expect(apiMock).toHaveBeenCalledWith(
++      "/v1/salary-batches/batch-1/items/item-1",
++      expect.objectContaining({ method: "PATCH" }),
++    ));
++  });
+ });
+ 
+ describe("admin module smoke tests", () => {
+@@ -111,13 +199,13 @@ describe("admin module smoke tests", () => {
+     ensureSessionMock.mockResolvedValue(identity);
+     apiMock.mockImplementation((path: string) => {
+       if (path === "/v1/salary-batches") return Promise.resolve([]);
+-      if (path === "/v1/payment-evidence") return Promise.resolve([]);
++      if (path === "/v1/payment-evidence/employees?employmentStatus=active") return Promise.resolve([]);
+       return Promise.reject(new Error(`unexpected_request:${path}`));
+     });
+     render(<App />);
+     await user.click(await screen.findByRole("button", { name: "发薪存证" }));
+-    expect(await screen.findByText("暂无存证事件")).toBeInTheDocument();
+-    expect(apiMock).toHaveBeenCalledWith("/v1/payment-evidence");
++    expect(await screen.findByText("暂无发薪存证")).toBeInTheDocument();
++    expect(apiMock).toHaveBeenCalledWith("/v1/payment-evidence/employees?employmentStatus=active");
+   });
+ 
+   it("renders a non-empty evidence record", async () => {
+@@ -125,21 +213,52 @@ describe("admin module smoke tests", () => {
+     ensureSessionMock.mockResolvedValue(identity);
+     apiMock.mockImplementation((path: string) => {
+       if (path === "/v1/salary-batches") return Promise.resolve([]);
+-      if (path === "/v1/payment-evidence") return Promise.resolve([{
+-        id: "evidence-1",
+-        batchId: "batch-2026-08",
++      if (path === "/v1/payment-evidence/employees?employmentStatus=active") return Promise.resolve([{
+         employeeUserId: "employee-a",
+-        eventType: "notification_sent",
+-        fingerprint: "0123456789abcdef0123456789abcdef",
+-        createdAt: "2026-08-01T08:00:00.000Z",
++        employeeName: "员工A",
++        employeeNo: "A001",
++        position: "会计",
++        employmentStatus: "active",
++        evidenceCount: 1,
++        latestEvidenceAt: "2026-08-01T08:00:00.000Z",
+       }]);
++      if (path === "/v1/payment-evidence/employees/employee-a") return Promise.resolve({
++        employee: {
++          employeeUserId: "employee-a",
++          employeeName: "员工A",
++          employeeNo: "A001",
++          position: "会计",
++          employmentStatus: "active",
++          evidenceCount: 1,
++          latestEvidenceAt: "2026-08-01T08:00:00.000Z",
++        },
++        availableFields: ["实发金额"],
++        rows: [{
++          batchId: "batch-2026-08",
++          itemId: "item-1",
++          payrollMonth: "2026-08",
++          title: "2026年08月工资条",
++          state: "sent",
++          employeeUserId: "employee-a",
++          employeeName: "员工A",
++          employeeNo: "A001",
++          position: "会计",
++          fields: { 实发金额: 9000 },
++          sendStatus: "sent",
++          viewStatus: "viewed",
++          confirmStatus: "confirmed",
++          confirmedAt: "2026-08-01T08:00:00.000Z",
++          confirmedBy: "employee-a",
++        }],
++      });
+       return Promise.reject(new Error(`unexpected_request:${path}`));
+     });
+     render(<App />);
+     await user.click(await screen.findByRole("button", { name: "发薪存证" }));
+-    expect(await screen.findByText("batch-2026-08")).toBeInTheDocument();
+-    expect(screen.getByText("employee-a")).toBeInTheDocument();
+-    expect(screen.getByText("notification_sent")).toBeInTheDocument();
++    expect(await screen.findByText("员工A")).toBeInTheDocument();
++    await user.click(screen.getByRole("button", { name: "查看发薪存证" }));
++    expect(await screen.findByText("2026年08月工资条")).toBeInTheDocument();
++    expect(screen.getByText("已确认")).toBeInTheDocument();
+   });
+ 
+   it("loads the report and renders salary totals", async () => {
+diff --git a/apps/web/src/api.ts b/apps/web/src/api.ts
+index 82fa4c1..a5f5026 100644
+--- a/apps/web/src/api.ts
++++ b/apps/web/src/api.ts
+@@ -206,6 +206,57 @@ export interface ReportSummary {
+   batches: Array<Batch & { deliveryFailures: number; evidenceEvents: number }>;
+ }
+ 
++export type PaymentEvidenceEmploymentStatus = "active" | "departed";
++export type PaymentEvidenceSendStatus = "not_sent" | "sent" | "failed" | "withdrawn";
++export type PaymentEvidenceViewStatus = "not_viewed" | "viewed";
++export type PaymentEvidenceConfirmStatus = "not_confirmed" | "confirmed";
++
++export interface PaymentEvidenceEmployee {
++  employeeUserId: string;
++  employeeName: string;
++  employeeNo?: string;
++  department?: string;
++  position?: string;
++  employmentStatus: PaymentEvidenceEmploymentStatus;
++  evidenceCount: number;
++  latestEvidenceAt?: string;
++}
++
++export interface PaymentEvidenceFilters {
++  fromMonth?: string;
++  toMonth?: string;
++  sendStatus?: PaymentEvidenceSendStatus;
++  viewStatus?: PaymentEvidenceViewStatus;
++  confirmStatus?: PaymentEvidenceConfirmStatus;
++}
++
++export interface PaymentEvidenceRow {
++  batchId: string;
++  itemId: string;
++  payrollMonth: string;
++  title: string;
++  state: string;
++  employeeUserId: string;
++  employeeName: string;
++  employeeNo?: string;
++  department?: string;
++  position?: string;
++  fields: Record<string, string | number | null>;
++  sendStatus: PaymentEvidenceSendStatus;
++  sentAt?: string;
++  viewStatus: PaymentEvidenceViewStatus;
++  viewedAt?: string;
++  confirmStatus: PaymentEvidenceConfirmStatus;
++  confirmedAt?: string;
++  confirmedBy?: string;
++}
++
++export interface PaymentEvidenceDetail {
++  employee: PaymentEvidenceEmployee;
++  rows: PaymentEvidenceRow[];
++  availableFields: string[];
++}
++
+ export interface Settings {
+   employeeVisibilityMonths: 12;
+ }
+diff --git a/apps/web/src/pages/EmployeeSalary.test.tsx b/apps/web/src/pages/EmployeeSalary.test.tsx
+index 05a18aa..1cee100 100644
+--- a/apps/web/src/pages/EmployeeSalary.test.tsx
++++ b/apps/web/src/pages/EmployeeSalary.test.tsx
+@@ -41,6 +41,24 @@ function mockEmployeePage(displaySettings: ReturnType<typeof settings>) {
+ afterEach(() => vi.clearAllMocks());
+ 
+ describe("employee salary semantics", () => {
++  it("shows an update notice when the salary item has been withdrawn", async () => {
++    window.history.pushState({}, "", "/employee/salary-slips/batch-1");
++    sessionMock.mockResolvedValue({ userId: "employee-a", name: "员工A", corpId: "corp" });
++    apiMock.mockImplementation((path: string) => {
++      if (path === "/v1/me/salary-slips/batch-1")
++        return Promise.reject(new Error("salary_item_withdrawn"));
++      return Promise.reject(new Error(`unexpected_request:${path}`));
++    });
++    render(<EmployeePage employeeId="employee-a" />);
++    expect(
++      await screen.findByText(
++        "工资条信息正在更新，后续将通过钉钉通知发送更新信息。如有疑问，请联系财务同事。",
++      ),
++    ).toBeInTheDocument();
++    expect(screen.queryByText("页面加载失败")).not.toBeInTheDocument();
++    expect(screen.queryByText("salary_item_withdrawn")).not.toBeInTheDocument();
++  });
++
+   it("hides confirmation control and wording when confirmation is disabled", async () => {
+     mockEmployeePage(settings(false));
+     render(<EmployeePage employeeId="employee-a" />);
+diff --git a/apps/web/src/pages/EmployeeSalary.tsx b/apps/web/src/pages/EmployeeSalary.tsx
+index 0669a8e..239ee5c 100644
+--- a/apps/web/src/pages/EmployeeSalary.tsx
++++ b/apps/web/src/pages/EmployeeSalary.tsx
+@@ -6,11 +6,18 @@ import { formatSalaryValue } from "../format";
+ function EmployeeLoading() {
+   return <div className="loading"><span className="spinner" />加载中</div>;
+ }
++const withdrawnNotice = "工资条信息正在更新，后续将通过钉钉通知发送更新信息。如有疑问，请联系财务同事。";
+ function EmployeeFullError({ message }: { message: string }) {
+-  return <div className="full-error"><Icon name="shield" size={24} /><strong>页面加载失败</strong><span>{message}</span></div>;
++  return (
++    <div className="full-error">
++      <Icon name="shield" size={24} />
++      {message === withdrawnNotice ? <strong>{message}</strong> : <><strong>页面加载失败</strong><span>{message}</span></>}
++    </div>
++  );
+ }
+ function errorText(reason: unknown) {
+-  return reason instanceof Error ? reason.message : typeof reason === "string" ? reason : "unknown_error";
++  const message = reason instanceof Error ? reason.message : typeof reason === "string" ? reason : "unknown_error";
++  return message === "salary_item_withdrawn" ? withdrawnNotice : message;
+ }
+ export function EmployeeHome({ employeeId }: { employeeId: string | undefined }) {
+   const [identity, setIdentity] = useState<Identity>();
+diff --git a/apps/web/src/pages/EvidenceCenter.test.tsx b/apps/web/src/pages/EvidenceCenter.test.tsx
+new file mode 100644
+index 0000000..30002f8
+--- /dev/null
++++ b/apps/web/src/pages/EvidenceCenter.test.tsx
+@@ -0,0 +1,130 @@
++import { render, screen, waitFor } from "@testing-library/react";
++import userEvent from "@testing-library/user-event";
++import { afterEach, describe, expect, it, vi } from "vitest";
++
++const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }));
++
++vi.mock("../api", async () => {
++  const actual = await vi.importActual<typeof import("../api")>("../api");
++  return { ...actual, api: apiMock };
++});
++
++import { EvidenceCenter } from "./EvidenceCenter";
++
++const employee = {
++  employeeUserId: "employee-a",
++  employeeName: "员工A",
++  employeeNo: "A001",
++  department: "财务",
++  position: "会计",
++  employmentStatus: "active" as const,
++  evidenceCount: 2,
++  latestEvidenceAt: "2026-08-10T10:00:00.000Z",
++};
++
++const detail = {
++  employee,
++  availableFields: ["基本工资", "实发金额"],
++  rows: [
++    {
++      batchId: "batch-2026-08",
++      itemId: "item-1",
++      payrollMonth: "2026-08",
++      title: "2026年08月工资条",
++      state: "sent",
++      employeeUserId: "employee-a",
++      employeeName: "员工A",
++      employeeNo: "A001",
++      department: "财务",
++      position: "会计",
++      fields: { 基本工资: 10000, 实发金额: 9000 },
++      sendStatus: "sent",
++      sentAt: "2026-08-01T08:00:00.000Z",
++      viewStatus: "viewed",
++      viewedAt: "2026-08-08T09:00:00.000Z",
++      confirmStatus: "confirmed",
++      confirmedAt: "2026-08-10T10:00:00.000Z",
++      confirmedBy: "employee-a",
++    },
++  ],
++};
++
++afterEach(() => {
++  vi.clearAllMocks();
++  vi.restoreAllMocks();
++  vi.unstubAllGlobals();
++});
++
++describe("EvidenceCenter", () => {
++  it("renders employment tabs, search results, and employee detail statuses", async () => {
++    const user = userEvent.setup();
++    apiMock.mockImplementation((path: string) => {
++      if (path.startsWith("/v1/payment-evidence/employees/employee-a"))
++        return Promise.resolve(detail);
++      if (path.startsWith("/v1/payment-evidence/employees"))
++        return Promise.resolve([employee]);
++      return Promise.reject(new Error(`unexpected_request:${path}`));
++    });
++
++    render(<EvidenceCenter refreshKey={0} />);
++
++    expect(await screen.findByText("员工A")).toBeInTheDocument();
++    expect(screen.getByRole("tab", { name: "在职" })).toBeInTheDocument();
++    await user.click(screen.getByRole("button", { name: "查看发薪存证" }));
++
++    expect(await screen.findByText("已确认")).toBeInTheDocument();
++    expect(screen.getByText("2026-08-10 10:00")).toBeInTheDocument();
++    expect(screen.getByText("employee-a")).toBeInTheDocument();
++    expect(screen.getByText("实发金额")).toBeInTheDocument();
++  });
++
++  it("filters the employee detail and downloads selected Excel fields", async () => {
++    const user = userEvent.setup();
++    const fetchMock = vi.fn().mockResolvedValue({
++      ok: true,
++      blob: () => Promise.resolve(new Blob(["xlsx"])),
++    });
++    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
++    vi.stubGlobal("fetch", fetchMock);
++    vi.stubGlobal("URL", {
++      createObjectURL: vi.fn(() => "blob:payment-evidence"),
++      revokeObjectURL: vi.fn(),
++    });
++    apiMock.mockImplementation((path: string) => {
++      if (path.startsWith("/v1/payment-evidence/employees/employee-a"))
++        return Promise.resolve(detail);
++      if (path.startsWith("/v1/payment-evidence/employees"))
++        return Promise.resolve([employee]);
++      return Promise.reject(new Error(`unexpected_request:${path}`));
++    });
++
++    render(<EvidenceCenter refreshKey={0} />);
++    await user.click(await screen.findByRole("button", { name: "查看发薪存证" }));
++    await user.click(screen.getByRole("button", { name: "筛选" }));
++    await user.selectOptions(screen.getByRole("combobox", { name: "发送状态" }), "sent");
++    await user.click(screen.getByRole("button", { name: "应用筛选" }));
++    await waitFor(() =>
++      expect(apiMock).toHaveBeenCalledWith(
++        "/v1/payment-evidence/employees/employee-a?sendStatus=sent",
++      ),
++    );
++
++    await user.click(screen.getByRole("button", { name: "导出 Excel" }));
++    expect(screen.getByRole("checkbox", { name: "实发金额" })).toBeChecked();
++    await user.click(screen.getByRole("checkbox", { name: "基本工资" }));
++    await user.click(screen.getByRole("button", { name: "下载 Excel" }));
++    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
++    expect(fetchMock.mock.calls[0]?.[0]).toBe("/v1/payment-evidence/export.xlsx");
++    expect(JSON.parse(fetchMock.mock.calls[0]?.[1].body)).toMatchObject({
++      employeeUserId: "employee-a",
++      sendStatus: "sent",
++      fields: ["实发金额"],
++    });
++  });
++
++  it("renders an empty employee state", async () => {
++    apiMock.mockResolvedValue([]);
++    render(<EvidenceCenter refreshKey={0} />);
++    expect(await screen.findByText("暂无发薪存证")).toBeInTheDocument();
++  });
++});
+diff --git a/apps/web/src/pages/EvidenceCenter.tsx b/apps/web/src/pages/EvidenceCenter.tsx
+index baaa4e1..0f5ca4e 100644
+--- a/apps/web/src/pages/EvidenceCenter.tsx
++++ b/apps/web/src/pages/EvidenceCenter.tsx
+@@ -1,94 +1,285 @@
+-import { useEffect, useState } from "react";
+-import { api } from "../api";
++import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
++import {
++  api,
++  type PaymentEvidenceConfirmStatus,
++  type PaymentEvidenceDetail,
++  type PaymentEvidenceEmployee,
++  type PaymentEvidenceEmploymentStatus,
++  type PaymentEvidenceFilters,
++  type PaymentEvidenceSendStatus,
++  type PaymentEvidenceViewStatus,
++} from "../api";
+ import { Icon } from "../icons";
+-import { formatDate } from "../utils/ui";
+ import { errorText } from "../utils/errors";
+ import { EmptyState } from "../components/EmptyState";
+-import { Metric } from "../components/Metric";
+ import { Status } from "../components/Status";
+ 
++const sendStatusOptions: Array<[PaymentEvidenceSendStatus, string]> = [
++  ["not_sent", "未发送"],
++  ["sent", "已发送"],
++  ["failed", "发送失败"],
++  ["withdrawn", "已撤回"],
++];
++const viewStatusOptions: Array<[PaymentEvidenceViewStatus, string]> = [
++  ["not_viewed", "未查看"],
++  ["viewed", "已查看"],
++];
++const confirmStatusOptions: Array<[PaymentEvidenceConfirmStatus, string]> = [
++  ["not_confirmed", "未确认"],
++  ["confirmed", "已确认"],
++];
++
++function formatEvidenceDate(value: string | undefined): string {
++  if (!value) return "—";
++  const date = new Date(value);
++  if (Number.isNaN(date.getTime())) return value;
++  return date.toISOString().slice(0, 16).replace("T", " ");
++}
++
++function queryString(filters: PaymentEvidenceFilters): string {
++  const params = new URLSearchParams();
++  for (const key of [
++    "fromMonth",
++    "toMonth",
++    "sendStatus",
++    "viewStatus",
++    "confirmStatus",
++  ] as const) {
++    const value = filters[key];
++    if (value) params.set(key, value);
++  }
++  const result = params.toString();
++  return result ? `?${result}` : "";
++}
++
++function updateFilter<K extends keyof PaymentEvidenceFilters>(
++  filters: PaymentEvidenceFilters,
++  key: K,
++  value: PaymentEvidenceFilters[K] | undefined,
++): PaymentEvidenceFilters {
++  const next = { ...filters } as Record<string, string>;
++  if (value) next[key] = value;
++  else delete next[key];
++  return next;
++}
++
+ export function EvidenceCenter({ refreshKey }: { refreshKey: number }) {
+-  const [events, setEvents] = useState<
+-    Array<{
+-      id: string;
+-      batchId: string;
+-      employeeUserId: string;
+-      eventType: string;
+-      fingerprint: string;
+-      createdAt: string;
+-    }>
+-  >([]);
++  const [employmentStatus, setEmploymentStatus] =
++    useState<PaymentEvidenceEmploymentStatus>("active");
++  const [searchInput, setSearchInput] = useState("");
++  const [search, setSearch] = useState("");
++  const [employees, setEmployees] = useState<PaymentEvidenceEmployee[]>([]);
++  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>();
++  const [detail, setDetail] = useState<PaymentEvidenceDetail>();
++  const [filters, setFilters] = useState<PaymentEvidenceFilters>({});
++  const [draftFilters, setDraftFilters] = useState<PaymentEvidenceFilters>({});
++  const [showFilters, setShowFilters] = useState(false);
++  const [showExport, setShowExport] = useState(false);
++  const [exportFields, setExportFields] = useState<string[]>([]);
++  const [loading, setLoading] = useState(false);
+   const [error, setError] = useState<string>();
++
++  const loadEmployees = useCallback(async () => {
++    setLoading(true);
++    setError(undefined);
++    const params = new URLSearchParams({ employmentStatus });
++    if (search) params.set("query", search);
++    try {
++      setEmployees(
++        await api<PaymentEvidenceEmployee[]>(
++          `/v1/payment-evidence/employees?${params.toString()}`,
++        ),
++      );
++    } catch (reason) {
++      setEmployees([]);
++      setError(errorText(reason));
++    } finally {
++      setLoading(false);
++    }
++  }, [employmentStatus, search]);
++
+   useEffect(() => {
+-    api<typeof events>("/v1/payment-evidence")
+-      .then(setEvents)
+-      .catch((reason) => setError(errorText(reason)));
+-  }, [refreshKey]);
++    void loadEmployees();
++  }, [loadEmployees, refreshKey]);
++
++  const loadDetail = useCallback(
++    async (employeeUserId: string, nextFilters: PaymentEvidenceFilters) => {
++      setError(undefined);
++      setLoading(true);
++      try {
++        const result = await api<PaymentEvidenceDetail>(
++          `/v1/payment-evidence/employees/${encodeURIComponent(employeeUserId)}${queryString(nextFilters)}`,
++        );
++        setSelectedEmployeeId(employeeUserId);
++        setDetail(result);
++      } catch (reason) {
++        setError(errorText(reason));
++      } finally {
++        setLoading(false);
++      }
++    },
++    [],
++  );
++
++  const openDetail = (employee: PaymentEvidenceEmployee) => {
++    setFilters({});
++    setDraftFilters({});
++    setShowFilters(false);
++    setShowExport(false);
++    void loadDetail(employee.employeeUserId, {});
++  };
++
++  const submitSearch = (event: FormEvent) => {
++    event.preventDefault();
++    setSearch(searchInput.trim());
++  };
++
++  const applyFilters = (event: FormEvent) => {
++    event.preventDefault();
++    setFilters(draftFilters);
++    setShowFilters(false);
++    if (selectedEmployeeId) void loadDetail(selectedEmployeeId, draftFilters);
++  };
++
++  const downloadExport = async () => {
++    if (!selectedEmployeeId) return;
++    setError(undefined);
++    try {
++      const response = await fetch("/v1/payment-evidence/export.xlsx", {
++        method: "POST",
++        headers: { "content-type": "application/json" },
++        credentials: "include",
++        body: JSON.stringify({
++          employeeUserId: selectedEmployeeId,
++          fields: exportFields,
++          ...filters,
++        }),
++      });
++      if (!response.ok) throw new Error(`http_${response.status}`);
++      const blob = await response.blob();
++      const href = URL.createObjectURL(blob);
++      const link = document.createElement("a");
++      link.href = href;
++      link.download = `${detail?.employee.employeeName ?? "发薪存证"}-发薪存证.xlsx`;
++      link.click();
++      URL.revokeObjectURL(href);
++      setShowExport(false);
++    } catch (reason) {
++      setError(errorText(reason));
++    }
++  };
++
++  const employeeRows = useMemo(
++    () => employees.map((employee) => (
++      <tr key={employee.employeeUserId}>
++        <td>
++          <strong>{employee.employeeName}</strong>
++          {employee.employeeNo && <span className="evidence-muted">工号 {employee.employeeNo}</span>}
++        </td>
++        <td>{employee.position ?? "—"}</td>
++        <td>{employee.evidenceCount}</td>
++        <td>{formatEvidenceDate(employee.latestEvidenceAt)}</td>
++        <td>
++          <button className="text-button" type="button" onClick={() => openDetail(employee)}>
++            查看发薪存证
++          </button>
++        </td>
++      </tr>
++    )),
++    [employees],
++  );
++
++  if (detail && selectedEmployeeId) {
++    return (
++      <section className="content-section evidence-center">
++        <div className="section-header">
++          <div>
++            <button className="button secondary evidence-back" type="button" onClick={() => {
++              setDetail(undefined);
++              setSelectedEmployeeId(undefined);
++            }}>
++              返回存证列表
++            </button>
++            <h2>{detail.employee.employeeName}的发薪存证</h2>
++            <p>{detail.employee.employeeNo ? `工号 ${detail.employee.employeeNo} · ` : ""}{detail.employee.position ?? "未填写职位"}</p>
++          </div>
++          <span className="security-badge"><Icon name="shield" size={16} /> 加密归档</span>
++        </div>
++        {error && <div className="notice error">{error}</div>}
++        <div className="evidence-detail-toolbar">
++          <span>共 {detail.rows.length} 条发薪记录</span>
++          <div>
++            <button className="button secondary" type="button" onClick={() => setShowFilters((value) => !value)}>
++              筛选
++            </button>
++            <button className="button primary" type="button" onClick={() => {
++              setExportFields(detail.availableFields);
++              setShowExport(true);
++            }}>
++              导出 Excel
++            </button>
++          </div>
++        </div>
++        {showFilters && (
++          <form className="evidence-filter-panel" onSubmit={applyFilters}>
++            <label>发薪月份（起）<input type="month" value={draftFilters.fromMonth ?? ""} onChange={(event) => setDraftFilters((value) => updateFilter(value, "fromMonth", event.target.value || undefined))} /></label>
++            <label>发薪月份（止）<input type="month" value={draftFilters.toMonth ?? ""} onChange={(event) => setDraftFilters((value) => updateFilter(value, "toMonth", event.target.value || undefined))} /></label>
++            <label>发送状态<select aria-label="发送状态" value={draftFilters.sendStatus ?? ""} onChange={(event) => setDraftFilters((value) => updateFilter(value, "sendStatus", event.target.value ? event.target.value as PaymentEvidenceSendStatus : undefined))}><option value="">全部</option>{sendStatusOptions.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
++            <label>查看状态<select aria-label="查看状态" value={draftFilters.viewStatus ?? ""} onChange={(event) => setDraftFilters((value) => updateFilter(value, "viewStatus", event.target.value ? event.target.value as PaymentEvidenceViewStatus : undefined))}><option value="">全部</option>{viewStatusOptions.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
++            <label>确认状态<select aria-label="确认状态" value={draftFilters.confirmStatus ?? ""} onChange={(event) => setDraftFilters((value) => updateFilter(value, "confirmStatus", event.target.value ? event.target.value as PaymentEvidenceConfirmStatus : undefined))}><option value="">全部</option>{confirmStatusOptions.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
++            <button className="button primary" type="submit">应用筛选</button>
++          </form>
++        )}
++        <div className="table-card">
++          <div className="table-scroll">
++            <table>
++              <thead><tr><th>发薪月份</th><th>工资条标题</th><th>发薪明细</th><th>发送状态</th><th>查看状态</th><th>确认状态</th><th>确认时间</th><th>确认人</th></tr></thead>
++              <tbody>{detail.rows.map((row) => <tr key={row.itemId}>
++                <td>{row.payrollMonth}</td>
++                <td>{row.title}</td>
++                <td><div className="evidence-fields">{Object.entries(row.fields).map(([field, value]) => <span key={field}><b>{field}</b>{String(value ?? "—")}</span>)}</div></td>
++                <td><Status state={row.sendStatus} />{row.sentAt && <small>{formatEvidenceDate(row.sentAt)}</small>}</td>
++                <td><Status state={row.viewStatus === "viewed" ? "viewed" : "unread"} /></td>
++                <td><Status state={row.confirmStatus === "confirmed" ? "confirmed" : "unconfirmed"} /></td>
++                <td>{formatEvidenceDate(row.confirmedAt)}</td>
++                <td>{row.confirmedBy ?? "—"}</td>
++              </tr>)}</tbody>
++            </table>
++            {detail.rows.length === 0 && <EmptyState label="暂无符合条件的发薪存证" />}
++          </div>
++        </div>
++        {showExport && (
++          <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowExport(false); }}>
++            <div className="modal evidence-export-modal" role="dialog" aria-modal="true" aria-labelledby="evidence-export-title">
++              <div className="modal-header"><h3 id="evidence-export-title">导出 Excel 存证</h3><button className="icon-button" type="button" aria-label="关闭" onClick={() => setShowExport(false)}>×</button></div>
++              <p className="modal-description">固定包含员工信息、月份、发送/查看/确认状态、确认时间和确认人；下方选择工资字段。</p>
++              <div className="evidence-field-list">{detail.availableFields.length === 0 ? <span className="evidence-muted">暂无工资字段</span> : detail.availableFields.map((field) => <label key={field}><input type="checkbox" checked={exportFields.includes(field)} onChange={(event) => setExportFields((values) => event.target.checked ? [...values, field] : values.filter((value) => value !== field))} /> {field}</label>)}</div>
++              <div className="modal-actions"><button className="button secondary" type="button" onClick={() => setShowExport(false)}>取消</button><button className="button primary" type="button" onClick={() => void downloadExport()}>下载 Excel</button></div>
++            </div>
++          </div>
++        )}
++      </section>
++    );
++  }
++
+   return (
+-    <section className="content-section">
++    <section className="content-section evidence-center">
+       <div className="section-header">
+-        <div>
+-          <h2>发薪存证</h2>
+-          <p>记录通知、查看和确认链路，保留可审计的时间戳与指纹。</p>
+-        </div>
+-        <span className="security-badge">
+-          <Icon name="shield" size={16} />
+-          加密归档
+-        </span>
++        <div><h2>发薪存证</h2><p>按员工查看发薪明细、发送状态、查收状态和确认记录。</p></div>
++        <span className="security-badge"><Icon name="shield" size={16} /> 加密归档</span>
+       </div>
+       {error && <div className="notice error">{error}</div>}
+-      <div className="metric-strip">
+-        <Metric label="存证事件" value={events.length} />
+-        <Metric
+-          label="已通知"
+-          value={
+-            events.filter((event) => event.eventType === "notification_sent")
+-              .length
+-          }
+-        />
+-        <Metric
+-          label="已查看"
+-          value={events.filter((event) => event.eventType === "viewed").length}
+-        />
+-        <Metric
+-          label="已确认"
+-          value={
+-            events.filter((event) => event.eventType === "confirmed").length
+-          }
+-        />
++      <div className="evidence-tabs" role="tablist" aria-label="员工状态">
++        {(["active", "departed"] as const).map((value) => <button type="button" role="tab" aria-selected={employmentStatus === value} className={employmentStatus === value ? "active" : ""} onClick={() => { setEmploymentStatus(value); setSelectedEmployeeId(undefined); setDetail(undefined); }} key={value}>{value === "active" ? "在职" : "已离职"}</button>)}
+       </div>
++      <form className="evidence-search" onSubmit={submitSearch}>
++        <label className="sr-only" htmlFor="evidence-search-input">搜索姓名/工号/职位</label>
++        <input id="evidence-search-input" aria-label="搜索姓名/工号/职位" placeholder="搜索姓名/工号/职位" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} />
++        <button className="button secondary" type="submit"><Icon name="search" size={16} /> 搜索</button>
++      </form>
+       <div className="table-card">
+-        <div className="table-toolbar">
+-          <div className="table-title">存证流水</div>
+-          <span className="toolbar-note">敏感工资字段不出现在存证流水中</span>
+-        </div>
+-        <div className="table-scroll">
+-          <table>
+-            <thead>
+-              <tr>
+-                <th>时间</th>
+-                <th>工资表</th>
+-                <th>员工标识</th>
+-                <th>事件</th>
+-                <th>指纹</th>
+-              </tr>
+-            </thead>
+-            <tbody>
+-              {events.map((event) => (
+-                <tr key={event.id}>
+-                  <td>{formatDate(event.createdAt)}</td>
+-                  <td className="mono">{event.batchId}</td>
+-                  <td>{event.employeeUserId}</td>
+-                  <td>
+-                    <Status state={event.eventType} />
+-                  </td>
+-                  <td className="mono">{event.fingerprint.slice(0, 18)}…</td>
+-                </tr>
+-              ))}
+-            </tbody>
+-          </table>
+-          {events.length === 0 && <EmptyState label="暂无存证事件" />}
+-        </div>
++        <div className="table-toolbar"><div className="table-title">员工发薪存证</div><span className="toolbar-note">工资金额仅在员工详情和导出操作中按权限读取</span></div>
++        <div className="table-scroll"><table><thead><tr><th>员工</th><th>职位</th><th>存证数量</th><th>最近记录</th><th>操作</th></tr></thead><tbody>{employeeRows}</tbody></table>{loading && <div className="loading">加载中…</div>}{!loading && employees.length === 0 && <EmptyState label="暂无发薪存证" />}</div>
+       </div>
+     </section>
+   );
+diff --git a/apps/web/src/pages/SalaryManagement.tsx b/apps/web/src/pages/SalaryManagement.tsx
+index 7b93c8c..b534aa3 100644
+--- a/apps/web/src/pages/SalaryManagement.tsx
++++ b/apps/web/src/pages/SalaryManagement.tsx
+@@ -1,4 +1,10 @@
+-import { useCallback, useEffect, useMemo, useState } from "react";
++import {
++  useCallback,
++  useEffect,
++  useMemo,
++  useState,
++  type FormEvent,
++} from "react";
+ import { api, type Batch, type SalaryItem } from "../api";
+ import { Icon } from "../icons";
+ import { formatSalaryValue } from "../format";
+@@ -6,7 +12,9 @@ import { currentMonth } from "../utils/ui";
+ import { errorText } from "../utils/errors";
+ import { EmptyState } from "../components/EmptyState";
+ import { Status } from "../components/Status";
+-import { BatchDetail } from "../features/salary/BatchDetail";
++import { Field } from "../components/Field";
++import { FormActions } from "../components/FormActions";
++import { Modal } from "../components/Modal";
+ import { ImportWizard } from "../features/salary/ImportWizard";
+ import { ManualPanel } from "../features/salary/ManualPanel";
+ 
+@@ -27,6 +35,8 @@ export function SalaryManagement({
+   const [activeBatchId, setActiveBatchId] = useState<string>();
+   const [detailBatchId, setDetailBatchId] = useState<string>();
+   const [detail, setDetail] = useState<Batch>();
++  const [editingItem, setEditingItem] = useState<SalaryItem>();
++  const [editFields, setEditFields] = useState<Record<string, string>>({});
+   const [selectedItems, setSelectedItems] = useState<string[]>([]);
+   const [moreOpen, setMoreOpen] = useState(false);
+   const [mode, setMode] = useState<"manual" | "import">();
+@@ -55,6 +65,7 @@ export function SalaryManagement({
+   const loadDetail = useCallback(async (batchId: string) => {
+     const next = await api<Batch>(`/v1/salary-batches/${batchId}`);
+     setDetail(next);
++    return next;
+   }, []);
+   useEffect(() => {
+     setActiveBatchId((current) =>
+@@ -65,13 +76,14 @@ export function SalaryManagement({
+     setSelectedItems([]);
+   }, [monthBatches]);
+   useEffect(() => {
+-    if (!activeBatch) {
++    if (!detailBatchId) {
+       setDetail(undefined);
+       return;
+     }
+-    loadDetail(activeBatch.id)
++    loadDetail(detailBatchId)
+       .catch((reason) => setError(errorText(reason)));
+-  }, [activeBatch?.id, loadDetail]);
++  }, [detailBatchId, loadDetail]);
++  const selectedBatch = detailBatch ?? activeBatch;
+   const employees = useMemo(() => {
+     const items = detail?.items ?? [];
+     const needle = query.trim().toLowerCase();
+@@ -86,14 +98,16 @@ export function SalaryManagement({
+         (statusFilter === "unread" && !item.viewedAt) ||
+         (statusFilter === "unconfirmed" && !item.confirmedAt) ||
+         (statusFilter === "failed" &&
+-          activeBatch?.state === "partially_failed");
++          selectedBatch?.state === "partially_failed");
+       return matchesQuery && matchesStatus;
+     });
+-  }, [activeBatch?.state, detail?.items, query, statusFilter]);
+-  const unread = (detail?.items ?? []).filter((item) => !item.viewedAt).length;
+-  const unconfirmed = (detail?.items ?? []).filter(
+-    (item) => !item.confirmedAt,
+-  ).length;
++  }, [detail?.items, query, selectedBatch?.state, statusFilter]);
++  const unread = detailBatchId
++    ? (detail?.items ?? []).filter((item) => !item.viewedAt).length
++    : Math.max((activeBatch?.total ?? 0) - (activeBatch?.viewed ?? 0), 0);
++  const unconfirmed = detailBatchId
++    ? (detail?.items ?? []).filter((item) => !item.confirmedAt).length
++    : Math.max((activeBatch?.total ?? 0) - (activeBatch?.confirmed ?? 0), 0);
+ 
+   async function send(batch: Batch, action: "send" | "resend" | "withdraw") {
+     setBusy(true);
+@@ -163,6 +177,68 @@ export function SalaryManagement({
+     }
+   }
+ 
++  async function deleteBatch(batch: Batch) {
++    if (!window.confirm(`确定删除 ${batch.title} 吗？`)) return;
++    setBusy(true);
++    setError(undefined);
++    try {
++      await api(`/v1/salary-batches/${batch.id}`, { method: "DELETE" });
++      if (detailBatchId === batch.id) setDetailBatchId(undefined);
++      setMessage("工资条已删除");
++      await load();
++      onChanged();
++    } catch (reason) {
++      setError(errorText(reason));
++    } finally {
++      setBusy(false);
++    }
++  }
++
++  function startEdit(item: SalaryItem) {
++    if (item.deliveryStatus !== "withdrawn") return;
++    setEditingItem(item);
++    setEditFields(
++      Object.fromEntries(
++        Object.entries(item.fields).map(([key, value]) => [
++          key,
++          value === null || value === undefined ? "" : String(value),
++        ]),
++      ),
++    );
++  }
++
++  async function saveEdit(event: FormEvent<HTMLFormElement>) {
++    event.preventDefault();
++    if (!editingItem || !selectedBatch) return;
++    setBusy(true);
++    setError(undefined);
++    try {
++      const fields = Object.fromEntries(
++        Object.entries(editFields).map(([key, value]) => {
++          const original = editingItem.fields[key];
++          if (typeof original === "number") {
++            const numeric = Number(value);
++            return [key, Number.isFinite(numeric) ? numeric : value];
++          }
++          return [key, value];
++        }),
++      );
++      const updated = await api<Batch>(
++        `/v1/salary-batches/${selectedBatch.id}/items/${editingItem.id}`,
++        { method: "PATCH", body: JSON.stringify({ fields }) },
++      );
++      setDetail(updated);
++      setEditingItem(undefined);
++      setMessage(`${editingItem.employeeName} 的工资字段已更新`);
++      await load();
++      onChanged();
++    } catch (reason) {
++      setError(errorText(reason));
++    } finally {
++      setBusy(false);
++    }
++  }
++
+   function shiftMonth(delta: number) {
+     const [yearText = "0", valueText = "1"] = month.split("-");
+     const year = Number(yearText);
+@@ -182,12 +258,24 @@ export function SalaryManagement({
+   return (
+     <section className="salary-workspace">
+       <div className="salary-heading">
+-        <button className="back-button" onClick={() => window.history.back()}>
++        <button
++          className="back-button"
++          aria-label="返回"
++          onClick={() =>
++            detailBatchId ? setDetailBatchId(undefined) : window.history.back()
++          }
++        >
+           ‹ <span>返回</span>
+         </button>
+         <h2>
+-          {month.replace("-", "年")}月工资条{" "}
+-          <small>{month.replace("-", "/")}</small>
++          {detailBatch
++            ? detailBatch.title
++            : `${month.replace("-", "年")}月工资条`} {" "}
++          <small>
++            {detailBatch
++              ? detailBatch.payrollMonth.replace("-", "/")
++              : month.replace("-", "/")}
++          </small>
+         </h2>
+         <span className="security-badge">
+           <Icon name="shield" size={14} />
+@@ -239,7 +327,7 @@ export function SalaryManagement({
+           </button>
+         </div>
+       </div>
+-      <div className="salary-controls">
++      {!detailBatchId && <div className="salary-controls">
+         <button className="button primary" onClick={() => setMode("import")}>
+           <Icon name="plus" size={17} />
+           上传工资表
+@@ -283,50 +371,54 @@ export function SalaryManagement({
+             </div>
+           )}
+         </div>
+-      </div>
+-      <div className="salary-overview">
+-        <div className="overview-title">
+-          <strong>
+-            {activeBatch?.title ?? `${month.replace("-", "年")}月工资条`}
+-          </strong>
+-          <span>
+-            {activeBatch ? <Status state={activeBatch.state} /> : "暂无工资表"}
+-          </span>
+-        </div>
+-        <div className="overview-stat">
+-          <span>已发送</span>
+-          <strong>
+-            {activeBatch?.sent ?? 0}/{activeBatch?.total ?? 0}
+-          </strong>
++      </div>}
++      {!detailBatchId ? (
++        <div className="salary-batch-list">
++          {monthBatches.map((batch) => {
++            const allSent = batch.total > 0 && batch.sent >= batch.total;
++            const canDelete = batch.state === "draft" && batch.sent === 0;
++            return (
++              <article className="salary-overview" key={batch.id}>
++                <div className="overview-title">
++                  <strong>{batch.title}</strong>
++                  <span><Status state={batch.state} /></span>
++                </div>
++                <div className="overview-stat">
++                  <span>已发送</span>
++                  <strong>{batch.sent}/{batch.total}</strong>
++                </div>
++                <div className="overview-stat">
++                  <span>已查看</span>
++                  <strong>{batch.viewed}</strong>
++                </div>
++                <div className="overview-stat">
++                  <span>已确认</span>
++                  <strong>{batch.confirmed}</strong>
++                </div>
++                <div className="overview-actions">
++                  <button
++                    className="text-button muted"
++                    disabled={!canDelete || busy}
++                    onClick={() => void deleteBatch(batch)}
++                  >
++                    删除
++                  </button>
++                  <button
++                    className="button secondary"
++                    onClick={() => {
++                      setActiveBatchId(batch.id);
++                      setDetailBatchId(batch.id);
++                    }}
++                  >
++                    {allSent ? "查看发送" : "前往发送"}
++                  </button>
++                </div>
++              </article>
++            );
++          })}
++          {!monthBatches.length && <EmptyState label="当前月份暂无工资表" />}
+         </div>
+-        <div className="overview-stat">
+-          <span>已查看</span>
+-          <strong>{activeBatch?.viewed ?? 0}</strong>
+-        </div>
+-        <div className="overview-stat">
+-          <span>已确认</span>
+-          <strong>{activeBatch?.confirmed ?? 0}</strong>
+-        </div>
+-        <div className="overview-actions">
+-          <button
+-            className="text-button"
+-            onClick={() =>
+-              window.dispatchEvent(new CustomEvent("salary-open-settings"))
+-            }
+-          >
+-            设置
+-          </button>
+-          <button className="text-button muted" disabled>
+-            删除
+-          </button>
+-          <button
+-            className="button secondary"
+-            onClick={() => activeBatch && setDetailBatchId(activeBatch.id)}
+-          >
+-            查看发送
+-          </button>
+-        </div>
+-      </div>
++      ) : (
+       <div className="employee-table-card">
+         <div className="employee-toolbar">
+           <label className="search">
+@@ -359,25 +451,15 @@ export function SalaryManagement({
+             {moreOpen && (
+               <div className="more-menu">
+                 <button
+-                  onClick={() => {
+-                    setMoreOpen(false);
+-                    window.dispatchEvent(
+-                      new CustomEvent("salary-open-settings"),
+-                    );
+-                  }}
+-                >
+-                  设置工资条
+-                </button>
+-                <button
+-                  disabled={!activeBatch || activeBatch.state === "withdrawn"}
++                  disabled={!selectedBatch || selectedBatch.state === "withdrawn"}
+                   onClick={() => void sendActive("withdraw")}
+                 >
+                   全部撤回
+                 </button>
+                 <a
+                   href={
+-                    activeBatch
+-                      ? `/v1/reports/summary.csv?payrollMonth=${activeBatch.payrollMonth}`
++                    selectedBatch
++                      ? `/v1/reports/summary.csv?payrollMonth=${selectedBatch.payrollMonth}`
+                       : "/v1/reports/summary.csv"
+                   }
+                   onClick={() => setMoreOpen(false)}
+@@ -393,10 +475,10 @@ export function SalaryManagement({
+           </button>
+           <button
+             className="button primary"
+-            disabled={!activeBatch || busy}
++            disabled={!selectedBatch || busy}
+             onClick={() =>
+               void sendActive(
+-                activeBatch?.state === "draft" ? "send" : "resend",
++                selectedBatch?.state === "draft" ? "send" : "resend",
+               )
+             }
+           >
+@@ -436,8 +518,8 @@ export function SalaryManagement({
+             </thead>
+             <tbody>
+               {employees.map((item) => {
+-                const net = activeBatch
+-                  ? item.fields[activeBatch.displaySettings.netAmountField]
++                const net = selectedBatch
++                  ? item.fields[selectedBatch.displaySettings.netAmountField]
+                   : undefined;
+                 return (
+                   <tr key={item.id}>
+@@ -501,28 +583,48 @@ export function SalaryManagement({
+                       />
+                     </td>
+                     <td>
+-                      {item.deliveryStatus === "delivered" ? (
+-                        <button
+-                          className="text-button danger"
+-                          disabled={!activeBatch || busy}
+-                          onClick={() =>
+-                            activeBatch &&
+-                            void withdrawIndividual(activeBatch, item)
+-                          }
+-                        >
+-                          撤回
+-                        </button>
+-                      ) : (
++                      <div className="salary-row-actions">
++                        {item.deliveryStatus === "delivered" && (
++                          <button
++                            className="text-button danger"
++                            disabled={!selectedBatch || busy}
++                            onClick={() =>
++                              selectedBatch &&
++                              void withdrawIndividual(selectedBatch, item)
++                            }
++                          >
++                            撤回
++                          </button>
++                        )}
+                         <button
+                           className="text-button"
+-                          disabled={!activeBatch || busy}
+-                          onClick={() =>
+-                            activeBatch && void sendIndividual(activeBatch, item)
+-                          }
++                          disabled={item.deliveryStatus !== "withdrawn" || busy}
++                          onClick={() => startEdit(item)}
+                         >
+-                          单独发送
++                          编辑
+                         </button>
+-                      )}
++                        {item.deliveryStatus === "withdrawn" ? (
++                          <button
++                            className="text-button"
++                            disabled={!selectedBatch || busy}
++                            onClick={() =>
++                              selectedBatch && void sendIndividual(selectedBatch, item)
++                            }
++                          >
++                            重新发送
++                          </button>
++                        ) : item.deliveryStatus !== "delivered" ? (
++                          <button
++                            className="text-button"
++                            disabled={!selectedBatch || busy}
++                            onClick={() =>
++                              selectedBatch && void sendIndividual(selectedBatch, item)
++                            }
++                          >
++                            单独发送
++                          </button>
++                        ) : null}
++                      </div>
+                     </td>
+                   </tr>
+                 );
+@@ -532,17 +634,39 @@ export function SalaryManagement({
+           {!employees.length && (
+             <EmptyState
+               label={
+-                activeBatch ? "当前筛选条件下暂无员工" : "当前月份暂无工资表"
++                selectedBatch ? "当前筛选条件下暂无员工" : "当前月份暂无工资表"
+               }
+             />
+           )}
+         </div>
+       </div>
+-      {detailBatch && (
+-        <BatchDetail
+-          batch={detailBatch}
+-          onClose={() => setDetailBatchId(undefined)}
+-        />
++      )}
++      {editingItem && (
++        <Modal
++          title={`编辑 ${editingItem.employeeName} 的工资条`}
++          onClose={() => setEditingItem(undefined)}
++        >
++          <form className="form-grid" onSubmit={(event) => void saveEdit(event)}>
++            {Object.keys(editFields).map((field) => (
++              <Field label={field} key={field}>
++                <input
++                  aria-label={field}
++                  value={editFields[field] ?? ""}
++                  onChange={(event) =>
++                    setEditFields((current) => ({
++                      ...current,
++                      [field]: event.target.value,
++                    }))
++                  }
++                />
++              </Field>
++            ))}
++            <FormActions
++              onClose={() => setEditingItem(undefined)}
++              submitLabel="保存并关闭"
++            />
++          </form>
++        </Modal>
+       )}
+       {mode === "manual" && (
+         <ManualPanel
+diff --git a/apps/web/src/styles/admin.css b/apps/web/src/styles/admin.css
+index e3a583d..ffafe9d 100644
+--- a/apps/web/src/styles/admin.css
++++ b/apps/web/src/styles/admin.css
+@@ -297,3 +297,66 @@
+   .setting-row { min-height: 98px; }
+   .setting-row > div { max-width: 72%; }
+ }
++
++/* Payment evidence center */
++.evidence-center .section-header { align-items: flex-start; }
++.evidence-back { margin-bottom: 12px; }
++.evidence-tabs {
++  display: flex;
++  gap: 26px;
++  margin: 0 0 18px;
++  border-bottom: 1px solid var(--line);
++}
++.evidence-tabs button {
++  border: 0;
++  border-bottom: 2px solid transparent;
++  background: transparent;
++  color: var(--muted);
++  cursor: pointer;
++  font-size: 15px;
++  padding: 10px 4px;
++}
++.evidence-tabs button.active { border-bottom-color: var(--blue); color: var(--ink); font-weight: 700; }
++.evidence-search {
++  display: flex;
++  gap: 10px;
++  margin-bottom: 18px;
++  max-width: 560px;
++}
++.evidence-search input { flex: 1; min-width: 0; }
++.evidence-detail-toolbar {
++  display: flex;
++  justify-content: space-between;
++  align-items: center;
++  gap: 12px;
++  margin-bottom: 16px;
++  color: var(--muted);
++}
++.evidence-detail-toolbar > div { display: flex; gap: 10px; }
++.evidence-filter-panel {
++  display: flex;
++  flex-wrap: wrap;
++  align-items: end;
++  gap: 12px;
++  padding: 16px;
++  margin-bottom: 16px;
++  background: #f7f9fc;
++  border: 1px solid var(--line);
++  border-radius: 8px;
++}
++.evidence-filter-panel label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; }
++.evidence-filter-panel input, .evidence-filter-panel select { min-width: 140px; }
++.evidence-muted { display: block; color: var(--muted); font-size: 12px; }
++.evidence-center td small { display: block; color: var(--muted); font-size: 11px; margin-top: 4px; }
++.evidence-fields { display: grid; grid-template-columns: repeat(2, minmax(110px, 1fr)); gap: 5px 14px; min-width: 250px; }
++.evidence-fields span { display: grid; gap: 2px; color: var(--ink); }
++.evidence-fields b { color: var(--muted); font-size: 11px; font-weight: 500; }
++.evidence-field-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 14px 0; }
++.evidence-field-list label { display: flex; gap: 7px; align-items: center; }
++.evidence-export-modal { max-width: 540px; }
++.modal-description { color: var(--muted); font-size: 12px; line-height: 1.6; }
++@media (max-width: 700px) {
++  .evidence-detail-toolbar { align-items: flex-start; flex-direction: column; }
++  .evidence-filter-panel label, .evidence-filter-panel input, .evidence-filter-panel select { width: 100%; }
++  .evidence-fields { grid-template-columns: 1fr; min-width: 160px; }
++}
+diff --git a/apps/web/src/styles/salary.css b/apps/web/src/styles/salary.css
+index 10ab68a..554d0ac 100644
+--- a/apps/web/src/styles/salary.css
++++ b/apps/web/src/styles/salary.css
+@@ -249,6 +249,10 @@
+   border-radius: 9px;
+   padding: 20px 24px;
+ }
++.salary-batch-list {
++  display: grid;
++  gap: 14px;
++}
+ .overview-title {
+   display: grid;
+   gap: 9px;
+@@ -280,6 +284,12 @@
+   border-left: 1px solid var(--line);
+   padding-left: 16px;
+ }
++.salary-row-actions {
++  display: inline-flex;
++  align-items: center;
++  gap: 8px;
++  white-space: nowrap;
++}
+ .employee-table-card {
+   background: #fff;
+   border: 1px solid var(--line);
+@@ -447,6 +457,9 @@
+     gap: 15px;
+     padding: 16px;
+   }
++  .salary-row-actions {
++    flex-wrap: wrap;
++  }
+   .overview-title {
+     grid-column: 1 / -1;
+   }
+diff --git a/docs/superpowers/plans/2026-08-20-payment-evidence-center.md b/docs/superpowers/plans/2026-08-20-payment-evidence-center.md
+new file mode 100644
+index 0000000..089cddc
+--- /dev/null
++++ b/docs/superpowers/plans/2026-08-20-payment-evidence-center.md
+@@ -0,0 +1,279 @@
++# Payment Evidence Center Implementation Plan
++
++> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
++
++**Goal:** 将发薪存证从原始事件流水扩展为按员工分类、搜索、筛选详情并可导出 Excel 的主管理员/子管理员中心。
++
++**Architecture:** 在 `apps/api/src/modules/reports` 增加专用 `EvidenceService`。员工列表只使用批次摘要、员工元数据和投递/存证事件；详情和导出在服务端根据 `Access` 过滤批次后才调用 `getBatch()` 解密工资字段。Web 端在现有 `EvidenceCenter` 内维护列表/详情状态，不引入路由或全局状态。
++
++**Tech Stack:** Fastify 5, React 19, TypeScript, SQLite/WAL, Vitest, Vite, existing `xlsx` dependency, plain CSS.
++
++**Spec:** `docs/superpowers/specs/2026-08-20-payment-evidence-center-design.md`
++
++## Global Constraints
++
++- 不实现 PDF、签名采集或温馨提示导出。
++- 存证中心只允许主管理员和子管理员；子管理员只看现有 `access.batchIds` 中的未归档批次。
++- 员工状态按当前钉钉通讯录是否包含 `userId` 实时判断，不写入 SQLite。
++- 列表不得解密或返回工资字段；详情/导出只读取已筛选且已授权批次。
++- 不引入新 runtime dependency、ORM、缓存、队列、Router、Redux 或 React Query。
++- 保留原始 `GET /v1/payment-evidence` 事件接口；不修改发送、撤回、重发、确认、归档逻辑。
++- 不记录工资金额、工资字段值、密钥、身份证或银行卡信息到日志/审计 metadata。
++- 行为修改必须先增加失败测试；完成后运行目标测试、`pnpm test`、`pnpm typecheck`、`pnpm build`、`pnpm architecture:check` 和 `git diff --check`。
++
++---
++
++### Task 1: Add non-decrypting employee metadata reads
++
++**Files:**
++- Modify: `packages/db/src/store.ts`
++- Modify: `packages/db/src/sqlite-store.ts`
++- Test: `packages/db/test/sqlite-store.test.ts`
++
++**Interfaces:**
++- Produces `StoredItemMetadata` with `id`, `batchId`, `employeeUserId`, `employeeName`, optional `employeeNo`, `department`, `position`, optional `viewedAt`, and optional `confirmedAt`.
++- Produces `SalaryStore.listBatchItemMetadata(batchId: string): StoredItemMetadata[]`.
++- The method must never return `fields` or invoke `decryptSalaryPayload`.
++
++- [x] **Step 1: Write the failing store tests**
++
++Extend `packages/db/test/sqlite-store.test.ts` to import both `MemorySalaryStore` and `SqliteSalaryStore`. The memory-store case creates a batch with a salary value and asserts `listBatchItemMetadata(batch.id)[0]` contains identity/timestamp metadata but no `fields` property. The SQLite-store case uses `:memory:` and makes the same assertion, verifying no salary value is present in the returned object.
++
++- [x] **Step 2: Run the focused DB tests and verify failure**
++
++Run: `pnpm --filter @salary/db test -- sqlite-store.test.ts`  
++Expected: FAIL because `listBatchItemMetadata` is not defined on `SalaryStore` or its implementations.
++
++- [x] **Step 3: Add the narrow interface and memory implementation**
++
++In `packages/db/src/store.ts`, define `StoredItemMetadata` beside `StoredItem`, add the method to `SalaryStore`, and implement it by mapping encrypted batch items to metadata without calling `publicItem` or decrypting the payload. Return cloned metadata objects so callers cannot mutate store state.
++
++- [x] **Step 4: Add the SQLite implementation**
++
++In `packages/db/src/sqlite-store.ts`, select only `id`, `batch_id`, employee identity columns, `viewed_at`, and `confirmed_at` from `salary_items` for the given batch. Map rows to `StoredItemMetadata`; do not select ciphertext columns and do not call `toItem`.
++
++- [x] **Step 5: Run the focused DB tests and verify success**
++
++Run: `pnpm --filter @salary/db test -- sqlite-store.test.ts`  
++Expected: PASS, including the existing SQLite persistence tests.
++
++- [x] **Step 6: Commit the store boundary**
++
++```bash
++git add packages/db/src/store.ts packages/db/src/sqlite-store.ts packages/db/test/store.test.ts
++git commit -m "feat: add non-decrypting salary item metadata query"
++```
++
++### Task 2: Build the EvidenceService and protected read endpoints
++
++**Files:**
++- Create: `apps/api/src/modules/reports/evidence.ts`
++- Modify: `apps/api/src/modules/reports/routes.ts`
++- Modify: `apps/api/src/server.ts`
++- Test: `apps/api/test/payment-evidence.test.ts`
++
++**Interfaces:**
++- `EvidenceService.listEmployees(access: Access, query?: { employmentStatus?: "active" | "departed"; query?: string }): Promise<EvidenceEmployeeSummary[]>`.
++- `EvidenceService.getEmployeeDetail(access: Access, employeeUserId: string, filters: EvidenceFilters): Promise<EvidenceEmployeeDetail>`.
++- `EvidenceService.exportXlsx(access: Access, input: EvidenceExportInput): Promise<Buffer>`.
++- `EvidenceService` consumes `SalaryStore`, `DingTalkClient`, and `AuditService`; it does not call `listBatches()`.
++- Reports routes receive the existing `dingtalk` client from `buildApp` so the service can resolve current directory membership.
++
++- [x] **Step 1: Write failing service boundary tests**
++
++In `apps/api/test/payment-evidence.test.ts`, create a `MemorySalaryStore` spy that throws from `listBatches()` and records `getBatch()` calls. Seed one authorized and one unauthorized batch with the same employee and assert `listEmployees` succeeds without `listBatches()`, while `getEmployeeDetail` only calls `getBatch()` for the authorized batch. Add a fake directory client with one active user and one absent user and assert the returned summaries classify them as `active` and `departed`.
++
++- [x] **Step 2: Run the focused API test and verify failure**
++
++Run: `pnpm --filter @salary/api test -- payment-evidence.test.ts`  
++Expected: FAIL because `EvidenceService` and the new store-backed DTOs do not exist.
++
++- [x] **Step 3: Implement access-scoped summary aggregation**
++
++Implement a private `visibleBatchSummaries(access)` that accepts only `main_admin` and `sub_admin`; main admins receive all summaries, sub-admins receive non-archived summaries whose IDs are in `access.batchIds`. For the employee list, call `listBatchItemMetadata` for visible non-draft batches, call `listDeliveries(batchId)` and `listEvidence(batchId)` for status/count aggregation, then resolve `dingtalk.listDirectoryUsers()` once and classify every employee by user ID. Match `query` against name, employee number, and position before returning non-sensitive summaries.
++
++- [x] **Step 4: Implement status and detail filtering**
++
++Define exact status unions: `not_sent | sent | failed | withdrawn`, `not_viewed | viewed`, and `not_confirmed | confirmed`. Compute the latest delivery by `createdAt`; map delivery status to the send status; use metadata timestamps for view/confirm; set `confirmedBy` to the employee ID only when `confirmedAt` exists. Filter month range and statuses using metadata/events before calling `getBatch()` for surviving authorized batches. Return only non-draft rows and full salary fields for those rows.
++
++- [x] **Step 5: Register the new GET routes**
++
++Add Zod schemas in `apps/api/src/modules/reports/routes.ts` for employee-list and detail filters. Register `GET /v1/payment-evidence/employees` and `GET /v1/payment-evidence/employees/:employeeUserId`; keep the existing raw `GET /v1/payment-evidence` unchanged. Ensure employee identities receive the existing authorization error and sub-admins cannot inspect a batch outside `access.batchIds`.
++
++- [x] **Step 6: Run API service and route tests**
++
++Run: `pnpm --filter @salary/api test -- payment-evidence.test.ts`  
++Expected: PASS for active/departed classification, search, month/status filters, sub-admin scope, no `listBatches()`, and no unauthorized `getBatch()` calls.
++
++- [x] **Step 7: Commit the protected read endpoints**
++
++```bash
++git add apps/api/src/modules/reports/evidence.ts apps/api/src/modules/reports/routes.ts apps/api/src/server.ts apps/api/test/payment-evidence.test.ts
++git commit -m "feat: add access-scoped payment evidence queries"
++```
++
++### Task 3: Add server-side Excel evidence export
++
++**Files:**
++- Modify: `apps/api/src/modules/reports/evidence.ts`
++- Modify: `apps/api/src/modules/reports/routes.ts`
++- Test: `apps/api/test/payment-evidence.test.ts`
++
++**Interfaces:**
++- `EvidenceExportInput` contains `employeeUserId`, optional month/status filters, and `fields: string[]`.
++- `exportXlsx` returns a Node `Buffer` with one worksheet named `发薪存证`.
++- The fixed columns are `员工姓名`, `工号`, `职位`, `工资月份`, `工资条标题`, `发送状态`, `查看状态`, `确认状态`, `确认时间`, `确认人`.
++
++- [x] **Step 1: Add failing export assertions**
++
++Extend `payment-evidence.test.ts` to POST an export request with one selected salary field, parse the returned buffer with the existing `xlsx` package, and assert fixed columns plus the selected field are present. Assert a field not present in the selected authorized rows is rejected with HTTP 400, and an unauthorized employee/batch cannot appear in the workbook.
++
++- [x] **Step 2: Run the focused export test and verify failure**
++
++Run: `pnpm --filter @salary/api test -- payment-evidence.test.ts`  
++Expected: FAIL because the export route and workbook generation are not registered.
++
++- [x] **Step 3: Implement workbook generation and audit metadata**
++
++Use `XLSX.utils.json_to_sheet`, `XLSX.utils.book_new`, `XLSX.utils.book_append_sheet`, and `XLSX.write({ type: "buffer", bookType: "xlsx" })`. Reuse the same access-scoped filtered detail rows as the GET detail endpoint. Validate requested fields against the union of actual selected-row field names; record only `queryPresent`, `fieldCount`, and `rowCount` through `AuditService`.
++
++- [x] **Step 4: Register the POST route**
++
++Parse the JSON body with Zod, call `exportXlsx`, set `content-type` to `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` and a safe attachment filename, and return the buffer. Do not return salary values in errors or logs.
++
++- [x] **Step 5: Run focused API tests and verify success**
++
++Run: `pnpm --filter @salary/api test -- payment-evidence.test.ts`  
++Expected: PASS for workbook columns, selected-field validation, permissions, and audit metadata.
++
++- [x] **Step 6: Commit the export endpoint**
++
++```bash
++git add apps/api/src/modules/reports/evidence.ts apps/api/src/modules/reports/routes.ts apps/api/test/payment-evidence.test.ts
++git commit -m "feat: export payment evidence workbook"
++```
++
++### Task 4: Add Web API types and EvidenceCenter list/detail UI
++
++**Files:**
++- Modify: `apps/web/src/api.ts`
++- Modify: `apps/web/src/pages/EvidenceCenter.tsx`
++- Modify: `apps/web/src/styles/admin.css`
++- Test: `apps/web/src/pages/EvidenceCenter.test.tsx`
++
++**Interfaces:**
++- Add Web types matching the API DTOs: `PaymentEvidenceEmployee`, `PaymentEvidenceDetail`, `PaymentEvidenceRow`, `PaymentEvidenceFilters`, and the send/view/confirm status unions.
++- `EvidenceCenter` keeps `{ refreshKey: number }` props and owns `selectedEmployee`, list filters, detail filters, and export modal state.
++
++- [x] **Step 1: Write failing component tests**
++
++Create a Vitest/Testing Library test with a mocked `api` returning two employee summaries (one active, one departed), then assert tabs, search result, employee metadata, detail status/confirmation time/person, status filter controls, and selected field checkboxes. Add an empty-list test and a download test that mocks `fetch`, `URL.createObjectURL`, and `URL.revokeObjectURL` and asserts the POST body contains the selected employee, filters, and fields.
++
++- [x] **Step 2: Run the focused Web test and verify failure**
++
++Run: `pnpm --filter @salary/web test -- EvidenceCenter.test.tsx`  
++Expected: FAIL because the current page renders only raw event rows and has no list/detail state.
++
++- [x] **Step 3: Add typed API contracts**
++
++Add the status unions and response interfaces to `apps/web/src/api.ts`. Keep the existing generic `api<T>` helper unchanged; use native `fetch` only for the binary export response.
++
++- [x] **Step 4: Implement the employee list view**
++
++Load `/v1/payment-evidence/employees` with `employmentStatus` and `query`, render active/departed tabs, search input, table rows, counts, and the existing `EmptyState`/error patterns. Do not render salary fields in this view.
++
++- [x] **Step 5: Implement employee detail and filters**
++
++On row action, load `/v1/payment-evidence/employees/:employeeUserId` with URL-encoded month/status filters. Render back navigation, employee header, month range inputs, the three status groups, fixed status columns, confirmation time/person, and each returned salary field. Keep all state local to `EvidenceCenter`.
++
++- [x] **Step 6: Implement Excel field modal and download**
++
++Derive field options from the detail response, default all selected, keep fixed columns informational/non-toggleable, POST the JSON request to `/v1/payment-evidence/export.xlsx`, create a temporary object URL for the Blob, click a temporary anchor, and revoke the URL. Show `errorText` on non-2xx responses.
++
++- [x] **Step 7: Add focused admin CSS only**
++
++Add narrowly scoped `.evidence-*` selectors to `apps/web/src/styles/admin.css` for tabs, detail header, filter panel, field picker, table status cells, and download action. Preserve existing colors, spacing conventions, mobile breakpoints, and print rules; do not touch salary or employee styles.
++
++- [x] **Step 8: Run the focused Web test and verify success**
++
++Run: `pnpm --filter @salary/web test -- EvidenceCenter.test.tsx`  
++Expected: PASS for list/detail/filter/export interactions and empty/error states.
++
++- [x] **Step 9: Commit the Web feature**
++
++```bash
++git add apps/web/src/api.ts apps/web/src/pages/EvidenceCenter.tsx apps/web/src/pages/EvidenceCenter.test.tsx apps/web/src/styles/admin.css
++git commit -m "feat: add payment evidence center UI"
++```
++
++### Task 5: Update App-level smoke coverage and compatibility assertions
++
++**Files:**
++- Modify: `apps/web/src/App.test.tsx`
++
++**Interfaces:**
++- App navigation continues to render `EvidenceCenter` through the existing module shell.
++- The old raw-event route remains unchanged; App smoke tests mock `/v1/payment-evidence/employees` and detail responses.
++
++- [x] **Step 1: Update failing smoke mocks**
++
++Change the existing empty and non-empty evidence smoke tests to return employee-list responses and assert the visible active tab, employee identity, and detail action. Do not change the raw `GET /v1/payment-evidence` route.
++
++- [x] **Step 2: Run the Web suite and verify the updated smoke tests**
++
++Run: `pnpm --filter @salary/web test`  
++Expected: PASS for existing salary/report/permission/settings tests plus the new evidence smoke coverage.
++
++- [x] **Step 3: Commit compatibility coverage**
++
++```bash
++git add apps/web/src/App.test.tsx apps/api/test/http-error-boundaries.test.ts
++git commit -m "test: cover payment evidence navigation and access"
++```
++
++### Task 6: Full verification and final review
++
++**Files:**
++- Modify: only files named in Tasks 1–5 if a verification command exposes a scoped defect.
++
++- [x] **Step 1: Run package-focused tests**
++
++Run:
++
++```bash
++pnpm --filter @salary/db test
++pnpm --filter @salary/api test
++pnpm --filter @salary/web test
++```
++
++Expected: all commands exit 0.
++
++- [x] **Step 2: Run architecture and quality gates**
++
++Run:
++
++```bash
++pnpm architecture:check
++pnpm test
++pnpm typecheck
++pnpm build
++git diff --check
++```
++
++Expected: all commands exit 0; architecture warnings may remain only where already allowed by project rules.
++
++- [x] **Step 3: Inspect the final diff**
++
++Run:
++
++```bash
++git status --short
++git diff --stat origin/main...HEAD
++git diff origin/main...HEAD -- packages/db/src/store.ts packages/db/src/sqlite-store.ts apps/api/src/modules/reports apps/api/test/payment-evidence.test.ts apps/web/src/pages/EvidenceCenter.tsx apps/web/src/pages/EvidenceCenter.test.tsx apps/web/src/api.ts apps/web/src/styles/admin.css apps/web/src/App.test.tsx
++```
++
++Confirm that `.superpowers/`, `salary-slip-internal-app-20260818.zip`, SQLite files, unrelated refactors, and deployment changes are not staged or committed.
++
++- [x] **Step 4: Review and commit any scoped verification fix**
++
++Review the working tree after the gates. When a scoped fix was required, commit it with a message describing the observed regression; when no fix was required, leave the implementation commits unchanged. Do not push, merge, or deploy as part of this plan.
+diff --git a/docs/superpowers/specs/2026-08-20-payment-evidence-center-design.md b/docs/superpowers/specs/2026-08-20-payment-evidence-center-design.md
+new file mode 100644
+index 0000000..0316b47
+--- /dev/null
++++ b/docs/superpowers/specs/2026-08-20-payment-evidence-center-design.md
+@@ -0,0 +1,143 @@
++# 发薪存证中心设计
++
++日期：2026-08-20  
++状态：已确认，等待实现计划
++
++## 目标与范围
++
++将现有仅展示原始存证事件流水的“发薪存证”页面扩展为两级管理界面：先按员工查看存证，再进入单个员工的发薪记录，按月份和发送/查看/确认状态筛选，并导出 Excel 存证明细。
++
++本次不实现 PDF、不采集个人签名、不新增确认人字段、不接入 Router/Redux/React Query，也不改变工资发送、撤回、确认和归档业务规则。
++
++员工在职状态按当前钉钉通讯录判断：通讯录中存在该 `userId` 为在职，不存在为已离职。该状态是查询时的实时分类，不写入工资数据库。
++
++访问范围为主管理员和子管理员：主管理员可访问全部批次（含历史归档），子管理员只能访问现有 `access.batchIds` 中且未归档的批次。未授权批次不得进入员工计数、详情或导出结果。
++
++## 方案选择
++
++采用后端专用存证服务、前端两级页面、服务端 Excel 导出的组合：
++
++1. 不让浏览器拼装原始存证、批次和工资明细，避免敏感工资数据过度下发并保持权限判断在服务端。
++2. 不把存证聚合继续塞入 `ReportService`，避免报表汇总、存证查询和文件导出互相耦合。
++3. 复用 API 已有 `xlsx` 运行时依赖，不新增依赖。
++
++## 后端接口与数据流
++
++新增存证服务（放在现有 reports 模块内），由路由负责会话身份和 Zod 参数解析，服务负责批次权限、员工聚合、状态计算和导出数据组装。
++
++### 员工列表
++
++`GET /v1/payment-evidence/employees`
++
++查询参数：
++
++- `employmentStatus=active|departed`，可选；
++- `query`，可选，服务端对姓名、工号、职位做不区分大小写的包含匹配。
++
++返回员工摘要数组，每个员工包含：
++
++- `employeeUserId`、`employeeName`、`employeeNo`、`department`、`position`；
++- `employmentStatus`；
++- `evidenceCount`（可见的非草稿工资条条数，而不是事件条数）；
++- `latestEvidenceAt`。
++
++列表响应不得包含 `fields`、工资金额、银行卡号或其他工资敏感值。员工列表只读取批次摘要和批次内员工元数据，不调用 `listBatches()`，也不为未授权批次调用 `getBatch()`。
++
++### 员工详情
++
++`GET /v1/payment-evidence/employees/:employeeUserId`
++
++查询参数：
++
++- `fromMonth`、`toMonth`，格式 `YYYY-MM`，按工资批次的 `payrollMonth` 闭区间筛选；
++- `sendStatus=not_sent|sent|failed|withdrawn`；
++- `viewStatus=not_viewed|viewed`；
++- `confirmStatus=not_confirmed|confirmed`。
++
++服务先取得允许批次摘要，再仅对筛选命中的允许批次调用 `getBatch()`。详情行包含：
++
++- `batchId`、`itemId`、工资月份、工资条标题、批次状态；
++- 员工身份快照；
++- 服务端计算的发送状态、发送时间、查看状态、查看时间、确认状态、确认时间、确认人；
++- 该管理员有权查看的工资字段和值，用于详情展示和字段选项生成。
++
++发送状态以该员工在批次中的最新投递记录为准：无投递为 `not_sent`，最新记录为 `delivered`/`failed`/`withdrawn` 时分别映射为 `sent`/`failed`/`withdrawn`。确认人沿用现有模型，取确认该工资条的员工 `employeeUserId`；没有确认记录时为 `null`。不新增签名或确认人存储字段。
++
++详情只包含有存证价值的非草稿批次中的该员工工资条。子管理员对归档批次沿用现有工资管理边界，不显示归档数据。
++
++### Excel 导出
++
++`POST /v1/payment-evidence/export.xlsx`
++
++请求体复用员工、月份和三类状态筛选，并带 `fields: string[]`。服务端重新计算允许批次和实际字段集合：未知字段、未在筛选结果中出现的字段或越权批次都不能导出。
++
++固定列始终存在且不可取消：
++
++`员工姓名`、`工号`、`职位`、`工资月份`、`工资条标题`、`发送状态`、`查看状态`、`确认状态`、`确认时间`、`确认人`。
++
++用户选择的工资字段追加在固定列之后，默认全选。响应为 `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` 文件，并通过已有 `xlsx` 包生成。导出审计只记录筛选条件是否存在、字段数量和行数，不记录工资值。
++
++### Store 窄查询
++
++在 `SalaryStore` 和两种实现中增加批次员工元数据查询（名称、工号、部门、职位、员工 ID、查看/确认时间），不返回 `fields`，也不触发 AES 解密。该接口服务员工列表聚合和权限边界测试；详情/导出仍使用现有 `getBatch()` 读取已筛选且授权的批次。
++
++原始 `GET /v1/payment-evidence` 事件接口继续保留，不改成多态响应；页面 smoke test 将改为 mock 新的员工列表/详情接口，原始事件接口另保留 API 兼容回归测试。
++
++## 前端交互
++
++继续使用现有 `EvidenceCenter` 入口和页面组合，不引入路由基础设施。
++
++### 员工列表
++
++- 在职/已离职 tab；
++- 姓名/工号/职位搜索框，按提交或短暂防抖请求服务端；
++- 员工表格显示身份、存证数量、最近时间和“查看发薪存证”；
++- 首次加载、空结果、错误都保留明确反馈。
++
++### 员工详情
++
++- 返回列表和员工信息头部；
++- 发薪月份起止选择；
++- 筛选弹窗包含发送、查看、确认三组状态；
++- 记录表显示工资月份、标题、状态、确认时间、确认人及工资明细；
++- “导出 Excel”打开字段选择弹窗，固定列说明和工资字段复选框清晰区分；
++- 使用 `fetch` 接收 Blob 并触发下载，失败时显示服务端错误。
++
++不改变现有发薪管理、员工工资条、撤回提示、颜色、移动端和打印行为。
++
++## 安全与错误处理
++
++- 未登录返回现有 401；员工身份访问存证中心拒绝；其他无权限身份沿用现有错误映射。
++- 子管理员批次权限由服务端 `Access` 重新计算，前端传入的员工 ID、批次 ID、字段名和筛选条件都不作为授权依据。
++- 列表不解密工资字段；详情/导出只解密当前允许批次；未授权批次不通过错误信息或计数泄露存在性。
++- 不在日志、审计 metadata 或错误文本中记录工资金额、字段值、密钥或身份证/银行卡信息。
++- 目录查询失败、批次读取失败和导出失败都向调用方返回错误，不静默降级或伪造空结果。
++
++## 测试矩阵
++
++### API
++
++- 主管理员可按在职/离职、姓名、工号、职位查询；状态由目录实时匹配；
++- 子管理员只得到授权未归档批次，详情和导出不包含其他批次；
++- 员工列表不调用 `listBatches()`，且未授权批次不调用 `getBatch()`；
++- 详情正确计算发送、查看、确认状态及确认时间/确认人；月份和三类状态筛选组合正确；
++- Excel 固定列、字段选择、未知字段拒绝和空结果行为；
++- 原始存证事件接口和现有权限/错误回归保持通过。
++
++### Web
++
++- 在职/已离职 tab 和搜索结果；
++- 空列表、错误和员工详情加载；
++- 月份与状态筛选弹窗及结果；
++- 工资明细、确认状态、确认时间、确认人渲染；
++- Excel 下载请求带筛选和选中字段；
++- 保留原有空/非空存证场景的 smoke 覆盖，mock 改为新的员工列表/详情响应；原始事件接口单独保留 API 回归测试。
++
++实现完成后运行目标测试、`pnpm test`、`pnpm typecheck`、`pnpm build`、`pnpm architecture:check`、`git diff --check`。
++
++## 非目标
++
++- 不实现 PDF、签名采集、温馨提示导出；
++- 不修改发送、撤回、重发、确认或归档逻辑；
++- 不新增数据库、ORM、缓存、消息队列、Router、状态管理库或 PDF 库；
++- 不做与存证功能无关的 CSS/React 拆分或部署操作。
+diff --git a/package.json b/package.json
+index 78cf5f9..e1e1b71 100644
+--- a/package.json
++++ b/package.json
+@@ -3,6 +3,9 @@
+   "private": true,
+   "packageManager": "pnpm@10.0.0",
+   "engines": { "node": ">=22" },
++  "pnpm": {
++    "onlyBuiltDependencies": ["better-sqlite3", "esbuild"]
++  },
+   "devDependencies": {
+     "@playwright/test": "^1.52.0",
+     "@types/node": "^22.13.4",
+diff --git a/packages/db/src/sqlite-store.ts b/packages/db/src/sqlite-store.ts
+index 576aaa0..182ce27 100644
+--- a/packages/db/src/sqlite-store.ts
++++ b/packages/db/src/sqlite-store.ts
+@@ -26,6 +26,7 @@ import type {
+   SalaryStore,
+   StoredBatch,
+   StoredItem,
++  StoredItemMetadata,
+ } from "./store.js";
+ 
+ const defaults: AppSettings = {
+@@ -151,6 +152,36 @@ export class SqliteSalaryStore implements SalaryStore {
+         .all() as BatchRow[]
+     ).map((row) => this.toBatchSummary(row));
+   }
++  listBatchItemMetadata(batchId: string): StoredItemMetadata[] {
++    this.batchRow(batchId);
++    return (
++      this.db
++        .prepare(
++          "SELECT id, batch_id, employee_user_id, employee_name, employee_no, department, position, viewed_at, confirmed_at FROM salary_items WHERE batch_id = ? ORDER BY id",
++        )
++        .all(batchId) as Array<{
++        id: string;
++        batch_id: string;
++        employee_user_id: string;
++        employee_name: string;
++        employee_no: string | null;
++        department: string | null;
++        position: string | null;
++        viewed_at: string | null;
++        confirmed_at: string | null;
++      }>
++    ).map((row) => ({
++      id: row.id,
++      batchId: row.batch_id,
++      employeeUserId: row.employee_user_id,
++      employeeName: row.employee_name,
++      ...(row.employee_no ? { employeeNo: row.employee_no } : {}),
++      ...(row.department ? { department: row.department } : {}),
++      ...(row.position ? { position: row.position } : {}),
++      ...(row.viewed_at ? { viewedAt: row.viewed_at } : {}),
++      ...(row.confirmed_at ? { confirmedAt: row.confirmed_at } : {}),
++    }));
++  }
+   getBatchSummary(id: string): SalaryBatchSummary {
+     return this.toBatchSummary(this.batchRow(id));
+   }
+@@ -158,6 +189,39 @@ export class SqliteSalaryStore implements SalaryStore {
+     return this.toBatch(this.batchRow(id));
+   }
+ 
++  deleteBatch(id: string): void {
++    this.batchRow(id);
++    this.db.transaction(() => {
++      this.db
++        .prepare("DELETE FROM salary_evidence WHERE batch_id = ?")
++        .run(id);
++      this.db
++        .prepare("DELETE FROM salary_deliveries WHERE batch_id = ?")
++        .run(id);
++      this.db.prepare("DELETE FROM salary_items WHERE batch_id = ?").run(id);
++      const result = this.db
++        .prepare("DELETE FROM salary_batches WHERE id = ?")
++        .run(id);
++      if (result.changes !== 1)
++        throw new Error(`salary_batch_not_found:${id}`);
++    })();
++  }
++
++  updateItemFields(
++    batchId: string,
++    itemId: string,
++    fields: SalaryItemInput["fields"],
++  ): StoredItem {
++    const row = this.itemIdRow(batchId, itemId);
++    const encrypted = encryptSalaryPayload(fields, this.encryptionKey);
++    this.db
++      .prepare(
++        "UPDATE salary_items SET fields_ciphertext = ?, fields_iv = ?, fields_auth_tag = ? WHERE id = ?",
++      )
++      .run(encrypted.ciphertext, encrypted.iv, encrypted.authTag, row.id);
++    return this.toItem(this.itemIdRow(batchId, itemId));
++  }
++
+   setState(id: string, state: SalaryBatchState): StoredBatch {
+     const current = this.batchRow(id);
+     assertTransition(current.state, state);
+@@ -444,6 +508,13 @@ export class SqliteSalaryStore implements SalaryStore {
+     if (!row) throw new Error(`salary_item_not_found:${employeeUserId}`);
+     return row;
+   }
++  private itemIdRow(batchId: string, itemId: string): ItemRow {
++    const row = this.db
++      .prepare("SELECT * FROM salary_items WHERE batch_id = ? AND id = ?")
++      .get(batchId, itemId) as ItemRow | undefined;
++    if (!row) throw new Error("salary_item_not_found");
++    return row;
++  }
+   private adminIds(batch: BatchRow): string[] {
+     return JSON.parse(batch.assigned_admin_ids) as string[];
+   }
+diff --git a/packages/db/src/store.ts b/packages/db/src/store.ts
+index c1f2ec8..cc3d30d 100644
+--- a/packages/db/src/store.ts
++++ b/packages/db/src/store.ts
+@@ -24,6 +24,18 @@ export interface StoredItem extends SalaryItemInput {
+   deliveryStatus?: DeliveryRecord["status"];
+ }
+ 
++export interface StoredItemMetadata {
++  id: string;
++  batchId: string;
++  employeeUserId: string;
++  employeeName: string;
++  employeeNo?: string;
++  department?: string;
++  position?: string;
++  viewedAt?: string;
++  confirmedAt?: string;
++}
++
+ interface StoredEncryptedItem extends Omit<StoredItem, "fields"> {
+   encryptedFields: EncryptedPayload;
+ }
+@@ -85,8 +97,15 @@ export interface SalaryStore {
+   }): StoredBatch;
+   listBatches(): StoredBatch[];
+   listBatchSummaries(): SalaryBatchSummary[];
++  listBatchItemMetadata(batchId: string): StoredItemMetadata[];
+   getBatchSummary(id: string): SalaryBatchSummary;
+   getBatch(id: string): StoredBatch;
++  deleteBatch(id: string): void;
++  updateItemFields(
++    batchId: string,
++    itemId: string,
++    fields: SalaryItemInput["fields"],
++  ): StoredItem;
+   setState(id: string, state: SalaryBatchState): StoredBatch;
+   schedule(id: string, scheduledAt: string): StoredBatch;
+   listScheduledDue(now?: Date): string[];
+@@ -183,6 +202,25 @@ export class MemorySalaryStore implements SalaryStore {
+     );
+   }
+ 
++  listBatchItemMetadata(batchId: string): StoredItemMetadata[] {
++    const batch = this.batches.get(batchId);
++    if (!batch) throw new Error(`salary_batch_not_found:${batchId}`);
++    return batch.items.map((item) => {
++      const metadata: StoredItemMetadata = {
++        id: item.id,
++        batchId: item.batchId,
++        employeeUserId: item.employeeUserId,
++        employeeName: item.employeeName,
++        ...(item.employeeNo ? { employeeNo: item.employeeNo } : {}),
++        ...(item.department ? { department: item.department } : {}),
++        ...(item.position ? { position: item.position } : {}),
++        ...(item.viewedAt ? { viewedAt: item.viewedAt } : {}),
++        ...(item.confirmedAt ? { confirmedAt: item.confirmedAt } : {}),
++      };
++      return structuredClone(metadata);
++    });
++  }
++
+   getBatchSummary(id: string): SalaryBatchSummary {
+     const batch = this.batches.get(id);
+     if (!batch) throw new Error(`salary_batch_not_found:${id}`);
+@@ -196,6 +234,28 @@ export class MemorySalaryStore implements SalaryStore {
+     return this.publicBatch(batch);
+   }
+ 
++  deleteBatch(id: string): void {
++    if (!this.batches.delete(id))
++      throw new Error(`salary_batch_not_found:${id}`);
++    for (let index = this.deliveries.length - 1; index >= 0; index -= 1)
++      if (this.deliveries[index]?.batchId === id) this.deliveries.splice(index, 1);
++    for (let index = this.evidence.length - 1; index >= 0; index -= 1)
++      if (this.evidence[index]?.batchId === id) this.evidence.splice(index, 1);
++  }
++
++  updateItemFields(
++    batchId: string,
++    itemId: string,
++    fields: SalaryItemInput["fields"],
++  ): StoredItem {
++    const batch = this.batches.get(batchId);
++    if (!batch) throw new Error(`salary_batch_not_found:${batchId}`);
++    const item = batch.items.find((candidate) => candidate.id === itemId);
++    if (!item) throw new Error("salary_item_not_found");
++    item.encryptedFields = encryptSalaryPayload(fields, this.encryptionKey);
++    return this.publicItem(item);
++  }
++
+   setState(id: string, state: SalaryBatchState): StoredBatch {
+     const current = this.batches.get(id);
+     if (!current) throw new Error(`salary_batch_not_found:${id}`);
+diff --git a/packages/db/test/sqlite-store.test.ts b/packages/db/test/sqlite-store.test.ts
+index cf5572e..870ad7e 100644
+--- a/packages/db/test/sqlite-store.test.ts
++++ b/packages/db/test/sqlite-store.test.ts
+@@ -6,6 +6,77 @@ import { describe, expect, it } from "vitest";
+ const encryptionKey = Buffer.alloc(32, 9);
+ 
+ describe("SQLite salary store", () => {
++  it("lists memory item metadata without decrypting salary fields", async () => {
++    const { MemorySalaryStore } = await import("../src/store.js");
++    const store = new MemorySalaryStore(encryptionKey);
++    const batch = store.createBatch({
++      payrollMonth: "2026-08",
++      title: "元数据查询",
++      createdById: "admin-1",
++      items: [
++        {
++          employeeUserId: "employee-1",
++          employeeName: "员工一",
++          employeeNo: "A001",
++          department: "财务",
++          position: "会计",
++          fields: { 实发金额: 12000 },
++        },
++      ],
++    });
++
++    const metadata = store.listBatchItemMetadata(batch.id);
++
++    expect(metadata).toMatchObject([
++      {
++        batchId: batch.id,
++        employeeUserId: "employee-1",
++        employeeName: "员工一",
++        employeeNo: "A001",
++        department: "财务",
++        position: "会计",
++      },
++    ]);
++    expect(metadata[0]).not.toHaveProperty("fields");
++    expect(JSON.stringify(metadata)).not.toContain("12000");
++  });
++
++  it("lists SQLite item metadata without decrypting salary fields", async () => {
++    const implementation = await import("../src/sqlite-store.js");
++    const store = new implementation.SqliteSalaryStore(":memory:", encryptionKey);
++    const batch = store.createBatch({
++      payrollMonth: "2026-08",
++      title: "元数据查询",
++      createdById: "admin-1",
++      items: [
++        {
++          employeeUserId: "employee-1",
++          employeeName: "员工一",
++          employeeNo: "A001",
++          department: "财务",
++          position: "会计",
++          fields: { 实发金额: 13000 },
++        },
++      ],
++    });
++
++    const metadata = store.listBatchItemMetadata(batch.id);
++
++    expect(metadata).toMatchObject([
++      {
++        batchId: batch.id,
++        employeeUserId: "employee-1",
++        employeeName: "员工一",
++        employeeNo: "A001",
++        department: "财务",
++        position: "会计",
++      },
++    ]);
++    expect(metadata[0]).not.toHaveProperty("fields");
++    expect(JSON.stringify(metadata)).not.toContain("13000");
++    store.close();
++  });
++
+   it("persists encrypted salary data, roles, and settings after reopening", async () => {
+     const implementation = await import("../src/sqlite-store.js").catch(() => null);
+     expect(implementation).not.toBeNull();
