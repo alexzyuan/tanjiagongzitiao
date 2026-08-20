@@ -6,11 +6,18 @@ import { formatSalaryValue } from "../format";
 function EmployeeLoading() {
   return <div className="loading"><span className="spinner" />加载中</div>;
 }
+const withdrawnNotice = "工资条信息正在更新，后续将通过钉钉通知发送更新信息。如有疑问，请联系财务同事。";
 function EmployeeFullError({ message }: { message: string }) {
-  return <div className="full-error"><Icon name="shield" size={24} /><strong>页面加载失败</strong><span>{message}</span></div>;
+  return (
+    <div className="full-error">
+      <Icon name="shield" size={24} />
+      {message === withdrawnNotice ? <strong>{message}</strong> : <><strong>页面加载失败</strong><span>{message}</span></>}
+    </div>
+  );
 }
 function errorText(reason: unknown) {
-  return reason instanceof Error ? reason.message : typeof reason === "string" ? reason : "unknown_error";
+  const message = reason instanceof Error ? reason.message : typeof reason === "string" ? reason : "unknown_error";
+  return message === "salary_item_withdrawn" ? withdrawnNotice : message;
 }
 export function EmployeeHome({ employeeId }: { employeeId: string | undefined }) {
   const [identity, setIdentity] = useState<Identity>();
