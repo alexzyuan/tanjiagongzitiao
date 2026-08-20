@@ -206,6 +206,57 @@ export interface ReportSummary {
   batches: Array<Batch & { deliveryFailures: number; evidenceEvents: number }>;
 }
 
+export type PaymentEvidenceEmploymentStatus = "active" | "departed";
+export type PaymentEvidenceSendStatus = "not_sent" | "sent" | "failed" | "withdrawn";
+export type PaymentEvidenceViewStatus = "not_viewed" | "viewed";
+export type PaymentEvidenceConfirmStatus = "not_confirmed" | "confirmed";
+
+export interface PaymentEvidenceEmployee {
+  employeeUserId: string;
+  employeeName: string;
+  employeeNo?: string;
+  department?: string;
+  position?: string;
+  employmentStatus: PaymentEvidenceEmploymentStatus;
+  evidenceCount: number;
+  latestEvidenceAt?: string;
+}
+
+export interface PaymentEvidenceFilters {
+  fromMonth?: string;
+  toMonth?: string;
+  sendStatus?: PaymentEvidenceSendStatus;
+  viewStatus?: PaymentEvidenceViewStatus;
+  confirmStatus?: PaymentEvidenceConfirmStatus;
+}
+
+export interface PaymentEvidenceRow {
+  batchId: string;
+  itemId: string;
+  payrollMonth: string;
+  title: string;
+  state: string;
+  employeeUserId: string;
+  employeeName: string;
+  employeeNo?: string;
+  department?: string;
+  position?: string;
+  fields: Record<string, string | number | null>;
+  sendStatus: PaymentEvidenceSendStatus;
+  sentAt?: string;
+  viewStatus: PaymentEvidenceViewStatus;
+  viewedAt?: string;
+  confirmStatus: PaymentEvidenceConfirmStatus;
+  confirmedAt?: string;
+  confirmedBy?: string;
+}
+
+export interface PaymentEvidenceDetail {
+  employee: PaymentEvidenceEmployee;
+  rows: PaymentEvidenceRow[];
+  availableFields: string[];
+}
+
 export interface Settings {
   employeeVisibilityMonths: 12;
 }
