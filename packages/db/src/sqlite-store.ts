@@ -26,6 +26,7 @@ import type {
   SalaryStore,
   StoredBatch,
   StoredItem,
+  StoredItemMetadata,
 } from "./store.js";
 
 const defaults: AppSettings = {
@@ -150,6 +151,36 @@ export class SqliteSalaryStore implements SalaryStore {
         )
         .all() as BatchRow[]
     ).map((row) => this.toBatchSummary(row));
+  }
+  listBatchItemMetadata(batchId: string): StoredItemMetadata[] {
+    this.batchRow(batchId);
+    return (
+      this.db
+        .prepare(
+          "SELECT id, batch_id, employee_user_id, employee_name, employee_no, department, position, viewed_at, confirmed_at FROM salary_items WHERE batch_id = ? ORDER BY id",
+        )
+        .all(batchId) as Array<{
+        id: string;
+        batch_id: string;
+        employee_user_id: string;
+        employee_name: string;
+        employee_no: string | null;
+        department: string | null;
+        position: string | null;
+        viewed_at: string | null;
+        confirmed_at: string | null;
+      }>
+    ).map((row) => ({
+      id: row.id,
+      batchId: row.batch_id,
+      employeeUserId: row.employee_user_id,
+      employeeName: row.employee_name,
+      ...(row.employee_no ? { employeeNo: row.employee_no } : {}),
+      ...(row.department ? { department: row.department } : {}),
+      ...(row.position ? { position: row.position } : {}),
+      ...(row.viewed_at ? { viewedAt: row.viewed_at } : {}),
+      ...(row.confirmed_at ? { confirmedAt: row.confirmed_at } : {}),
+    }));
   }
   getBatchSummary(id: string): SalaryBatchSummary {
     return this.toBatchSummary(this.batchRow(id));

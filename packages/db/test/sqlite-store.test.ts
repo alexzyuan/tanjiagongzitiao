@@ -6,6 +6,77 @@ import { describe, expect, it } from "vitest";
 const encryptionKey = Buffer.alloc(32, 9);
 
 describe("SQLite salary store", () => {
+  it("lists memory item metadata without decrypting salary fields", async () => {
+    const { MemorySalaryStore } = await import("../src/store.js");
+    const store = new MemorySalaryStore(encryptionKey);
+    const batch = store.createBatch({
+      payrollMonth: "2026-08",
+      title: "元数据查询",
+      createdById: "admin-1",
+      items: [
+        {
+          employeeUserId: "employee-1",
+          employeeName: "员工一",
+          employeeNo: "A001",
+          department: "财务",
+          position: "会计",
+          fields: { 实发金额: 12000 },
+        },
+      ],
+    });
+
+    const metadata = store.listBatchItemMetadata(batch.id);
+
+    expect(metadata).toMatchObject([
+      {
+        batchId: batch.id,
+        employeeUserId: "employee-1",
+        employeeName: "员工一",
+        employeeNo: "A001",
+        department: "财务",
+        position: "会计",
+      },
+    ]);
+    expect(metadata[0]).not.toHaveProperty("fields");
+    expect(JSON.stringify(metadata)).not.toContain("12000");
+  });
+
+  it("lists SQLite item metadata without decrypting salary fields", async () => {
+    const implementation = await import("../src/sqlite-store.js");
+    const store = new implementation.SqliteSalaryStore(":memory:", encryptionKey);
+    const batch = store.createBatch({
+      payrollMonth: "2026-08",
+      title: "元数据查询",
+      createdById: "admin-1",
+      items: [
+        {
+          employeeUserId: "employee-1",
+          employeeName: "员工一",
+          employeeNo: "A001",
+          department: "财务",
+          position: "会计",
+          fields: { 实发金额: 13000 },
+        },
+      ],
+    });
+
+    const metadata = store.listBatchItemMetadata(batch.id);
+
+    expect(metadata).toMatchObject([
+      {
+        batchId: batch.id,
+        employeeUserId: "employee-1",
+        employeeName: "员工一",
+        employeeNo: "A001",
+        department: "财务",
+        position: "会计",
+      },
+    ]);
+    expect(metadata[0]).not.toHaveProperty("fields");
+    expect(JSON.stringify(metadata)).not.toContain("13000");
+    store.close();
+  });
+
   it("persists encrypted salary data, roles, and settings after reopening", async () => {
     const implementation = await import("../src/sqlite-store.js").catch(() => null);
     expect(implementation).not.toBeNull();
