@@ -25,6 +25,10 @@ const EvidenceFiltersSchema = z
     confirmStatus: z.enum(["not_confirmed", "confirmed"]).optional(),
   })
   .strict();
+const EvidenceExportSchema = EvidenceFiltersSchema.extend({
+  employeeUserId: z.string().trim().min(1).max(200),
+  fields: z.array(z.string().trim().min(1).max(120)).max(300),
+}).strict();
 
 function identity(request: FastifyRequest, sessions: SessionService) { return sessions.read(request.cookies.salary_session); }
 
@@ -80,6 +84,27 @@ export function registerReportRoutes(app: FastifyInstance, deps: { sessions: Ses
       );
     },
   );
+  app.post("/v1/payment-evidence/export.xlsx", async (request, reply) => {
+    const actor = identity(request, deps.sessions);
+    const body = EvidenceExportSchema.parse(request.body);
+    const buffer = await evidence.exportXlsx(
+      deps.authz.accessFor(actor.userId),
+      {
+        employeeUserId: body.employeeUserId,
+        fields: body.fields,
+        ...normalizeEvidenceFilters(body),
+      },
+    );
+    reply.header(
+      "content-type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    reply.header(
+      "content-disposition",
+      'attachment; filename="payment-evidence.xlsx"',
+    );
+    return reply.send(buffer);
+  });
   app.get("/v1/audits", async request => {
     const actor = identity(request, deps.sessions);
     if (deps.authz.accessFor(actor.userId).kind !== "main_admin") throw new Error("main_admin_required");

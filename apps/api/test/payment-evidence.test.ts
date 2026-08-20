@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import * as XLSX from "xlsx";
 import type { DirectoryUser, DingTalkClient } from "@salary/dingtalk";
 import { MemorySalaryStore } from "@salary/db";
 import { AuditService } from "../src/modules/audit/service.js";
@@ -241,6 +242,80 @@ describe("payment evidence service", () => {
       headers: { cookie: subAdmin },
     });
     expect(hiddenDetail.statusCode).toBe(404);
+    await app.close();
+  });
+
+  it("exports fixed evidence columns and only selected salary fields", async () => {
+    const { app } = buildApp();
+    const main = cookie(
+      await app.inject({ method: "POST", url: "/v1/auth/dev" }),
+    );
+    const draft = await app.inject({
+      method: "POST",
+      url: "/v1/salary-batches",
+      headers: { cookie: main },
+      payload: {
+        payrollMonth: "2026-08",
+        title: "导出测试工资条",
+        rows: [
+          {
+            userId: "employee-a",
+            name: "员工A",
+            基本工资: 10000,
+            实发金额: 9000,
+          },
+        ],
+      },
+    });
+    const batchId = draft.json().batchId as string;
+    await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${batchId}/send`,
+      headers: { cookie: main },
+      payload: {},
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/payment-evidence/export.xlsx",
+      headers: { cookie: main },
+      payload: {
+        employeeUserId: "employee-a",
+        fields: ["实发金额"],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain(
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    const workbook = XLSX.read(response.rawPayload, { type: "buffer" });
+    const rows = XLSX.utils.sheet_to_json<string[]>(
+      workbook.Sheets["发薪存证"]!,
+      { header: 1 },
+    );
+    expect(rows[0]).toEqual([
+      "员工姓名",
+      "工号",
+      "职位",
+      "工资月份",
+      "工资条标题",
+      "发送状态",
+      "查看状态",
+      "确认状态",
+      "确认时间",
+      "确认人",
+      "实发金额",
+    ]);
+    expect(rows[1]).toContain(9000);
+
+    const invalidField = await app.inject({
+      method: "POST",
+      url: "/v1/payment-evidence/export.xlsx",
+      headers: { cookie: main },
+      payload: { employeeUserId: "employee-a", fields: ["不存在字段"] },
+    });
+    expect(invalidField.statusCode).toBe(400);
     await app.close();
   });
 });

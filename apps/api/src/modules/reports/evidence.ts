@@ -253,9 +253,70 @@ export class EvidenceService {
     throw new Error("salary_admin_required");
   }
 
-  exportXlsx(_access: Access, _input: EvidenceExportInput): Buffer {
-    void this.audit;
-    throw new Error("payment_evidence_export_not_implemented");
+  async exportXlsx(
+    access: Access,
+    input: EvidenceExportInput,
+  ): Promise<Buffer> {
+    const { employeeUserId, fields, ...filters } = input;
+    const detail = await this.getEmployeeDetail(
+      access,
+      employeeUserId,
+      filters,
+    );
+    for (const field of fields) {
+      if (
+        FIXED_EXPORT_COLUMNS.includes(
+          field as (typeof FIXED_EXPORT_COLUMNS)[number],
+        ) ||
+        !detail.availableFields.includes(field)
+      )
+        throw new Error("salary_evidence_export_field_invalid");
+    }
+    const rows = detail.rows.map((row) => {
+      const exportRow: Record<string, string | number | null> = {
+        员工姓名: row.employeeName,
+        工号: row.employeeNo ?? null,
+        职位: row.position ?? null,
+        工资月份: row.payrollMonth,
+        工资条标题: row.title,
+        发送状态: sendStatusLabel(row.sendStatus),
+        查看状态: viewStatusLabel(row.viewStatus),
+        确认状态: confirmStatusLabel(row.confirmStatus),
+        确认时间: row.confirmedAt ?? null,
+        确认人: row.confirmedBy ?? null,
+      };
+      for (const field of fields) exportRow[field] = row.fields[field] ?? null;
+      return exportRow;
+    });
+    const worksheet = XLSX.utils.json_to_sheet(rows, {
+      header: [...FIXED_EXPORT_COLUMNS, ...fields],
+    });
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "发薪存证");
+    const buffer = XLSX.write(workbook, {
+      type: "buffer",
+      bookType: "xlsx",
+    }) as Buffer;
+    this.audit.record({
+      correlationId: `payment-evidence.export:${access.userId}:${Date.now()}`,
+      actorUserId: access.userId,
+      action: "payment_evidence.export",
+      targetType: "payment_evidence",
+      targetId: employeeUserId,
+      outcome: "completed",
+      metadata: {
+        queryPresent: Boolean(
+          filters.fromMonth ||
+            filters.toMonth ||
+            filters.sendStatus ||
+            filters.viewStatus ||
+            filters.confirmStatus,
+        ),
+        fieldCount: fields.length,
+        rowCount: rows.length,
+      },
+    });
+    return buffer;
   }
 }
 
@@ -346,6 +407,23 @@ function latestDate(
   ...candidates: string[]
 ): string | undefined {
   return [...(current ? [current] : []), ...candidates].sort().at(-1);
+}
+
+function sendStatusLabel(status: SendStatus): string {
+  return {
+    not_sent: "未发送",
+    sent: "已发送",
+    failed: "发送失败",
+    withdrawn: "已撤回",
+  }[status];
+}
+
+function viewStatusLabel(status: ViewStatus): string {
+  return status === "viewed" ? "已查看" : "未查看";
+}
+
+function confirmStatusLabel(status: ConfirmStatus): string {
+  return status === "confirmed" ? "已确认" : "未确认";
 }
 
 export { FIXED_EXPORT_COLUMNS };

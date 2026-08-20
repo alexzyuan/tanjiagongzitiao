@@ -87,7 +87,8 @@ export function buildApp(options: { databasePath?: string } = {}) {
             ? 403
             : message.startsWith("salary_import_") ||
                 message.startsWith("salary_workbook_") ||
-                message === "directory_user_not_found"
+                message === "directory_user_not_found" ||
+                message === "salary_evidence_export_field_invalid"
               ? 400
               : error &&
                   typeof error === "object" &&
