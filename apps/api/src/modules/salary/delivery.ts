@@ -18,6 +18,15 @@ export class SalaryDeliveryService {
     private readonly appBaseUrl: string,
   ) {}
 
+  isItemSendInFlight(batchId: string, employeeUserId: string) {
+    return this.inFlightItemSends.has(`${batchId}:${employeeUserId}`);
+  }
+
+  hasBatchSendInFlight(batchId: string) {
+    const prefix = `${batchId}:`;
+    return [...this.inFlightItemSends].some((key) => key.startsWith(prefix));
+  }
+
   async send(actor: Access, batchId: string, scheduledAt?: string) {
     if (!canManageBatch(actor, batchId))
       throw new Error("salary_batch_access_denied");

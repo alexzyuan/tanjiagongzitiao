@@ -35,6 +35,14 @@ async function createDraft(
   return { batchId, detail: detail.json() as { items: Array<{ id: string }> } };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 describe("salary management actions", () => {
   it("deletes an untouched draft but rejects a partially delivered batch", async () => {
     const { app } = buildApp();
@@ -139,6 +147,151 @@ describe("salary management actions", () => {
       resent.json().batch.items.find((item: { id: string }) => item.id === itemId)
         .deliveryStatus,
     ).toBe("delivered");
+    await app.close();
+  });
+
+  it("rejects editing a withdrawn item after its batch is archived", async () => {
+    const { app, store } = buildApp();
+    const admin = sessionCookie(
+      await app.inject({ method: "POST", url: "/v1/auth/dev" }),
+    );
+    const draft = await createDraft(app, admin);
+    const itemId = draft.detail.items[0].id;
+
+    await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${draft.batchId}/items/${itemId}/send`,
+      headers: { cookie: admin },
+      payload: {},
+    });
+    await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${draft.batchId}/items/${itemId}/withdraw`,
+      headers: { cookie: admin },
+      payload: {},
+    });
+    store.archiveExpired("2026-09");
+
+    const before = await app.inject({
+      method: "GET",
+      url: `/v1/salary-batches/${draft.batchId}`,
+      headers: { cookie: admin },
+    });
+    const edited = await app.inject({
+      method: "PATCH",
+      url: `/v1/salary-batches/${draft.batchId}/items/${itemId}`,
+      headers: { cookie: admin },
+      payload: { fields: { 实发金额: 9100 } },
+    });
+    const after = await app.inject({
+      method: "GET",
+      url: `/v1/salary-batches/${draft.batchId}`,
+      headers: { cookie: admin },
+    });
+
+    expect(edited.statusCode).toBe(409);
+    expect(edited.json().code).toBe("salary_item_not_editable");
+    expect(after.json().items[0].fields).toEqual(before.json().items[0].fields);
+    await app.close();
+  });
+
+  it("rejects deleting a batch while a single-item send is in flight", async () => {
+    const { app, dingtalk } = buildApp();
+    const admin = sessionCookie(
+      await app.inject({ method: "POST", url: "/v1/auth/dev" }),
+    );
+    const draft = await createDraft(app, admin);
+    const itemId = draft.detail.items[0].id;
+    const gate = deferred<{ taskId: string }>();
+    const started = deferred<void>();
+    dingtalk.sendWorkNotification = async () => {
+      started.resolve();
+      return gate.promise;
+    };
+
+    const sending = app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${draft.batchId}/items/${itemId}/send`,
+      headers: { cookie: admin },
+      payload: {},
+    });
+    await started.promise;
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: `/v1/salary-batches/${draft.batchId}`,
+      headers: { cookie: admin },
+    });
+    gate.resolve({ taskId: "notice-in-flight-delete" });
+    const sent = await sending;
+    const remaining = await app.inject({
+      method: "GET",
+      url: `/v1/salary-batches/${draft.batchId}`,
+      headers: { cookie: admin },
+    });
+
+    expect(deleted.statusCode).toBe(409);
+    expect(deleted.json().code).toBe("salary_batch_not_deletable");
+    expect(sent.statusCode).toBe(200);
+    expect(remaining.statusCode).toBe(200);
+    await app.close();
+  });
+
+  it("rejects editing an item while its resend is in flight", async () => {
+    const { app, dingtalk } = buildApp();
+    const admin = sessionCookie(
+      await app.inject({ method: "POST", url: "/v1/auth/dev" }),
+    );
+    const draft = await createDraft(app, admin);
+    const itemId = draft.detail.items[0].id;
+    await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${draft.batchId}/items/${itemId}/send`,
+      headers: { cookie: admin },
+      payload: {},
+    });
+    await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${draft.batchId}/items/${itemId}/withdraw`,
+      headers: { cookie: admin },
+      payload: {},
+    });
+    const before = await app.inject({
+      method: "GET",
+      url: `/v1/salary-batches/${draft.batchId}`,
+      headers: { cookie: admin },
+    });
+    const gate = deferred<{ taskId: string }>();
+    const started = deferred<void>();
+    dingtalk.sendWorkNotification = async () => {
+      started.resolve();
+      return gate.promise;
+    };
+
+    const resending = app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${draft.batchId}/items/${itemId}/send`,
+      headers: { cookie: admin },
+      payload: {},
+    });
+    await started.promise;
+    const edited = await app.inject({
+      method: "PATCH",
+      url: `/v1/salary-batches/${draft.batchId}/items/${itemId}`,
+      headers: { cookie: admin },
+      payload: { fields: { 实发金额: 9100 } },
+    });
+    gate.resolve({ taskId: "notice-in-flight-edit" });
+    const resent = await resending;
+    const after = await app.inject({
+      method: "GET",
+      url: `/v1/salary-batches/${draft.batchId}`,
+      headers: { cookie: admin },
+    });
+
+    expect(edited.statusCode).toBe(409);
+    expect(edited.json().code).toBe("salary_item_not_editable");
+    expect(resent.statusCode).toBe(200);
+    expect(after.json().items[0].fields).toEqual(before.json().items[0].fields);
     await app.close();
   });
 });

@@ -328,7 +328,11 @@ export class SalaryService {
     if (!canManageBatch(actor, batchId))
       throw new Error("salary_batch_access_denied");
     const batch = this.store.getBatchSummary(batchId);
-    if (batch.state !== "draft" || this.store.listDeliveries(batchId).length > 0)
+    if (
+      this.delivery.hasBatchSendInFlight(batchId) ||
+      batch.state !== "draft" ||
+      this.store.listDeliveries(batchId).length > 0
+    )
       throw new Error("salary_batch_not_deletable");
     this.store.deleteBatch(batchId);
     this.audit.record({
@@ -354,6 +358,11 @@ export class SalaryService {
     const batch = this.store.getBatch(batchId);
     const item = batch.items.find((candidate) => candidate.id === itemId);
     if (!item) throw new Error("salary_item_not_found");
+    if (
+      batch.state === "archived" ||
+      this.delivery.isItemSendInFlight(batchId, item.employeeUserId)
+    )
+      throw new Error("salary_item_not_editable");
     const latestDelivery = this.store
       .listDeliveries(batchId)
       .filter((delivery) => delivery.employeeUserId === item.employeeUserId)
