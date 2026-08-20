@@ -158,6 +158,39 @@ export class SqliteSalaryStore implements SalaryStore {
     return this.toBatch(this.batchRow(id));
   }
 
+  deleteBatch(id: string): void {
+    this.batchRow(id);
+    this.db.transaction(() => {
+      this.db
+        .prepare("DELETE FROM salary_evidence WHERE batch_id = ?")
+        .run(id);
+      this.db
+        .prepare("DELETE FROM salary_deliveries WHERE batch_id = ?")
+        .run(id);
+      this.db.prepare("DELETE FROM salary_items WHERE batch_id = ?").run(id);
+      const result = this.db
+        .prepare("DELETE FROM salary_batches WHERE id = ?")
+        .run(id);
+      if (result.changes !== 1)
+        throw new Error(`salary_batch_not_found:${id}`);
+    })();
+  }
+
+  updateItemFields(
+    batchId: string,
+    itemId: string,
+    fields: SalaryItemInput["fields"],
+  ): StoredItem {
+    const row = this.itemIdRow(batchId, itemId);
+    const encrypted = encryptSalaryPayload(fields, this.encryptionKey);
+    this.db
+      .prepare(
+        "UPDATE salary_items SET fields_ciphertext = ?, fields_iv = ?, fields_auth_tag = ? WHERE id = ?",
+      )
+      .run(encrypted.ciphertext, encrypted.iv, encrypted.authTag, row.id);
+    return this.toItem(this.itemIdRow(batchId, itemId));
+  }
+
   setState(id: string, state: SalaryBatchState): StoredBatch {
     const current = this.batchRow(id);
     assertTransition(current.state, state);
@@ -442,6 +475,13 @@ export class SqliteSalaryStore implements SalaryStore {
       )
       .get(batchId, employeeUserId) as ItemRow | undefined;
     if (!row) throw new Error(`salary_item_not_found:${employeeUserId}`);
+    return row;
+  }
+  private itemIdRow(batchId: string, itemId: string): ItemRow {
+    const row = this.db
+      .prepare("SELECT * FROM salary_items WHERE batch_id = ? AND id = ?")
+      .get(batchId, itemId) as ItemRow | undefined;
+    if (!row) throw new Error("salary_item_not_found");
     return row;
   }
   private adminIds(batch: BatchRow): string[] {

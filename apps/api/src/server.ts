@@ -69,6 +69,8 @@ export function buildApp(options: { databasePath?: string } = {}) {
               "salary_item_already_sent",
               "salary_item_send_in_progress",
               "salary_item_not_withdrawable",
+              "salary_item_not_editable",
+              "salary_batch_not_deletable",
               "salary_confirmation_disabled",
             ].includes(message)
           ? 409

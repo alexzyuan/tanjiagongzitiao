@@ -60,17 +60,20 @@ describe("salary management", () => {
   });
 
   it("labels the per-employee action as a work notification send without DING", async () => {
+    const user = userEvent.setup();
     apiMock.mockImplementation((path: string) => {
       if (path === "/v1/salary-batches") return Promise.resolve([batch]);
       if (path === "/v1/salary-batches/batch-1") return Promise.resolve({ ...batch, items: [{ id: "item-1", employeeName: "员工A", employeeUserId: "employee-a", fields: { 实发金额: 10000 } }] });
       return Promise.reject(new Error(`unexpected_request:${path}`));
     });
     render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
+    await user.click(await screen.findByRole("button", { name: "前往发送" }));
     await screen.findByRole("button", { name: "单独发送" });
     expect(screen.queryByText(/DING/)).not.toBeInTheDocument();
   });
 
   it("renders failed and withdrawn employee delivery states", async () => {
+    const user = userEvent.setup();
     apiMock.mockImplementation((path: string) => {
       if (path === "/v1/salary-batches") return Promise.resolve([{ ...batch, state: "partially_failed", total: 2 }]);
       if (path === "/v1/salary-batches/batch-1") return Promise.resolve({
@@ -85,12 +88,13 @@ describe("salary management", () => {
       return Promise.reject(new Error(`unexpected_request:${path}`));
     });
     render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
+    await user.click(await screen.findByRole("button", { name: "前往发送" }));
     expect(await screen.findByText("员工失败")).toBeInTheDocument();
     expect(document.querySelector(".status-failed")).toHaveTextContent("发送失败");
     expect(document.querySelector(".status-withdrawn")).toHaveTextContent("已撤回");
   });
 
-  it("loads batch summaries and the active batch detail, then opens the import wizard", async () => {
+  it("loads only summaries until a batch is opened, then opens the import wizard", async () => {
     const user = userEvent.setup();
     apiMock.mockImplementation((path: string) => {
       if (path === "/v1/salary-batches") return Promise.resolve([batch]);
@@ -99,9 +103,93 @@ describe("salary management", () => {
     });
     render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
     await screen.findByText("0/1");
+    expect(apiMock).not.toHaveBeenCalledWith("/v1/salary-batches/batch-1");
+    await user.click(screen.getByRole("button", { name: "前往发送" }));
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith("/v1/salary-batches/batch-1"));
+    await user.click(screen.getByRole("button", { name: "返回" }));
     await user.click(screen.getByRole("button", { name: "上传工资表" }));
     expect(await screen.findByRole("heading", { name: "上传工资表" })).toBeInTheDocument();
+  });
+
+  it("shows monthly actions from delivery progress and never exposes batch settings", async () => {
+    const user = userEvent.setup();
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/v1/salary-batches")
+        return Promise.resolve([
+          { ...batch, id: "draft-batch", title: "未发送工资条", total: 2 },
+          { ...batch, id: "partial-batch", title: "部分发送工资条", total: 2, sent: 1, state: "partially_failed" },
+          { ...batch, id: "sent-batch", title: "已发送工资条", sent: 1, total: 1, state: "sent" },
+        ]);
+      if (path === "/v1/salary-batches/sent-batch")
+        return Promise.resolve({ ...batch, id: "sent-batch", title: "已发送工资条", sent: 1, total: 1, state: "sent", items: [] });
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+    render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
+    expect(await screen.findByText("未发送工资条")).toBeInTheDocument();
+    const sendButtons = screen.getAllByRole("button", { name: "前往发送" });
+    expect(sendButtons[0]).toBeEnabled();
+    expect(sendButtons).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "查看发送" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "设置" })).not.toBeInTheDocument();
+    const deleteButtons = screen.getAllByRole("button", { name: "删除" });
+    expect(deleteButtons[0]).toBeEnabled();
+    expect(deleteButtons[1]).toBeDisabled();
+    expect(deleteButtons[2]).toBeDisabled();
+    const viewButtons = screen.getAllByRole("button", { name: "查看发送" });
+    await user.click(viewButtons[0]!);
+    expect(await screen.findByRole("columnheader", { name: "姓名" })).toBeInTheDocument();
+  });
+
+  it("deletes an untouched draft from the monthly card", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    apiMock.mockImplementation((path: string, options?: { method?: string }) => {
+      if (path === "/v1/salary-batches" && !options?.method)
+        return Promise.resolve([{ ...batch, total: 2 }]);
+      if (path === "/v1/salary-batches/batch-1" && options?.method === "DELETE")
+        return Promise.resolve({ deleted: true, batchId: batch.id });
+      if (path === "/v1/salary-batches/batch-1" && !options?.method)
+        return Promise.resolve({ ...batch, total: 2, items: [] });
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+    render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
+    await user.click(await screen.findByRole("button", { name: "删除" }));
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith(
+      "/v1/salary-batches/batch-1",
+      expect.objectContaining({ method: "DELETE" }),
+    ));
+    expect(confirm).toHaveBeenCalled();
+  });
+
+  it("enables editing only after withdrawal and saves revised salary fields", async () => {
+    const user = userEvent.setup();
+    const delivered = { id: "item-1", employeeName: "员工A", employeeUserId: "employee-a", fields: { 实发金额: 10000 }, deliveryStatus: "delivered" };
+    const withdrawn = { ...delivered, fields: { 实发金额: 10100 }, deliveryStatus: "withdrawn" as const };
+    let withdrawnState = false;
+    apiMock.mockImplementation((path: string, options?: { method?: string; body?: string }) => {
+      if (path === "/v1/salary-batches") return Promise.resolve([{ ...batch, sent: 1, total: 1, state: "sent" }]);
+      if (path === "/v1/salary-batches/batch-1/items/item-1" && options?.method === "PATCH") return Promise.resolve({ ...batch, sent: 1, total: 1, state: "sent", items: [withdrawn] });
+      if (path === "/v1/salary-batches/batch-1/items/item-1/withdraw") {
+        withdrawnState = true;
+        return Promise.resolve({ ...batch, sent: 1, total: 1, state: "sent", items: [withdrawn] });
+      }
+      if (path === "/v1/salary-batches/batch-1") return Promise.resolve({ ...batch, sent: 1, total: 1, state: "sent", items: [withdrawnState ? withdrawn : delivered] });
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+    render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
+    await user.click(await screen.findByRole("button", { name: "查看发送" }));
+    expect(await screen.findByRole("button", { name: "编辑" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "撤回" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "编辑" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "编辑" }));
+    const amount = await screen.findByLabelText("实发金额");
+    await user.clear(amount);
+    await user.type(amount, "10100");
+    await user.click(screen.getByRole("button", { name: "保存并关闭" }));
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith(
+      "/v1/salary-batches/batch-1/items/item-1",
+      expect.objectContaining({ method: "PATCH" }),
+    ));
   });
 });
 
