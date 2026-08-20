@@ -38,6 +38,8 @@
 
 继续使用 Fastify、React、TypeScript、SQLite/WAL、Vitest、Vite、pnpm workspace 和普通 CSS。未经用户另行授权，不引入 Redis、PostgreSQL/MySQL、ORM、消息队列、Redux、React Query、新 Router、Tailwind、CSS Modules、styled-components 或复杂 DDD/CQRS/Event Sourcing 分层。
 
+新增 runtime dependency 必须说明必要性；能用现有依赖或标准库解决时，不新增依赖。
+
 当前已验证的工资触达方式是工作通知 `asyncsend_v2` 的 `link` 消息；本项目不使用 DING。互动卡片是独立的未来功能，整改 Phase 不得顺带接入，也不得在旧接口上猜测 `action_card` 载荷。未完成 OAuth/token/调度链路前，不得启用或声称“未查看/未确认待办”已启用。
 
 ### 架构依赖方向

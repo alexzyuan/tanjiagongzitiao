@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
-import sensible from "@fastify/sensible";
 import { ZodError } from "zod";
 import { MockDingTalkClient, HttpDingTalkClient } from "@salary/dingtalk";
 import { SqliteSalaryStore } from "@salary/db";
@@ -48,7 +47,6 @@ export function buildApp(options: { databasePath?: string } = {}) {
   app.register(cookie);
   app.register(cors, { origin: config.APP_BASE_URL, credentials: true });
   app.register(multipart, { limits: { files: 1, fileSize: 10 * 1024 * 1024 } });
-  app.register(sensible);
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ZodError)
       return reply
