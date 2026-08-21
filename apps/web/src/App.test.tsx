@@ -133,7 +133,9 @@ describe("salary management", () => {
     expect(screen.queryByRole("button", { name: "设置" })).not.toBeInTheDocument();
     const deleteButtons = screen.getAllByRole("button", { name: "删除" });
     expect(deleteButtons[0]).toBeEnabled();
+    expect(deleteButtons[0]).not.toHaveClass("muted");
     expect(deleteButtons[1]).toBeDisabled();
+    expect(deleteButtons[1]).toHaveClass("muted");
     expect(deleteButtons[2]).toBeDisabled();
     expect(deleteButtons[1]).toHaveAttribute(
       "title",

@@ -339,7 +339,9 @@ export class SalaryService {
             latestByEmployee.get(item.employeeUserId)?.status === "withdrawn",
         );
     const canDelete =
-      (batch.state === "draft" && deliveries.length === 0) ||
+      (batch.state === "draft" &&
+        batch.sent === 0 &&
+        deliveries.every((delivery) => delivery.status === "failed")) ||
       batch.state === "withdrawn" ||
       allItemsWithdrawn;
     if (
