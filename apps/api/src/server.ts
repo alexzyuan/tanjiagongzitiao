@@ -16,6 +16,13 @@ import { registerSalaryRoutes } from "./modules/salary/routes.js";
 import { registerReportRoutes } from "./modules/reports/routes.js";
 import { registerSettingsRoutes } from "./modules/settings/routes.js";
 
+function isDingTalkRateLimit(message: string): boolean {
+  return (
+    message.startsWith("dingtalk_api_error:") &&
+    (message.includes("errcode=90018") || message.includes("subcode=90018"))
+  );
+}
+
 export function buildApp(options: { databasePath?: string } = {}) {
   const app = Fastify({
     logger: { level: process.env.LOG_LEVEL ?? "info" },
@@ -76,9 +83,11 @@ export function buildApp(options: { databasePath?: string } = {}) {
               "salary_evidence_export_empty",
             ].includes(message)
           ? 409
-        : message.startsWith("dingtalk_api_error:identity.") ||
+          : message.startsWith("dingtalk_api_error:identity.") ||
             message.startsWith("dingtalk_auth_code")
               ? 401
+          : isDingTalkRateLimit(message)
+            ? 429
           : [
                 "salary_visible_fields_required",
                 "salary_net_amount_field_must_be_visible",
@@ -99,9 +108,17 @@ export function buildApp(options: { databasePath?: string } = {}) {
                 : 500;
     if (statusCode >= 500)
       request.log.error({ err: error }, "unhandled_salary_api_error");
+    if (isDingTalkRateLimit(message))
+      request.log.warn(
+        { code: "dingtalk_rate_limited" },
+        "dingtalk_rate_limited",
+      );
+    const responseCode = isDingTalkRateLimit(message)
+      ? "dingtalk_rate_limited"
+      : message;
     return reply
       .code(statusCode)
-      .send({ code: message, requestId: request.id });
+      .send({ code: responseCode, requestId: request.id });
   });
   app.addHook("onClose", () => store.close());
   app.get("/healthz", async () => ({ ok: true, service: "salary-api" }));

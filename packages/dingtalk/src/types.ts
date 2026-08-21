@@ -30,4 +30,5 @@ export interface DingTalkClient {
   sendWorkNotification(input: WorkNotification): Promise<{ taskId: string }>;
   createTodo(input: TodoTask): Promise<{ todoId: string }>;
   listDirectoryUsers(): Promise<DirectoryUser[]>;
+  getDirectoryUser(userId: string): Promise<DirectoryUser | undefined>;
 }
