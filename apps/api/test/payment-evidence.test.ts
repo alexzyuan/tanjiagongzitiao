@@ -59,6 +59,19 @@ function createBatch(
   });
   store.setState(batch.id, "sending");
   store.setState(batch.id, "sent");
+  store.recordDelivery({
+    batchId: batch.id,
+    employeeUserId: input.employeeUserId,
+    status: "delivered",
+    taskId: "test-task",
+  });
+  store.recordEvidence({
+    batchId: batch.id,
+    employeeUserId: input.employeeUserId,
+    eventType: "notification_sent",
+    fingerprint: "test-fingerprint",
+    metadata: {},
+  });
   return batch;
 }
 
@@ -136,6 +149,33 @@ describe("payment evidence service", () => {
     expect(finance.map((employee) => employee.employeeUserId)).toEqual([
       "employee-a",
     ]);
+  });
+
+  it("does not treat a state-only batch as a payment evidence record", async () => {
+    const store = new BoundaryStore(Buffer.alloc(32, 11));
+    const batch = store.createBatch({
+      payrollMonth: "2026-08",
+      title: "无存证活动的批次",
+      createdById: "admin",
+      items: [
+        {
+          employeeUserId: "former-a",
+          employeeName: "离职员工",
+          fields: { 实发金额: 8000 },
+        },
+      ],
+    });
+    store.setState(batch.id, "sending");
+    store.setState(batch.id, "sent");
+    const service = new EvidenceService(
+      store,
+      directoryClient([]),
+      new AuditService(store),
+    );
+
+    await expect(
+      service.listEmployees({ kind: "main_admin", userId: "admin" }),
+    ).resolves.toEqual([]);
   });
 
   it("only reads full batches inside a sub-admin's allowed batch scope", async () => {
@@ -291,6 +331,115 @@ describe("payment evidence service", () => {
       headers: { cookie: subAdmin },
     });
     expect(hiddenDetail.statusCode).toBe(404);
+    await app.close();
+  });
+
+  it("shows a single-employee send without exposing untouched draft items", async () => {
+    const { app, store } = buildApp();
+    const main = cookie(
+      await app.inject({ method: "POST", url: "/v1/auth/dev" }),
+    );
+    const draft = await app.inject({
+      method: "POST",
+      url: "/v1/salary-batches",
+      headers: { cookie: main },
+      payload: {
+        payrollMonth: "2026-08",
+        title: "单独发送存证测试",
+        rows: [
+          { userId: "employee-a", name: "员工A", 实发金额: 9000 },
+          { userId: "former-a", name: "离职员工", 实发金额: 8000 },
+        ],
+      },
+    });
+    const batchId = draft.json().batchId as string;
+    const detail = await app.inject({
+      method: "GET",
+      url: `/v1/salary-batches/${batchId}`,
+      headers: { cookie: main },
+    });
+    const employeeAItemId = detail
+      .json()
+      .items.find(
+        (item: { employeeUserId: string }) =>
+          item.employeeUserId === "employee-a",
+      ).id as string;
+
+    const send = await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${batchId}/items/${employeeAItemId}/send`,
+      headers: { cookie: main },
+      payload: {},
+    });
+    expect(send.statusCode).toBe(200);
+    expect(store.listEvidence(batchId)).toEqual([
+      expect.objectContaining({
+        employeeUserId: "employee-a",
+        eventType: "notification_sent",
+      }),
+    ]);
+    expect(store.listDeliveries(batchId)).toEqual([
+      expect.objectContaining({
+        employeeUserId: "employee-a",
+        status: "delivered",
+      }),
+    ]);
+    expect(
+      store
+        .listBatchItemMetadata(batchId)
+        .map((item) => item.employeeUserId),
+    ).toEqual(
+      expect.arrayContaining(["employee-a", "former-a"]),
+    );
+    expect(store.listEmployeeEvidenceSummaries([batchId])).toEqual([
+      expect.objectContaining({
+        employeeUserId: "employee-a",
+        evidenceCount: 1,
+      }),
+    ]);
+
+    const list = await app.inject({
+      method: "GET",
+      url: "/v1/payment-evidence/employees",
+      headers: { cookie: main },
+    });
+    expect(list.statusCode).toBe(200);
+    expect(list.json()).toEqual([
+      expect.objectContaining({
+        employeeUserId: "employee-a",
+        evidenceCount: 1,
+        employmentStatus: "active",
+      }),
+    ]);
+
+    const departed = await app.inject({
+      method: "GET",
+      url: "/v1/payment-evidence/employees?employmentStatus=departed",
+      headers: { cookie: main },
+    });
+    expect(departed.statusCode).toBe(200);
+    expect(departed.json()).toEqual([]);
+
+    const employeeDetail = await app.inject({
+      method: "GET",
+      url: "/v1/payment-evidence/employees/employee-a",
+      headers: { cookie: main },
+    });
+    expect(employeeDetail.statusCode).toBe(200);
+    expect(employeeDetail.json().rows).toEqual([
+      expect.objectContaining({
+        batchId,
+        employeeUserId: "employee-a",
+        sendStatus: "sent",
+      }),
+    ]);
+
+    const untouchedDetail = await app.inject({
+      method: "GET",
+      url: "/v1/payment-evidence/employees/former-a",
+      headers: { cookie: main },
+    });
+    expect(untouchedDetail.statusCode).toBe(404);
     await app.close();
   });
 
