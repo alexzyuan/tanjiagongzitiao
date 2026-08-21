@@ -53,4 +53,10 @@ export class MockDingTalkClient implements DingTalkClient {
       },
     ];
   }
+
+  async getDirectoryUser(userId: string): Promise<DirectoryUser | undefined> {
+    return (await this.listDirectoryUsers()).find(
+      (user) => user.userId === userId,
+    );
+  }
 }

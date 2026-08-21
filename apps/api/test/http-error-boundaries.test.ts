@@ -132,4 +132,24 @@ describe("salary HTTP error boundaries", () => {
     expect(response.json().code).toBe("unexpected_notification_failure");
     await app.close();
   });
+
+  it("maps DingTalk directory rate limits to a retryable 429", async () => {
+    const { app, dingtalk } = buildApp();
+    const admin = cookie(await app.inject({ method: "POST", url: "/v1/auth/dev" }));
+    dingtalk.listDirectoryUsers = async () => {
+      throw new Error(
+        "dingtalk_api_error:directory.departments:errcode=90018,subcode=90018",
+      );
+    };
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/directory/users?query=%E5%BE%90",
+      headers: { cookie: admin },
+    });
+
+    expect(response.statusCode).toBe(429);
+    expect(response.json()).toMatchObject({ code: "dingtalk_rate_limited" });
+    await app.close();
+  });
 });

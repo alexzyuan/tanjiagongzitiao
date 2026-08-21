@@ -28,11 +28,17 @@ interface CachedUserToken extends CachedToken {
   unionId: string;
 }
 
+interface CachedDirectory {
+  users: DirectoryUser[];
+  expiresAt: number;
+}
+
 type JsonObject = Record<string, unknown>;
 
 const DEFAULT_API_BASE_URL = "https://api.dingtalk.com";
 const DEFAULT_LEGACY_API_BASE_URL = "https://oapi.dingtalk.com";
 const TOKEN_SKEW_MS = 60_000;
+const DIRECTORY_CACHE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 
 /**
  * Official DingTalk HTTP adapter.
@@ -47,6 +53,8 @@ export class HttpDingTalkClient implements DingTalkClient {
   private readonly legacyApiBaseUrl: string;
   private appToken?: CachedToken;
   private readonly userTokens = new Map<string, CachedUserToken>();
+  private directorySnapshot?: CachedDirectory;
+  private directoryRefresh: Promise<DirectoryUser[]> | undefined;
 
   constructor(private readonly config: HttpDingTalkConfig) {
     if (!config.clientId || !config.clientSecret)
@@ -165,6 +173,69 @@ export class HttpDingTalkClient implements DingTalkClient {
   }
 
   async listDirectoryUsers(): Promise<DirectoryUser[]> {
+    if (
+      this.directorySnapshot &&
+      this.directorySnapshot.expiresAt > Date.now()
+    ) {
+      this.trace("directory.cache.hit", {
+        expiresInMs: this.directorySnapshot.expiresAt - Date.now(),
+      });
+      return this.directorySnapshot.users;
+    }
+    if (this.directoryRefresh) {
+      this.trace("directory.cache.refresh.coalesced", {});
+      return this.directoryRefresh;
+    }
+
+    this.trace("directory.cache.refresh.started", {
+      hadSnapshot: Boolean(this.directorySnapshot),
+    });
+    const refresh = this.fetchDirectoryUsers();
+    this.directoryRefresh = refresh;
+    void refresh.then(
+      (users) => {
+        this.directorySnapshot = {
+          users,
+          expiresAt: Date.now() + DIRECTORY_CACHE_TTL_MS,
+        };
+        this.trace("directory.cache.refresh.completed", {
+          userCount: users.length,
+          ttlMs: DIRECTORY_CACHE_TTL_MS,
+        });
+        if (this.directoryRefresh === refresh) this.directoryRefresh = undefined;
+      },
+      (reason) => {
+        this.trace("directory.cache.refresh.failed", {
+          reason:
+            reason instanceof Error
+              ? reason.message
+              : "directory_refresh_failed",
+        });
+        if (this.directoryRefresh === refresh) this.directoryRefresh = undefined;
+      },
+    );
+    return refresh;
+  }
+
+  async getDirectoryUser(userId: string): Promise<DirectoryUser | undefined> {
+    const accessToken = await this.getAppToken();
+    const response = await this.requestJson(
+      "directory.user",
+      `${this.legacyApiBaseUrl}/topapi/v2/user/get?access_token=${encodeURIComponent(accessToken)}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userid: userId }),
+      },
+    );
+    assertDingTalkSuccess(response, "directory.user");
+    return this.parseDirectoryUser(
+      objectValue(response, "result") ?? response,
+      userId,
+    );
+  }
+
+  private async fetchDirectoryUsers(): Promise<DirectoryUser[]> {
     const accessToken = await this.getAppToken();
     const departmentIds = await this.listDepartmentIds(accessToken);
     const userIds = new Set<string>();
@@ -209,29 +280,38 @@ export class HttpDingTalkClient implements DingTalkClient {
         },
       );
       assertDingTalkSuccess(response, "directory.user");
-      const result = objectValue(response, "result") ?? response;
-      if (booleanValue(result, "active") === false) continue;
-      const name = stringValue(result, "name");
-      const resolvedUserId = stringValue(result, "userid", "userId") ?? userId;
-      const employeeNo = stringValue(result, "job_number", "jobNumber");
-      const position = stringValue(result, "title", "position");
-      if (!name)
-        throw new Error(
-          `dingtalk_directory_user_name_missing:${resolvedUserId}`,
-        );
-      users.push({
-        userId: resolvedUserId,
-        name,
-        ...(employeeNo ? { employeeNo } : {}),
-        ...(position ? { position } : {}),
-        departmentIds: numberArray(result, "dept_id_list", "deptIdList"),
-      });
+      const user = this.parseDirectoryUser(
+        objectValue(response, "result") ?? response,
+        userId,
+      );
+      if (user) users.push(user);
     }
     this.trace("directory.listed", {
       departmentCount: departmentIds.length,
       userCount: users.length,
     });
     return users.sort((left, right) => left.userId.localeCompare(right.userId));
+  }
+
+  private parseDirectoryUser(
+    result: JsonObject,
+    fallbackUserId: string,
+  ): DirectoryUser | undefined {
+    if (booleanValue(result, "active") === false) return undefined;
+    const name = stringValue(result, "name");
+    const resolvedUserId =
+      stringValue(result, "userid", "userId") ?? fallbackUserId;
+    const employeeNo = stringValue(result, "job_number", "jobNumber");
+    const position = stringValue(result, "title", "position");
+    if (!name)
+      throw new Error(`dingtalk_directory_user_name_missing:${resolvedUserId}`);
+    return {
+      userId: resolvedUserId,
+      name,
+      ...(employeeNo ? { employeeNo } : {}),
+      ...(position ? { position } : {}),
+      departmentIds: numberArray(result, "dept_id_list", "deptIdList"),
+    };
   }
 
   private async listDepartmentIds(accessToken: string): Promise<number[]> {

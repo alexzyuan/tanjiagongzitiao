@@ -85,6 +85,8 @@ function directoryClient(users: DirectoryUser[]): DingTalkClient {
     sendWorkNotification: async () => ({ taskId: "task" }),
     createTodo: async () => ({ todoId: "todo" }),
     listDirectoryUsers: async () => users,
+    getDirectoryUser: async (userId) =>
+      users.find((user) => user.userId === userId),
   };
 }
 

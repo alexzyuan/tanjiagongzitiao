@@ -27,4 +27,41 @@ describe("authorization boundaries", () => {
     expect(mainBatches.json().every((batch: { items?: unknown }) => batch.items === undefined)).toBe(true);
     await app.close();
   });
+
+  it("validates a sub-admin assignment with a direct directory user lookup", async () => {
+    const { app, dingtalk } = buildApp();
+    const main = cookie(
+      await app.inject({ method: "POST", url: "/v1/auth/dev" }),
+    );
+    let fullDirectoryReads = 0;
+    const lookedUp: string[] = [];
+    dingtalk.listDirectoryUsers = async () => {
+      fullDirectoryReads += 1;
+      throw new Error("full_directory_read_must_not_be_used_for_assignment");
+    };
+    dingtalk.getDirectoryUser = async (userId) => {
+      lookedUp.push(userId);
+      return userId === "hr-user"
+        ? {
+            userId,
+            name: "人事管理员",
+            employeeNo: "HR001",
+            position: "人力资源",
+            departmentIds: [2],
+          }
+        : undefined;
+    };
+
+    const assigned = await app.inject({
+      method: "POST",
+      url: "/v1/sub-admins",
+      headers: { cookie: main },
+      payload: { userId: "hr-user" },
+    });
+
+    expect(assigned.statusCode).toBe(200);
+    expect(lookedUp).toEqual(["hr-user"]);
+    expect(fullDirectoryReads).toBe(0);
+    await app.close();
+  });
 });

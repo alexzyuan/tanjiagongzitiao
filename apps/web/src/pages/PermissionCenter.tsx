@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import { api, type Batch, type DirectoryUser } from "../api";
 import { Icon } from "../icons";
 import { errorText } from "../utils/errors";
@@ -249,24 +255,41 @@ function DirectoryPicker({
   const [selected, setSelected] = useState<DirectoryUser>();
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(false);
-  const search = useCallback(async (value: string) => {
+  const searchVersion = useRef(0);
+  const searchAbort = useRef<AbortController | undefined>(undefined);
+  const search = useCallback(
+    async (value: string, version: number, signal: AbortSignal) => {
+      try {
+        const users = await api<DirectoryUser[]>(
+          `/v1/directory/users?query=${encodeURIComponent(value)}`,
+          { signal },
+        );
+        if (version === searchVersion.current) setResults(users);
+      } catch (reason) {
+        if (!signal.aborted && version === searchVersion.current)
+          setError(errorText(reason));
+      } finally {
+        if (version === searchVersion.current) setLoading(false);
+      }
+    },
+    [],
+  );
+  useEffect(() => {
+    searchAbort.current?.abort();
+    const controller = new AbortController();
+    searchAbort.current = controller;
+    const version = ++searchVersion.current;
     setLoading(true);
     setError(undefined);
-    try {
-      setResults(
-        await api<DirectoryUser[]>(
-          `/v1/directory/users?query=${encodeURIComponent(value)}`,
-        ),
-      );
-    } catch (reason) {
-      setError(errorText(reason));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-  useEffect(() => {
-    void search("");
-  }, [search]);
+    const delay = query.trim() ? 300 : 0;
+    const timer = window.setTimeout(() => {
+      void search(query, version, controller.signal);
+    }, delay);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [query, search]);
   const people = results.filter(
     (person) => !excludedUserIds.includes(person.userId),
   );
@@ -281,9 +304,7 @@ function DirectoryPicker({
               value={query}
               placeholder="搜索姓名、工号或职位"
               onChange={(event) => {
-                const value = event.target.value;
-                setQuery(value);
-                void search(value);
+                setQuery(event.target.value);
               }}
             />
           </label>

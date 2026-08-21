@@ -239,9 +239,7 @@ export class SalaryService {
 
   async assignSubAdmin(actor: Access, userId: string) {
     if (actor.kind !== "main_admin") throw new Error("main_admin_required");
-    const directoryUser = (await this.dingtalk.listDirectoryUsers()).find(
-      (candidate) => candidate.userId === userId,
-    );
+    const directoryUser = await this.dingtalk.getDirectoryUser(userId);
     if (!directoryUser) throw new Error("directory_user_not_found");
     const subAdmins = this.store.assignSubAdmin(userId);
     this.audit.record({
