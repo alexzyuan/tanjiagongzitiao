@@ -376,7 +376,9 @@ export function SalaryManagement({
         <div className="salary-batch-list">
           {monthBatches.map((batch) => {
             const allSent = batch.total > 0 && batch.sent >= batch.total;
-            const canDelete = batch.state === "draft" && batch.sent === 0;
+            const canDelete =
+              (batch.state === "draft" && batch.sent === 0) ||
+              batch.state === "withdrawn";
             return (
               <article className="salary-overview" key={batch.id}>
                 <div className="overview-title">
@@ -399,6 +401,9 @@ export function SalaryManagement({
                   <button
                     className="text-button muted"
                     disabled={!canDelete || busy}
+                    title={
+                      canDelete ? undefined : "需撤回所有工资条后，才能删除"
+                    }
                     onClick={() => void deleteBatch(batch)}
                   >
                     删除

@@ -1,6 +1,6 @@
 import type { DingTalkClient } from "@salary/dingtalk";
 import type { Access, SalaryBatchState } from "@salary/domain";
-import { canManageBatch } from "@salary/domain";
+import { canManageBatch, canTransition } from "@salary/domain";
 import {
   fingerprintSalaryPayload,
   type DeliveryRecord,
@@ -102,6 +102,9 @@ export class SalaryDeliveryService {
       ) {
         this.store.setState(batchId, "sending");
         finalBatch = this.store.setState(batchId, "sent");
+      } else if (batch.state === "withdrawn" && updated.state === "withdrawn") {
+        this.store.setState(batchId, "sending");
+        finalBatch = this.store.setState(batchId, "partially_failed");
       }
       this.audit.record({
         correlationId: `item:${item.id}`,
@@ -126,6 +129,10 @@ export class SalaryDeliveryService {
         status: "failed",
         error: message,
       });
+      if (batch.state === "withdrawn") {
+        this.store.setState(batchId, "sending");
+        this.store.setState(batchId, "partially_failed");
+      }
       this.audit.record({
         correlationId: `item:${item.id}`,
         actorUserId: actor.userId,
@@ -166,6 +173,15 @@ export class SalaryDeliveryService {
       fingerprint: salarySlipFingerprint(batch, item),
       metadata: delivery.taskId ? { taskId: delivery.taskId } : {},
     });
+    const latestByEmployee = new Map<string, DeliveryRecord>();
+    for (const candidate of this.store.listDeliveries(batchId))
+      latestByEmployee.set(candidate.employeeUserId, candidate);
+    const allItemsWithdrawn = batch.items.every(
+      (candidate) =>
+        latestByEmployee.get(candidate.employeeUserId)?.status === "withdrawn",
+    );
+    if (allItemsWithdrawn && canTransition(batch.state, "withdrawn"))
+      this.store.setState(batchId, "withdrawn");
     this.audit.record({
       correlationId: `item:${item.id}`,
       actorUserId: actor.userId,

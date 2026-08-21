@@ -326,10 +326,25 @@ export class SalaryService {
     if (!canManageBatch(actor, batchId))
       throw new Error("salary_batch_access_denied");
     const batch = this.store.getBatchSummary(batchId);
+    const deliveries = this.store.listDeliveries(batchId);
+    const latestByEmployee = new Map<string, (typeof deliveries)[number]>();
+    for (const delivery of deliveries)
+      latestByEmployee.set(delivery.employeeUserId, delivery);
+    const allItemsWithdrawn =
+      batch.state !== "archived" &&
+      this.store
+        .listBatchItemMetadata(batchId)
+        .every(
+          (item) =>
+            latestByEmployee.get(item.employeeUserId)?.status === "withdrawn",
+        );
+    const canDelete =
+      (batch.state === "draft" && deliveries.length === 0) ||
+      batch.state === "withdrawn" ||
+      allItemsWithdrawn;
     if (
       this.delivery.hasBatchSendInFlight(batchId) ||
-      batch.state !== "draft" ||
-      this.store.listDeliveries(batchId).length > 0
+      !canDelete
     )
       throw new Error("salary_batch_not_deletable");
     this.store.deleteBatch(batchId);
