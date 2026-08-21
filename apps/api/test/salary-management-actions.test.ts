@@ -89,6 +89,34 @@ describe("salary management actions", () => {
     await app.close();
   });
 
+  it("deletes a draft when every delivery attempt has failed", async () => {
+    const { app, dingtalk } = buildApp();
+    const admin = sessionCookie(
+      await app.inject({ method: "POST", url: "/v1/auth/dev" }),
+    );
+    const draft = await createDraft(app, admin);
+    dingtalk.sendWorkNotification = async () => {
+      throw new Error("notification_failed");
+    };
+
+    const failedSend = await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${draft.batchId}/items/${draft.detail.items[0].id}/send`,
+      headers: { cookie: admin },
+      payload: {},
+    });
+    expect(failedSend.statusCode).toBe(500);
+
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: `/v1/salary-batches/${draft.batchId}`,
+      headers: { cookie: admin },
+    });
+    expect(deleted.statusCode).toBe(200);
+    expect(deleted.json()).toEqual({ deleted: true, batchId: draft.batchId });
+    await app.close();
+  });
+
   it("deletes a batch only after every salary item has been withdrawn", async () => {
     const { app } = buildApp();
     const admin = sessionCookie(

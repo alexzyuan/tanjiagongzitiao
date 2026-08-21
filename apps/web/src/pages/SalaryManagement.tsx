@@ -399,7 +399,9 @@ export function SalaryManagement({
                 </div>
                 <div className="overview-actions">
                   <button
-                    className="text-button muted"
+                    className={
+                      canDelete && !busy ? "text-button" : "text-button muted"
+                    }
                     disabled={!canDelete || busy}
                     title={
                       canDelete ? undefined : "需撤回所有工资条后，才能删除"
