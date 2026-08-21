@@ -89,6 +89,195 @@ describe("salary management actions", () => {
     await app.close();
   });
 
+  it("deletes a batch only after every salary item has been withdrawn", async () => {
+    const { app } = buildApp();
+    const admin = sessionCookie(
+      await app.inject({ method: "POST", url: "/v1/auth/dev" }),
+    );
+    const draft = await createDraft(app, admin, [
+      { userId: "employee-a", name: "员工A", 实发金额: 9000 },
+      { userId: "employee-b", name: "员工B", 实发金额: 8000 },
+    ]);
+    const [first, second] = draft.detail.items;
+
+    await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${draft.batchId}/items/${first!.id}/send`,
+      headers: { cookie: admin },
+      payload: {},
+    });
+    await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${draft.batchId}/items/${second!.id}/send`,
+      headers: { cookie: admin },
+      payload: {},
+    });
+    await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${draft.batchId}/items/${first!.id}/withdraw`,
+      headers: { cookie: admin },
+      payload: {},
+    });
+
+    const partiallyWithdrawn = await app.inject({
+      method: "DELETE",
+      url: `/v1/salary-batches/${draft.batchId}`,
+      headers: { cookie: admin },
+    });
+    expect(partiallyWithdrawn.statusCode).toBe(409);
+    expect(partiallyWithdrawn.json().code).toBe("salary_batch_not_deletable");
+
+    await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${draft.batchId}/items/${second!.id}/withdraw`,
+      headers: { cookie: admin },
+      payload: {},
+    });
+
+    const summaries = await app.inject({
+      method: "GET",
+      url: "/v1/salary-batches",
+      headers: { cookie: admin },
+    });
+    expect(summaries.statusCode).toBe(200);
+    expect(summaries.json().find((batch: { id: string }) => batch.id === draft.batchId).state).toBe(
+      "withdrawn",
+    );
+
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: `/v1/salary-batches/${draft.batchId}`,
+      headers: { cookie: admin },
+    });
+    expect(deleted.statusCode).toBe(200);
+    expect(deleted.json()).toEqual({ deleted: true, batchId: draft.batchId });
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: `/v1/salary-batches/${draft.batchId}`,
+          headers: { cookie: admin },
+        })
+      ).statusCode,
+    ).toBe(404);
+    await app.close();
+  });
+
+  it("blocks deleting a withdrawn batch after one item is resent", async () => {
+    const { app } = buildApp();
+    const admin = sessionCookie(
+      await app.inject({ method: "POST", url: "/v1/auth/dev" }),
+    );
+    const draft = await createDraft(app, admin, [
+      { userId: "employee-a", name: "员工A", 实发金额: 9000 },
+      { userId: "employee-b", name: "员工B", 实发金额: 8000 },
+    ]);
+    const [first, second] = draft.detail.items;
+
+    for (const item of [first, second]) {
+      await app.inject({
+        method: "POST",
+        url: `/v1/salary-batches/${draft.batchId}/items/${item!.id}/send`,
+        headers: { cookie: admin },
+        payload: {},
+      });
+    }
+    for (const item of [first, second]) {
+      await app.inject({
+        method: "POST",
+        url: `/v1/salary-batches/${draft.batchId}/items/${item!.id}/withdraw`,
+        headers: { cookie: admin },
+        payload: {},
+      });
+    }
+
+    const resent = await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${draft.batchId}/items/${first!.id}/send`,
+      headers: { cookie: admin },
+      payload: {},
+    });
+    expect(resent.statusCode).toBe(200);
+
+    const summaries = await app.inject({
+      method: "GET",
+      url: "/v1/salary-batches",
+      headers: { cookie: admin },
+    });
+    expect(
+      summaries
+        .json()
+        .find((batch: { id: string }) => batch.id === draft.batchId).state,
+    ).not.toBe("withdrawn");
+
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: `/v1/salary-batches/${draft.batchId}`,
+      headers: { cookie: admin },
+    });
+    expect(deleted.statusCode).toBe(409);
+    expect(deleted.json().code).toBe("salary_batch_not_deletable");
+    await app.close();
+  });
+
+  it("keeps a withdrawn batch undeletable when a resend fails", async () => {
+    const { app, dingtalk } = buildApp();
+    const admin = sessionCookie(
+      await app.inject({ method: "POST", url: "/v1/auth/dev" }),
+    );
+    const draft = await createDraft(app, admin, [
+      { userId: "employee-a", name: "员工A", 实发金额: 9000 },
+      { userId: "employee-b", name: "员工B", 实发金额: 8000 },
+    ]);
+    const [first, second] = draft.detail.items;
+
+    for (const item of [first, second]) {
+      await app.inject({
+        method: "POST",
+        url: `/v1/salary-batches/${draft.batchId}/items/${item!.id}/send`,
+        headers: { cookie: admin },
+        payload: {},
+      });
+      await app.inject({
+        method: "POST",
+        url: `/v1/salary-batches/${draft.batchId}/items/${item!.id}/withdraw`,
+        headers: { cookie: admin },
+        payload: {},
+      });
+    }
+
+    dingtalk.sendWorkNotification = async () => {
+      throw new Error("notification_failed");
+    };
+    const resend = await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${draft.batchId}/items/${first!.id}/send`,
+      headers: { cookie: admin },
+      payload: {},
+    });
+    expect(resend.statusCode).toBe(500);
+
+    const summaries = await app.inject({
+      method: "GET",
+      url: "/v1/salary-batches",
+      headers: { cookie: admin },
+    });
+    expect(
+      summaries
+        .json()
+        .find((batch: { id: string }) => batch.id === draft.batchId).state,
+    ).not.toBe("withdrawn");
+
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: `/v1/salary-batches/${draft.batchId}`,
+      headers: { cookie: admin },
+    });
+    expect(deleted.statusCode).toBe(409);
+    expect(deleted.json().code).toBe("salary_batch_not_deletable");
+    await app.close();
+  });
+
   it("edits only a withdrawn item and allows it to be sent again", async () => {
     const { app } = buildApp();
     const admin = sessionCookie(

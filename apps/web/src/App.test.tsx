@@ -135,6 +135,10 @@ describe("salary management", () => {
     expect(deleteButtons[0]).toBeEnabled();
     expect(deleteButtons[1]).toBeDisabled();
     expect(deleteButtons[2]).toBeDisabled();
+    expect(deleteButtons[1]).toHaveAttribute(
+      "title",
+      "需撤回所有工资条后，才能删除",
+    );
     const viewButtons = screen.getAllByRole("button", { name: "查看发送" });
     await user.click(viewButtons[0]!);
     expect(await screen.findByRole("columnheader", { name: "姓名" })).toBeInTheDocument();
@@ -159,6 +163,29 @@ describe("salary management", () => {
       expect.objectContaining({ method: "DELETE" }),
     ));
     expect(confirm).toHaveBeenCalled();
+  });
+
+  it("enables deleting a monthly card after every salary item is withdrawn", async () => {
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/v1/salary-batches")
+        return Promise.resolve([
+          {
+            ...batch,
+            state: "withdrawn",
+            sent: 2,
+            total: 2,
+            title: "全部撤回工资条",
+          },
+        ]);
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+    render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
+    const deleteButton = await screen.findByRole("button", { name: "删除" });
+    expect(deleteButton).toBeEnabled();
+    expect(deleteButton).not.toHaveAttribute(
+      "title",
+      "需撤回所有工资条后，才能删除",
+    );
   });
 
   it("enables editing only after withdrawal and saves revised salary fields", async () => {
