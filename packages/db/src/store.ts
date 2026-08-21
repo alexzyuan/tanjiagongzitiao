@@ -234,11 +234,17 @@ export class MemorySalaryStore implements SalaryStore {
 
   listEmployeeEvidenceSummaries(batchIds: string[]): StoredEmployeeEvidenceSummary[] {
     const allowedBatchIds = new Set(batchIds);
+    const activeItemKeys = new Set(
+      [...this.deliveries, ...this.evidence].map(
+        (event) => `${event.batchId}:${event.employeeUserId}`,
+      ),
+    );
     const employees = new Map<string, StoredEmployeeEvidenceSummary>();
     for (const batchId of allowedBatchIds) {
       const batch = this.batches.get(batchId);
       if (!batch) throw new Error(`salary_batch_not_found:${batchId}`);
       for (const item of batch.items) {
+        if (!activeItemKeys.has(`${batchId}:${item.employeeUserId}`)) continue;
         const previous = employees.get(item.employeeUserId);
         employees.set(item.employeeUserId, {
           ...(previous ?? {

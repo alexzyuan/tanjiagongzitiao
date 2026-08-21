@@ -193,7 +193,10 @@ export class SqliteSalaryStore implements SalaryStore {
            FROM salary_items i
            LEFT JOIN salary_evidence e
              ON e.batch_id = i.batch_id AND e.employee_user_id = i.employee_user_id
+           LEFT JOIN salary_deliveries d
+             ON d.batch_id = i.batch_id AND d.employee_user_id = i.employee_user_id
           WHERE i.batch_id IN (${placeholders})
+            AND (e.id IS NOT NULL OR d.id IS NOT NULL)
           GROUP BY i.employee_user_id
           ORDER BY i.employee_name, i.employee_user_id`,
       )

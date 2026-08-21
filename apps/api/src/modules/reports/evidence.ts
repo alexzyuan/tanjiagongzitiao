@@ -106,9 +106,7 @@ export class EvidenceService {
     access: Access,
     query: { employmentStatus?: EmploymentStatus; query?: string } = {},
   ): Promise<EvidenceEmployeeSummary[]> {
-    const summaries = this.visibleBatchSummaries(access).filter(
-      (batch) => batch.state !== "draft",
-    );
+    const summaries = this.visibleBatchSummaries(access);
     const employees = this.store.listEmployeeEvidenceSummaries(
       summaries.map((batch) => batch.id),
     );
@@ -145,9 +143,7 @@ export class EvidenceService {
     employeeUserId: string,
     filters: EvidenceFilters = {},
   ): Promise<EvidenceEmployeeDetail> {
-    const summaries = this.visibleBatchSummaries(access).filter(
-      (batch) => batch.state !== "draft",
-    );
+    const summaries = this.visibleBatchSummaries(access);
     const directoryUsers = await this.dingtalk.listDirectoryUsers();
     const activeUserIds = new Set(directoryUsers.map((user) => user.userId));
     const candidates: EvidenceCandidate[] = [];
@@ -160,20 +156,22 @@ export class EvidenceService {
         .listBatchItemMetadata(summary.id)
         .find((item) => item.employeeUserId === employeeUserId);
       if (!metadata) continue;
-      employeeMetadata ??= metadata;
-      evidenceCount += 1;
       const evidence = this.store
         .listEvidence(summary.id)
         .filter((event) => event.employeeUserId === employeeUserId);
+      const deliveries = this.store
+        .listDeliveries(summary.id)
+        .filter((delivery) => delivery.employeeUserId === employeeUserId);
+      if (evidence.length === 0 && deliveries.length === 0) continue;
+      employeeMetadata ??= metadata;
+      evidenceCount += 1;
       latestEvidenceAt = latestDate(
         latestEvidenceAt,
         ...evidence.map((event) => event.createdAt),
       );
       const status = evidenceRowStatus(
         metadata,
-        this.store
-          .listDeliveries(summary.id)
-          .filter((delivery) => delivery.employeeUserId === employeeUserId),
+        deliveries,
         evidence,
       );
       if (!matchesFilters(summary.payrollMonth, status, filters)) continue;

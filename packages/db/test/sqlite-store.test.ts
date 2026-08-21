@@ -110,10 +110,40 @@ describe("SQLite salary store", () => {
         },
       ],
     });
+    const stateOnly = store.createBatch({
+      payrollMonth: "2026-06",
+      title: "无存证活动",
+      createdById: "admin-1",
+      items: [
+        {
+          employeeUserId: "former-1",
+          employeeName: "离职员工",
+          fields: { 实发金额: 16000 },
+        },
+      ],
+    });
+    store.setState(stateOnly.id, "sending");
+    store.setState(stateOnly.id, "sent");
+    for (const batch of [first, second]) {
+      store.recordDelivery({
+        batchId: batch.id,
+        employeeUserId: "employee-1",
+        status: "delivered",
+        taskId: `task-${batch.id}`,
+      });
+      store.recordEvidence({
+        batchId: batch.id,
+        employeeUserId: "employee-1",
+        eventType: "notification_sent",
+        fingerprint: `fingerprint-${batch.id}`,
+        metadata: {},
+      });
+    }
 
     const summaries = store.listEmployeeEvidenceSummaries([
       first.id,
       second.id,
+      stateOnly.id,
     ]);
 
     expect(summaries).toEqual([
@@ -124,6 +154,7 @@ describe("SQLite salary store", () => {
         department: "财务",
         position: "会计",
         evidenceCount: 2,
+        latestEvidenceAt: expect.any(String),
       },
     ]);
     expect(JSON.stringify(summaries)).not.toContain("14000");
