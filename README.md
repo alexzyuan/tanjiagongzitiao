@@ -43,6 +43,16 @@ pnpm dev
 - SQLite/WAL 数据库由外部 cron 或 systemd timer 负责归档与备份；应用本身不依赖 Redis、PostgreSQL、ORM 或消息队列。
 - 备份必须与生产数据库、应用密钥分离保存，并定期验证可恢复性。
 
+### 生产发布
+
+从与 `origin/main` 一致的干净 `main` 分支运行：
+
+```bash
+bash deploy.sh
+```
+
+脚本会执行质量门禁，生成不含密钥、SQLite 或本地缓存的 release，校验 Nginx 静态文件权限，等待 API 就绪并检查公网首页与 `/healthz`。任一步失败都会自动回滚到上一个 release；只检查本地构建和打包时可运行 `bash deploy.sh --dry-run`。
+
 ## 质量门禁
 
 ```bash
