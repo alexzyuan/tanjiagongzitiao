@@ -473,7 +473,7 @@ describe("salary management actions", () => {
     const summary = summaries
       .json()
       .find((batch: { id: string }) => batch.id === batchId);
-    expect(summary).toMatchObject({ state: "withdrawn", viewed: 2, confirmed: 2 });
+    expect(summary).toMatchObject({ state: "withdrawn", viewed: 0, confirmed: 0 });
 
     const deleted = await app.inject({
       method: "DELETE",

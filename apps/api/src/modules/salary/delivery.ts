@@ -177,6 +177,7 @@ export class SalaryDeliveryService {
       fingerprint: salarySlipFingerprint(batch, item),
       metadata: delivery.taskId ? { taskId: delivery.taskId } : {},
     });
+    this.store.clearItemInteractions(batchId, item.employeeUserId);
     const deliveriesByEmployee = new Map<string, DeliveryRecord[]>();
     for (const candidate of this.store.listDeliveries(batchId)) {
       const deliveries =
@@ -230,7 +231,8 @@ export class SalaryDeliveryService {
   withdraw(actor: Access, batchId: string) {
     if (!canManageBatch(actor, batchId))
       throw new Error("salary_batch_access_denied");
-    const batch = this.store.setState(batchId, "withdrawn");
+    this.store.setState(batchId, "withdrawn");
+    const batch = this.store.clearBatchInteractions(batchId);
     this.audit.record({
       correlationId: `batch:${batchId}`,
       actorUserId: actor.userId,

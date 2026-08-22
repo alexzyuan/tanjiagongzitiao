@@ -72,7 +72,10 @@ describe("employee salary semantics", () => {
     mockEmployeePage(settings(true));
     render(<EmployeePage employeeId="employee-a" />);
     await screen.findByText("员工A · employee-a");
-    expect(screen.getByRole("button", { name: "确认已查看" })).toBeInTheDocument();
+    const confirmationButton = screen.getByRole("button", { name: "确认已查看" });
+    expect(confirmationButton).toBeInTheDocument();
+    expect(confirmationButton).not.toBeDisabled();
+    expect(screen.queryByRole("button", { name: "已确认查看" })).not.toBeInTheDocument();
     expect(screen.getByText(/查看和确认时间将生成存证记录/)).toBeInTheDocument();
   });
 });
