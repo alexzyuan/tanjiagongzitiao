@@ -377,7 +377,8 @@ export function SalaryManagement({
           {monthBatches.map((batch) => {
             const allSent = batch.total > 0 && batch.sent >= batch.total;
             const canDelete =
-              (batch.state === "draft" && batch.sent === 0) ||
+              (["draft", "partially_failed"].includes(batch.state) &&
+                batch.sent === 0) ||
               batch.state === "withdrawn";
             return (
               <article className="salary-overview" key={batch.id}>

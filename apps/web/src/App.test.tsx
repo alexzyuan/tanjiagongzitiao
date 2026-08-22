@@ -167,6 +167,30 @@ describe("salary management", () => {
     expect(confirm).toHaveBeenCalled();
   });
 
+  it("enables deleting a partially failed batch when no salary was delivered", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    apiMock.mockImplementation((path: string, options?: { method?: string }) => {
+      if (path === "/v1/salary-batches" && !options?.method)
+        return Promise.resolve([
+          { ...batch, state: "partially_failed", sent: 0, total: 1 },
+        ]);
+      if (path === "/v1/salary-batches/batch-1" && options?.method === "DELETE")
+        return Promise.resolve({ deleted: true, batchId: batch.id });
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+    render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
+    const deleteButton = await screen.findByRole("button", { name: "删除" });
+    expect(deleteButton).toBeEnabled();
+    expect(deleteButton).not.toHaveClass("muted");
+    await user.click(deleteButton);
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith(
+      "/v1/salary-batches/batch-1",
+      expect.objectContaining({ method: "DELETE" }),
+    ));
+    expect(confirm).toHaveBeenCalled();
+  });
+
   it("enables deleting a monthly card after every salary item is withdrawn", async () => {
     apiMock.mockImplementation((path: string) => {
       if (path === "/v1/salary-batches")
