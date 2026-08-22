@@ -153,6 +153,55 @@ describe("salary delivery", () => {
     await app.close();
   });
 
+  it("adds an incrementing update version to each successful resend", async () => {
+    const { app, dingtalk } = buildApp();
+    const admin = await app.inject({ method: "POST", url: "/v1/auth/dev" });
+    const cookie = admin.headers["set-cookie"]?.split(";")[0];
+    const mock = dingtalk as MockDingTalkClient;
+    const draft = await app.inject({
+      method: "POST",
+      url: "/v1/salary-batches",
+      headers: { cookie },
+      payload: {
+        payrollMonth: "2026-08",
+        title: "版本工资条",
+        rows: [{ userId: "employee-a", name: "员工A", 实发金额: 10000 }],
+      },
+    });
+    const batch = (
+      await app.inject({
+        method: "GET",
+        url: `/v1/salary-batches/${draft.json().batchId}`,
+        headers: { cookie },
+      })
+    ).json();
+    const itemId = batch.items[0].id as string;
+    const send = async () =>
+      app.inject({
+        method: "POST",
+        url: `/v1/salary-batches/${batch.id}/items/${itemId}/send`,
+        headers: { cookie },
+        payload: {},
+      });
+    const withdraw = async () =>
+      app.inject({
+        method: "POST",
+        url: `/v1/salary-batches/${batch.id}/items/${itemId}/withdraw`,
+        headers: { cookie },
+        payload: {},
+      });
+
+    expect((await send()).statusCode).toBe(200);
+    expect(mock.notifications[0]?.title).toBe("2026-08工资条");
+    expect((await withdraw()).statusCode).toBe(200);
+    expect((await send()).statusCode).toBe(200);
+    expect(mock.notifications[1]?.title).toBe("2026-08工资条 更新 v1");
+    expect((await withdraw()).statusCode).toBe(200);
+    expect((await send()).statusCode).toBe(200);
+    expect(mock.notifications[2]?.title).toBe("2026-08工资条 更新 v2");
+    await app.close();
+  });
+
   it("counts unique delivered employees when duplicate delivery history exists", async () => {
     const { app, store } = buildApp();
     const auth = await app.inject({ method: "POST", url: "/v1/auth/dev" });
