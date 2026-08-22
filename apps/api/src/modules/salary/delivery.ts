@@ -57,8 +57,8 @@ export class SalaryDeliveryService {
     if (!item) throw new Error("salary_item_not_found");
     if (["archived", "sending"].includes(batch.state))
       throw new Error(`salary_item_not_sendable:${batch.state}`);
-    const latestDelivery = this.store
-      .listDeliveries(batchId)
+    const deliveries = this.store.listDeliveries(batchId);
+    const latestDelivery = deliveries
       .filter((delivery) => delivery.employeeUserId === item.employeeUserId)
       .at(-1);
     if (latestDelivery?.status === "delivered")
@@ -70,7 +70,11 @@ export class SalaryDeliveryService {
     try {
       const result = await this.dingtalk.sendWorkNotification({
         userId: item.employeeUserId,
-        title: `${batch.payrollMonth}工资条`,
+        title: notificationTitle(
+          batch.payrollMonth,
+          deliveries,
+          item.employeeUserId,
+        ),
         body: "请在钉钉内查看工资明细",
         url: `${this.appBaseUrl}/employee/salary-slips/${batchId}`,
       });
@@ -263,8 +267,9 @@ export class SalaryDeliveryService {
     const from: SalaryBatchState = existing.state;
     if (!["draft", "scheduled", "sent", "partially_failed"].includes(from))
       throw new Error(`salary_batch_not_sendable:${from}`);
+    const deliveries = this.store.listDeliveries(batchId);
     const latestByEmployee = new Map<string, DeliveryRecord>();
-    for (const delivery of this.store.listDeliveries(batchId))
+    for (const delivery of deliveries)
       latestByEmployee.set(delivery.employeeUserId, delivery);
     const targets = existing.items.filter((item) => {
       const latest = latestByEmployee.get(item.employeeUserId);
@@ -279,7 +284,11 @@ export class SalaryDeliveryService {
       try {
         const result = await this.dingtalk.sendWorkNotification({
           userId: item.employeeUserId,
-          title: `${existing.payrollMonth}工资条`,
+          title: notificationTitle(
+            existing.payrollMonth,
+            deliveries,
+            item.employeeUserId,
+          ),
           body: "请在钉钉内查看工资明细",
           url: `${this.appBaseUrl}/employee/salary-slips/${batchId}`,
         });
@@ -341,6 +350,21 @@ export class SalaryDeliveryService {
     });
     return batch;
   }
+}
+
+function notificationTitle(
+  payrollMonth: string,
+  deliveries: DeliveryRecord[],
+  employeeUserId: string,
+) {
+  const successfulDeliveries = deliveries.filter(
+    (delivery) =>
+      delivery.employeeUserId === employeeUserId &&
+      delivery.status === "delivered",
+  ).length;
+  return successfulDeliveries > 0
+    ? `${payrollMonth}工资条 更新 v${successfulDeliveries}`
+    : `${payrollMonth}工资条`;
 }
 
 function salarySlipFingerprint(
