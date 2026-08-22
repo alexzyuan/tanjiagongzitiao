@@ -128,6 +128,8 @@ export interface SalaryStore {
   markSent(id: string, employeeUserId: string): StoredBatch;
   markViewed(id: string, employeeUserId: string): StoredItem;
   markConfirmed(id: string, employeeUserId: string): StoredItem;
+  clearItemInteractions(id: string, employeeUserId: string): StoredItem;
+  clearBatchInteractions(id: string): StoredBatch;
   getEmployeeItem(id: string, employeeUserId: string): StoredItem;
   recordAudit(input: Omit<AuditRecord, "id" | "createdAt">): AuditRecord;
   listAudits(): AuditRecord[];
@@ -414,6 +416,36 @@ export class MemorySalaryStore implements SalaryStore {
       current.confirmed += 1;
     }
     return this.publicItem(item);
+  }
+
+  clearItemInteractions(id: string, employeeUserId: string): StoredItem {
+    const current = this.batches.get(id);
+    if (!current) throw new Error(`salary_batch_not_found:${id}`);
+    const item = current.items.find(
+      (candidate) => candidate.employeeUserId === employeeUserId,
+    );
+    if (!item) throw new Error(`salary_item_not_found:${employeeUserId}`);
+    if (item.viewedAt) {
+      delete item.viewedAt;
+      current.viewed = Math.max(0, current.viewed - 1);
+    }
+    if (item.confirmedAt) {
+      delete item.confirmedAt;
+      current.confirmed = Math.max(0, current.confirmed - 1);
+    }
+    return this.publicItem(item);
+  }
+
+  clearBatchInteractions(id: string): StoredBatch {
+    const current = this.batches.get(id);
+    if (!current) throw new Error(`salary_batch_not_found:${id}`);
+    for (const item of current.items) {
+      delete item.viewedAt;
+      delete item.confirmedAt;
+    }
+    current.viewed = 0;
+    current.confirmed = 0;
+    return this.publicBatch(current);
   }
 
   getEmployeeItem(id: string, employeeUserId: string): StoredItem {

@@ -220,6 +220,61 @@ describe("SQLite salary store", () => {
     }
   });
 
+  it("clears stale interaction metadata for withdrawn items when reopening", async () => {
+    const implementation = await import("../src/sqlite-store.js");
+    const directory = await mkdtemp(join(tmpdir(), "salary-sqlite-withdrawn-"));
+    const databasePath = join(directory, "salary-slip.sqlite");
+    try {
+      const first = new implementation.SqliteSalaryStore(databasePath, encryptionKey);
+      const batch = first.createBatch({
+        payrollMonth: "2026-08",
+        title: "撤回状态迁移",
+        createdById: "admin-1",
+        items: [{ employeeUserId: "employee-1", employeeName: "员工一", fields: { 实发金额: 9000 } }],
+      });
+      first.setState(batch.id, "sending");
+      first.setState(batch.id, "sent");
+      first.markViewed(batch.id, "employee-1");
+      first.markConfirmed(batch.id, "employee-1");
+      first.setState(batch.id, "withdrawn");
+
+      const itemWithdrawnBatch = first.createBatch({
+        payrollMonth: "2026-08",
+        title: "单条撤回状态迁移",
+        createdById: "admin-1",
+        items: [{ employeeUserId: "employee-2", employeeName: "员工二", fields: { 实发金额: 8000 } }],
+      });
+      first.setState(itemWithdrawnBatch.id, "sending");
+      first.setState(itemWithdrawnBatch.id, "sent");
+      first.markViewed(itemWithdrawnBatch.id, "employee-2");
+      first.markConfirmed(itemWithdrawnBatch.id, "employee-2");
+      first.recordDelivery({
+        batchId: itemWithdrawnBatch.id,
+        employeeUserId: "employee-2",
+        status: "delivered",
+        taskId: "task-1",
+      });
+      first.recordDelivery({
+        batchId: itemWithdrawnBatch.id,
+        employeeUserId: "employee-2",
+        status: "withdrawn",
+        taskId: "task-1",
+      });
+      first.close();
+
+      const reopened = new implementation.SqliteSalaryStore(databasePath, encryptionKey);
+      expect(reopened.getBatchSummary(batch.id)).toMatchObject({ viewed: 0, confirmed: 0 });
+      expect(reopened.getBatch(batch.id).items[0]).not.toHaveProperty("viewedAt");
+      expect(reopened.getBatch(batch.id).items[0]).not.toHaveProperty("confirmedAt");
+      expect(reopened.getBatchSummary(itemWithdrawnBatch.id)).toMatchObject({ viewed: 0, confirmed: 0 });
+      expect(reopened.getBatch(itemWithdrawnBatch.id).items[0]).not.toHaveProperty("viewedAt");
+      expect(reopened.getBatch(itemWithdrawnBatch.id).items[0]).not.toHaveProperty("confirmedAt");
+      reopened.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("counts each employee's successful delivery only once", async () => {
     const implementation = await import("../src/sqlite-store.js");
     const directory = await mkdtemp(join(tmpdir(), "salary-sqlite-count-"));

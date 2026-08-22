@@ -365,6 +365,48 @@ export class SqliteSalaryStore implements SalaryStore {
     return this.markInteraction(id, employeeUserId, "confirmed");
   }
 
+  clearItemInteractions(id: string, employeeUserId: string): StoredItem {
+    const row = this.itemRow(id, employeeUserId);
+    const viewedDelta = row.viewed_at ? 1 : 0;
+    const confirmedDelta = row.confirmed_at ? 1 : 0;
+    if (viewedDelta || confirmedDelta)
+      this.db.transaction(() => {
+        this.db
+          .prepare(
+            "UPDATE salary_items SET viewed_at = NULL, confirmed_at = NULL WHERE id = ?",
+          )
+          .run(row.id);
+        this.db
+          .prepare(
+            "UPDATE salary_batches SET viewed = MAX(0, viewed - ?), confirmed = MAX(0, confirmed - ?) WHERE id = ?",
+          )
+          .run(viewedDelta, confirmedDelta, id);
+      })();
+    return this.toItem(this.itemRow(id, employeeUserId));
+  }
+
+  clearBatchInteractions(id: string): StoredBatch {
+    this.batchRow(id);
+    const counts = this.db
+      .prepare(
+        "SELECT COALESCE(SUM(CASE WHEN viewed_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS viewed, COALESCE(SUM(CASE WHEN confirmed_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS confirmed FROM salary_items WHERE batch_id = ?",
+      )
+      .get(id) as { viewed: number; confirmed: number };
+    this.db.transaction(() => {
+      this.db
+        .prepare(
+          "UPDATE salary_items SET viewed_at = NULL, confirmed_at = NULL WHERE batch_id = ?",
+        )
+        .run(id);
+      this.db
+        .prepare(
+          "UPDATE salary_batches SET viewed = MAX(0, viewed - ?), confirmed = MAX(0, confirmed - ?) WHERE id = ?",
+        )
+        .run(counts.viewed, counts.confirmed, id);
+    })();
+    return this.getBatch(id);
+  }
+
   getEmployeeItem(id: string, employeeUserId: string): StoredItem {
     const batch = this.batchRow(id);
     if (batch.state === "archived") throw new Error("salary_item_archived");
@@ -662,7 +704,7 @@ export class SqliteSalaryStore implements SalaryStore {
   ): any[] {
     const rows = this.db
       .prepare(
-        `SELECT * FROM ${table}${batchId ? " WHERE batch_id = ?" : ""} ORDER BY created_at`,
+        `SELECT * FROM ${table}${batchId ? " WHERE batch_id = ?" : ""} ORDER BY created_at, rowid`,
       )
       .all(...(batchId ? [batchId] : [])) as any[];
     return rows.map((row) =>
@@ -709,5 +751,37 @@ export class SqliteSalaryStore implements SalaryStore {
         "ALTER TABLE salary_batches ADD COLUMN display_settings TEXT NOT NULL DEFAULT '{}'",
       );
     }
+    this.normalizeWithdrawnInteractions();
+  }
+
+  private normalizeWithdrawnInteractions(): void {
+    const stale = this.db
+      .prepare(
+        `SELECT i.id, i.batch_id
+           FROM salary_items i
+           JOIN salary_batches b ON b.id = i.batch_id
+          WHERE (b.state = 'withdrawn' OR
+                 (SELECT d.status
+                    FROM salary_deliveries d
+                   WHERE d.batch_id = i.batch_id
+                     AND d.employee_user_id = i.employee_user_id
+                   ORDER BY d.created_at DESC, d.rowid DESC
+                   LIMIT 1) = 'withdrawn')
+            AND (i.viewed_at IS NOT NULL OR i.confirmed_at IS NOT NULL)`,
+      )
+      .all() as Array<{ id: string; batch_id: string }>;
+    if (stale.length === 0) return;
+    const batchIds = [...new Set(stale.map((row) => row.batch_id))];
+    this.db.transaction(() => {
+      const clear = this.db.prepare(
+        "UPDATE salary_items SET viewed_at = NULL, confirmed_at = NULL WHERE id = ?",
+      );
+      for (const row of stale) clear.run(row.id);
+      const recalculate = this.db.prepare(
+        "UPDATE salary_batches SET viewed = (SELECT COUNT(*) FROM salary_items WHERE batch_id = ? AND viewed_at IS NOT NULL), confirmed = (SELECT COUNT(*) FROM salary_items WHERE batch_id = ? AND confirmed_at IS NOT NULL) WHERE id = ?",
+      );
+      for (const batchId of batchIds)
+        recalculate.run(batchId, batchId, batchId);
+    })();
   }
 }

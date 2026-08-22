@@ -293,6 +293,16 @@ describe("employee salary access", () => {
         payrollMonth: "2026-08",
         title: "批次撤回工资条",
         rows: [{ userId: "employee-a", name: "员工A", 基本工资: 9000 }],
+        displaySettings: {
+          netAmountField: "基本工资",
+          hideEmptyFields: true,
+          confirmationEnabled: true,
+          notice: "",
+          greeting: "{name}",
+          theme: "default",
+          visibleFields: ["基本工资"],
+          fieldGroups: [],
+        },
       },
     });
     const batchId = draft.json().batchId as string;
@@ -309,6 +319,19 @@ describe("employee salary access", () => {
         payload: { userId: "employee-a", name: "员工A" },
       }),
     );
+
+    const viewed = await app.inject({
+      method: "POST",
+      url: `/v1/me/salary-slips/${batchId}/view`,
+      headers: { cookie: employee },
+    });
+    expect(viewed.statusCode).toBe(200);
+    const confirmed = await app.inject({
+      method: "POST",
+      url: `/v1/me/salary-slips/${batchId}/confirm`,
+      headers: { cookie: employee },
+    });
+    expect(confirmed.statusCode).toBe(200);
 
     const withdraw = await app.inject({
       method: "POST",
@@ -343,6 +366,124 @@ describe("employee salary access", () => {
     });
     expect(adminDetail.statusCode).toBe(200);
     expect(adminDetail.json().state).toBe("withdrawn");
+    expect(adminDetail.json().viewed).toBe(0);
+    expect(adminDetail.json().confirmed).toBe(0);
+    expect(adminDetail.json().items[0].viewedAt).toBeUndefined();
+    expect(adminDetail.json().items[0].confirmedAt).toBeUndefined();
+    await app.close();
+  });
+
+  it("clears employee view state after item withdrawal and requires reconfirmation", async () => {
+    const { app } = buildApp();
+    const admin = sessionCookie(
+      await app.inject({ method: "POST", url: "/v1/auth/dev" }),
+    );
+    const draft = await app.inject({
+      method: "POST",
+      url: "/v1/salary-batches",
+      headers: { cookie: admin },
+      payload: {
+        payrollMonth: "2026-08",
+        title: "撤回后重新确认",
+        rows: [{ userId: "employee-a", name: "员工A", 基本工资: 9000 }],
+        displaySettings: {
+          netAmountField: "基本工资",
+          hideEmptyFields: true,
+          confirmationEnabled: true,
+          notice: "",
+          greeting: "{name}",
+          theme: "default",
+          visibleFields: ["基本工资"],
+          fieldGroups: [],
+        },
+      },
+    });
+    const batchId = draft.json().batchId as string;
+    const batch = await app.inject({
+      method: "GET",
+      url: `/v1/salary-batches/${batchId}`,
+      headers: { cookie: admin },
+    });
+    const itemId = batch.json().items[0].id as string;
+    const employee = sessionCookie(
+      await app.inject({
+        method: "POST",
+        url: "/v1/auth/dev",
+        payload: { userId: "employee-a", name: "员工A" },
+      }),
+    );
+    await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${batchId}/send`,
+      headers: { cookie: admin },
+      payload: {},
+    });
+
+    const viewed = await app.inject({
+      method: "POST",
+      url: `/v1/me/salary-slips/${batchId}/view`,
+      headers: { cookie: employee },
+    });
+    expect(viewed.statusCode).toBe(200);
+    expect(viewed.json().viewedAt).toEqual(expect.any(String));
+    expect(viewed.json().confirmedAt).toBeUndefined();
+    const confirmed = await app.inject({
+      method: "POST",
+      url: `/v1/me/salary-slips/${batchId}/confirm`,
+      headers: { cookie: employee },
+    });
+    expect(confirmed.statusCode).toBe(200);
+    expect(confirmed.json().confirmedAt).toEqual(expect.any(String));
+
+    const withdrawn = await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${batchId}/items/${itemId}/withdraw`,
+      headers: { cookie: admin },
+      payload: {},
+    });
+    expect(withdrawn.statusCode).toBe(200);
+
+    const afterWithdraw = await app.inject({
+      method: "GET",
+      url: `/v1/salary-batches/${batchId}`,
+      headers: { cookie: admin },
+    });
+    expect(afterWithdraw.json().viewed).toBe(0);
+    expect(afterWithdraw.json().confirmed).toBe(0);
+    expect(afterWithdraw.json().items[0].viewedAt).toBeUndefined();
+    expect(afterWithdraw.json().items[0].confirmedAt).toBeUndefined();
+
+    const resent = await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${batchId}/items/${itemId}/send`,
+      headers: { cookie: admin },
+      payload: {},
+    });
+    expect(resent.statusCode).toBe(200);
+    const reopened = await app.inject({
+      method: "GET",
+      url: `/v1/me/salary-slips/${batchId}`,
+      headers: { cookie: employee },
+    });
+    expect(reopened.statusCode).toBe(200);
+    expect(reopened.json().item.viewedAt).toBeUndefined();
+    expect(reopened.json().item.confirmedAt).toBeUndefined();
+
+    const viewedAgain = await app.inject({
+      method: "POST",
+      url: `/v1/me/salary-slips/${batchId}/view`,
+      headers: { cookie: employee },
+    });
+    expect(viewedAgain.statusCode).toBe(200);
+    expect(viewedAgain.json().viewedAt).toEqual(expect.any(String));
+    expect(viewedAgain.json().confirmedAt).toBeUndefined();
+    const confirmedAgain = await app.inject({
+      method: "POST",
+      url: `/v1/me/salary-slips/${batchId}/confirm`,
+      headers: { cookie: employee },
+    });
+    expect(confirmedAgain.statusCode).toBe(200);
+    expect(confirmedAgain.json().confirmedAt).toEqual(expect.any(String));
     await app.close();
   });
 
