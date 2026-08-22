@@ -377,10 +377,11 @@ export function SalaryManagement({
         <div className="salary-batch-list">
           {monthBatches.map((batch) => {
             const allSent = batch.total > 0 && batch.sent >= batch.total;
-            const canDelete =
+            const legacyCanDelete =
               (["draft", "partially_failed"].includes(batch.state) &&
                 batch.sent === 0) ||
               batch.state === "withdrawn";
+            const canDelete = batch.canDelete ?? legacyCanDelete;
             return (
               <article className="salary-overview" key={batch.id}>
                 <div className="overview-title">
@@ -390,6 +391,10 @@ export function SalaryManagement({
                 <div className="overview-stat">
                   <span>已发送</span>
                   <strong>{batch.sent}/{batch.total}</strong>
+                </div>
+                <div className="overview-stat">
+                  <span>已撤回</span>
+                  <strong>{batch.withdrawn ?? 0}</strong>
                 </div>
                 <div className="overview-stat">
                   <span>已查看</span>

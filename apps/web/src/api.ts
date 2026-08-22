@@ -125,8 +125,10 @@ export interface Batch {
   state: string;
   total: number;
   sent: number;
+  withdrawn?: number;
   viewed: number;
   confirmed: number;
+  canDelete?: boolean;
   assignedAdminIds: string[];
   createdById: string;
   displaySettings: SalarySlipDisplaySettings;

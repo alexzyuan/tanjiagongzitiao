@@ -241,7 +241,7 @@
 .salary-overview {
   min-height: 108px;
   display: grid;
-  grid-template-columns: 1.55fr repeat(3, 0.65fr) 1.3fr;
+  grid-template-columns: 1.55fr repeat(4, 0.65fr) 1.3fr;
   align-items: center;
   gap: 15px;
   background: #fff;

@@ -300,11 +300,26 @@ export class SalaryService {
 
   list(access: Access) {
     const batches = this.store.listBatchSummaries();
-    if (access.kind === "main_admin") return batches;
+    const deliveriesByBatch = new Map<
+      string,
+      ReturnType<SalaryStore["listDeliveries"]>
+    >();
+    for (const delivery of this.store.listDeliveries()) {
+      const deliveries = deliveriesByBatch.get(delivery.batchId) ?? [];
+      deliveries.push(delivery);
+      deliveriesByBatch.set(delivery.batchId, deliveries);
+    }
+    const withSummaries = (visibleBatches: typeof batches) =>
+      visibleBatches.map((batch) =>
+        this.withDeliverySummary(batch, deliveriesByBatch.get(batch.id) ?? []),
+      );
+    if (access.kind === "main_admin") return withSummaries(batches);
     if (access.kind === "batch_admin" || access.kind === "sub_admin")
-      return batches.filter(
-        (batch) =>
-          batch.state !== "archived" && access.batchIds.includes(batch.id),
+      return withSummaries(
+        batches.filter(
+          (batch) =>
+            batch.state !== "archived" && access.batchIds.includes(batch.id),
+        ),
       );
     return [];
   }
@@ -326,24 +341,10 @@ export class SalaryService {
     if (!canManageBatch(actor, batchId))
       throw new Error("salary_batch_access_denied");
     const batch = this.store.getBatchSummary(batchId);
-    const deliveries = this.store.listDeliveries(batchId);
-    const latestByEmployee = new Map<string, (typeof deliveries)[number]>();
-    for (const delivery of deliveries)
-      latestByEmployee.set(delivery.employeeUserId, delivery);
-    const allItemsWithdrawn =
-      batch.state !== "archived" &&
-      this.store
-        .listBatchItemMetadata(batchId)
-        .every(
-          (item) =>
-            latestByEmployee.get(item.employeeUserId)?.status === "withdrawn",
-        );
-    const canDelete =
-      (["draft", "partially_failed"].includes(batch.state) &&
-        batch.sent === 0 &&
-        deliveries.every((delivery) => delivery.status === "failed")) ||
-      batch.state === "withdrawn" ||
-      allItemsWithdrawn;
+    const canDelete = this.deliverySummary(
+      batch,
+      this.store.listDeliveries(batchId),
+    ).canDelete;
     if (
       this.delivery.hasBatchSendInFlight(batchId) ||
       !canDelete
@@ -360,6 +361,53 @@ export class SalaryService {
       metadata: { payrollMonth: batch.payrollMonth },
     });
     return { deleted: true, batchId };
+  }
+
+  private withDeliverySummary(
+    batch: ReturnType<SalaryStore["getBatchSummary"]>,
+    deliveries: ReturnType<SalaryStore["listDeliveries"]>,
+  ) {
+    return { ...batch, ...this.deliverySummary(batch, deliveries) };
+  }
+
+  private deliverySummary(
+    batch: ReturnType<SalaryStore["getBatchSummary"]>,
+    batchDeliveries: ReturnType<SalaryStore["listDeliveries"]>,
+  ) {
+    const deliveriesByEmployee = new Map<
+      string,
+      ReturnType<SalaryStore["listDeliveries"]>
+    >();
+    for (const delivery of batchDeliveries) {
+      const deliveries =
+        deliveriesByEmployee.get(delivery.employeeUserId) ?? [];
+      deliveries.push(delivery);
+      deliveriesByEmployee.set(delivery.employeeUserId, deliveries);
+    }
+    const deliveryHistories = [...deliveriesByEmployee.values()];
+    const withdrawn = deliveryHistories.filter(
+      (deliveries) => deliveries.at(-1)?.status === "withdrawn",
+    ).length;
+    const hasDeliveredItems = deliveryHistories.some((deliveries) =>
+      deliveries.some((delivery) => delivery.status === "delivered"),
+    );
+    const allDeliveredItemsWithdrawn = deliveryHistories.every((deliveries) =>
+      !deliveries.some((delivery) => delivery.status === "delivered") ||
+      deliveries.at(-1)?.status === "withdrawn",
+    );
+    const onlyInitialDeliveryFailures =
+      batch.sent === 0 &&
+      batchDeliveries.length > 0 &&
+      batchDeliveries.every((delivery) => delivery.status === "failed");
+    const untouchedDraft =
+      batch.state === "draft" && batchDeliveries.length === 0;
+    const canDelete =
+      batch.state !== "archived" &&
+      (untouchedDraft ||
+        onlyInitialDeliveryFailures ||
+        (hasDeliveredItems && allDeliveredItemsWithdrawn)) &&
+      !this.delivery.hasBatchSendInFlight(batch.id);
+    return { withdrawn, canDelete };
   }
 
   editItem(
