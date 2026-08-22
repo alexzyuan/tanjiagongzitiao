@@ -253,6 +253,27 @@ describe("salary management", () => {
     );
   });
 
+  it("shows the server-calculated withdrawn count on a deletable partial batch", async () => {
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/v1/salary-batches")
+        return Promise.resolve([
+          {
+            ...batch,
+            title: "部分发送后撤回工资条",
+            total: 6,
+            sent: 1,
+            withdrawn: 1,
+            canDelete: true,
+          },
+        ]);
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+    render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
+    const withdrawn = await screen.findByText("已撤回");
+    expect(withdrawn.parentElement).toHaveTextContent("1");
+    expect(screen.getByRole("button", { name: "删除" })).toBeEnabled();
+  });
+
   it("enables editing only after withdrawal and saves revised salary fields", async () => {
     const user = userEvent.setup();
     const delivered = { id: "item-1", employeeName: "员工A", employeeUserId: "employee-a", fields: { 实发金额: 10000 }, deliveryStatus: "delivered" };

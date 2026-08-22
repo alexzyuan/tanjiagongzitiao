@@ -173,14 +173,24 @@ export class SalaryDeliveryService {
       fingerprint: salarySlipFingerprint(batch, item),
       metadata: delivery.taskId ? { taskId: delivery.taskId } : {},
     });
-    const latestByEmployee = new Map<string, DeliveryRecord>();
-    for (const candidate of this.store.listDeliveries(batchId))
-      latestByEmployee.set(candidate.employeeUserId, candidate);
-    const allItemsWithdrawn = batch.items.every(
-      (candidate) =>
-        latestByEmployee.get(candidate.employeeUserId)?.status === "withdrawn",
-    );
-    if (allItemsWithdrawn && canTransition(batch.state, "withdrawn"))
+    const deliveriesByEmployee = new Map<string, DeliveryRecord[]>();
+    for (const candidate of this.store.listDeliveries(batchId)) {
+      const deliveries =
+        deliveriesByEmployee.get(candidate.employeeUserId) ?? [];
+      deliveries.push(candidate);
+      deliveriesByEmployee.set(candidate.employeeUserId, deliveries);
+    }
+    const allDeliveredItemsWithdrawn = batch.items.every((candidate) => {
+      const deliveries =
+        deliveriesByEmployee.get(candidate.employeeUserId) ?? [];
+      return (
+        !deliveries.some(
+          (candidateDelivery) => candidateDelivery.status === "delivered",
+        ) ||
+        deliveries.at(-1)?.status === "withdrawn"
+      );
+    });
+    if (allDeliveredItemsWithdrawn && canTransition(batch.state, "withdrawn"))
       this.store.setState(batchId, "withdrawn");
     this.audit.record({
       correlationId: `item:${item.id}`,
