@@ -25,7 +25,10 @@ const batch = {
   }
 };
 
-afterEach(() => vi.clearAllMocks());
+afterEach(() => {
+  vi.clearAllMocks();
+  vi.restoreAllMocks();
+});
 
 const identity = { userId: "admin-1", name: "管理员", corpId: "corp-1" };
 const report = {
@@ -146,30 +149,49 @@ describe("salary management", () => {
     expect(await screen.findByRole("columnheader", { name: "姓名" })).toBeInTheDocument();
   });
 
-  it("deletes an untouched draft from the monthly card", async () => {
+  it("deletes an untouched draft through an in-app confirmation dialog", async () => {
     const user = userEvent.setup();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const nativeConfirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    let deleted = false;
     apiMock.mockImplementation((path: string, options?: { method?: string }) => {
       if (path === "/v1/salary-batches" && !options?.method)
-        return Promise.resolve([{ ...batch, total: 2 }]);
-      if (path === "/v1/salary-batches/batch-1" && options?.method === "DELETE")
+        return Promise.resolve(deleted ? [] : [{ ...batch, total: 2 }]);
+      if (path === "/v1/salary-batches/batch-1" && options?.method === "DELETE") {
+        deleted = true;
         return Promise.resolve({ deleted: true, batchId: batch.id });
+      }
       if (path === "/v1/salary-batches/batch-1" && !options?.method)
         return Promise.resolve({ ...batch, total: 2, items: [] });
       return Promise.reject(new Error(`unexpected_request:${path}`));
     });
     render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
     await user.click(await screen.findByRole("button", { name: "删除" }));
+    expect(
+      await screen.findByRole("heading", { name: "确认删除工资条" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("确定删除 2026年08月工资条 吗？"),
+    ).toBeInTheDocument();
+    expect(nativeConfirm).not.toHaveBeenCalled();
+    expect(apiMock).not.toHaveBeenCalledWith(
+      "/v1/salary-batches/batch-1",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    await user.click(screen.getByRole("button", { name: "确认删除" }));
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith(
       "/v1/salary-batches/batch-1",
       expect.objectContaining({ method: "DELETE" }),
     ));
-    expect(confirm).toHaveBeenCalled();
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "删除" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("当前月份暂无工资表")).toBeInTheDocument();
   });
 
   it("enables deleting a partially failed batch when no salary was delivered", async () => {
     const user = userEvent.setup();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     apiMock.mockImplementation((path: string, options?: { method?: string }) => {
       if (path === "/v1/salary-batches" && !options?.method)
         return Promise.resolve([
@@ -184,11 +206,28 @@ describe("salary management", () => {
     expect(deleteButton).toBeEnabled();
     expect(deleteButton).not.toHaveClass("muted");
     await user.click(deleteButton);
+    await user.click(screen.getByRole("button", { name: "确认删除" }));
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith(
       "/v1/salary-batches/batch-1",
       expect.objectContaining({ method: "DELETE" }),
     ));
-    expect(confirm).toHaveBeenCalled();
+  });
+
+  it("shows a delete API failure inside the confirmation dialog", async () => {
+    const user = userEvent.setup();
+    apiMock.mockImplementation((path: string, options?: { method?: string }) => {
+      if (path === "/v1/salary-batches" && !options?.method)
+        return Promise.resolve([{ ...batch, total: 2 }]);
+      if (path === "/v1/salary-batches/batch-1" && options?.method === "DELETE")
+        return Promise.reject(new Error("salary_batch_not_deletable"));
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+    render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
+    await user.click(await screen.findByRole("button", { name: "删除" }));
+    await user.click(screen.getByRole("button", { name: "确认删除" }));
+    expect(
+      await screen.findByText("salary_batch_not_deletable"),
+    ).toBeInTheDocument();
   });
 
   it("enables deleting a monthly card after every salary item is withdrawn", async () => {

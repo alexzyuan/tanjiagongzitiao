@@ -36,6 +36,7 @@ export function SalaryManagement({
   const [detailBatchId, setDetailBatchId] = useState<string>();
   const [detail, setDetail] = useState<Batch>();
   const [editingItem, setEditingItem] = useState<SalaryItem>();
+  const [deleteCandidate, setDeleteCandidate] = useState<Batch>();
   const [editFields, setEditFields] = useState<Record<string, string>>({});
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -178,12 +179,12 @@ export function SalaryManagement({
   }
 
   async function deleteBatch(batch: Batch) {
-    if (!window.confirm(`确定删除 ${batch.title} 吗？`)) return;
     setBusy(true);
     setError(undefined);
     try {
       await api(`/v1/salary-batches/${batch.id}`, { method: "DELETE" });
       if (detailBatchId === batch.id) setDetailBatchId(undefined);
+      setDeleteCandidate(undefined);
       setMessage("工资条已删除");
       await load();
       onChanged();
@@ -407,7 +408,10 @@ export function SalaryManagement({
                     title={
                       canDelete ? undefined : "需撤回所有工资条后，才能删除"
                     }
-                    onClick={() => void deleteBatch(batch)}
+                    onClick={() => {
+                      setError(undefined);
+                      setDeleteCandidate(batch);
+                    }}
                   >
                     删除
                   </button>
@@ -673,6 +677,38 @@ export function SalaryManagement({
               onClose={() => setEditingItem(undefined)}
               submitLabel="保存并关闭"
             />
+          </form>
+        </Modal>
+      )}
+      {deleteCandidate && (
+        <Modal
+          title="确认删除工资条"
+          onClose={() => {
+            if (!busy) setDeleteCandidate(undefined);
+          }}
+        >
+          <form
+            className="form-grid"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void deleteBatch(deleteCandidate);
+            }}
+          >
+            <p className="span-2">确定删除 {deleteCandidate.title} 吗？</p>
+            {error && <div className="notice error span-2">{error}</div>}
+            <div className="form-actions span-2">
+              <button
+                type="button"
+                className="button secondary"
+                disabled={busy}
+                onClick={() => setDeleteCandidate(undefined)}
+              >
+                取消
+              </button>
+              <button type="submit" className="button primary" disabled={busy}>
+                确认删除
+              </button>
+            </div>
           </form>
         </Modal>
       )}
