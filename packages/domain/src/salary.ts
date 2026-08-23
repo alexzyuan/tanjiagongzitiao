@@ -14,22 +14,87 @@ const transitions: Record<SalaryBatchState, readonly SalaryBatchState[]> = {
   sent: ["sending", "withdrawn", "archived"],
   partially_failed: ["sending", "withdrawn", "archived"],
   withdrawn: ["sending", "archived"],
-  archived: []
+  archived: [],
 };
 
-export function canTransition(from: SalaryBatchState, to: SalaryBatchState): boolean {
+export function canTransition(
+  from: SalaryBatchState,
+  to: SalaryBatchState,
+): boolean {
   return transitions[from].includes(to);
 }
 
-export function assertTransition(from: SalaryBatchState, to: SalaryBatchState): void {
+export function assertTransition(
+  from: SalaryBatchState,
+  to: SalaryBatchState,
+): void {
   if (!canTransition(from, to)) {
     throw new Error(`invalid_salary_batch_transition:${from}->${to}`);
   }
 }
 
+export type SalaryDeliveryStatus = "delivered" | "failed" | "withdrawn";
+
+export function canDeleteSalaryBatch(input: {
+  state: SalaryBatchState;
+  sent: number;
+  deliveries: readonly {
+    employeeUserId: string;
+    status: SalaryDeliveryStatus;
+  }[];
+}): boolean {
+  if (input.state === "archived") return false;
+  const deliveriesByEmployee = new Map<
+    string,
+    typeof input.deliveries
+  >();
+  for (const delivery of input.deliveries) {
+    const deliveries = deliveriesByEmployee.get(delivery.employeeUserId) ?? [];
+    deliveriesByEmployee.set(delivery.employeeUserId, [
+      ...deliveries,
+      delivery,
+    ]);
+  }
+  const deliveryHistories = [...deliveriesByEmployee.values()];
+  const hasDeliveredItems = deliveryHistories.some((deliveries) =>
+    deliveries.some((delivery) => delivery.status === "delivered"),
+  );
+  const allDeliveredItemsWithdrawn = deliveryHistories.every(
+    (deliveries) =>
+      !deliveries.some((delivery) => delivery.status === "delivered") ||
+      deliveries.at(-1)?.status === "withdrawn",
+  );
+  const onlyInitialDeliveryFailures =
+    input.sent === 0 &&
+    input.deliveries.length > 0 &&
+    input.deliveries.every((delivery) => delivery.status === "failed");
+  const untouchedDraft =
+    input.state === "draft" && input.deliveries.length === 0;
+  return (
+    untouchedDraft ||
+    onlyInitialDeliveryFailures ||
+    (hasDeliveredItems && allDeliveredItemsWithdrawn)
+  );
+}
+
+export function canEditSalaryItem(input: {
+  batchState: SalaryBatchState;
+  latestDeliveryStatus?: SalaryDeliveryStatus;
+}): boolean {
+  return (
+    input.batchState !== "archived" &&
+    input.latestDeliveryStatus === "withdrawn"
+  );
+}
+
 export type SalaryFieldValue = string | number | null;
 
-export type SalarySlipTheme = "default" | "technology" | "night" | "gold" | "lotus";
+export type SalarySlipTheme =
+  | "default"
+  | "technology"
+  | "night"
+  | "gold"
+  | "lotus";
 
 export interface SalarySlipFieldGroup {
   id: string;
@@ -63,7 +128,7 @@ export const defaultSalarySlipDisplaySettings: SalarySlipDisplaySettings = {
   greeting: "{name}，工作辛苦啦",
   theme: "default",
   visibleFields: [],
-  fieldGroups: []
+  fieldGroups: [],
 };
 
 export interface SalaryItemInput {
