@@ -107,7 +107,7 @@ export function SalaryEmployeeTable({
             </div>
           )}
         </div>
-        <button className="button secondary" disabled>
+        <button className="button secondary employee-toolbar-spacer-action" disabled>
           定时发送
         </button>
         <button className="button primary" disabled={busy} onClick={onSendAll}>

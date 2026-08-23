@@ -50,7 +50,7 @@ const EXPECTED_CSS_DUPLICATES = [
   {
     selector: ".topbar",
     locations: ["apps/web/src/styles/base.css", "apps/web/src/styles/salary.css"],
-    reason: "salary print mode hides the application header",
+    reason: "salary print mode hides application header",
   },
   {
     selector: ".page-wrap",
@@ -159,7 +159,7 @@ async function checkSizeWarnings(root, files, warnings) {
     else if (relativeFile.startsWith("apps/web/") && name.endsWith(".tsx") && /(?:pages|features)\//.test(relativeFile)) limit = 400;
     else if (relativeFile.startsWith("apps/api/") && name.endsWith("service.ts")) limit = 600;
     else if (relativeFile.startsWith("apps/api/") && name.endsWith("routes.ts")) limit = 400;
-    else if (relativeFile.startsWith("packages/db/") && name === "store.ts") limit = 700;
+    else if (relativeFile.startsWith("packages/db/") && name.endsWith("store.ts")) limit = 700;
     else if (name.endsWith(".css")) limit = 650;
     if (limit && lines > limit) warnings.push(`ARCH-WARN file_size ${relativeFile} ${lines} > ${limit}`);
   }

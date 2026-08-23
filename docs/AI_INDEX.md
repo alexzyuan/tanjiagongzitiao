@@ -201,7 +201,13 @@ Read first:
 - the relevant TSX component
 - `scripts/architecture-rules.mjs` only when selector/dependency rules matter
 
-Use semantic classes/tokens, avoid DOM-position coupling, and avoid global selectors leaking into unrelated features.
+Phase D conventions:
+
+- Shared palette/surface/status values use semantic custom properties in `base.css`; legacy variables remain compatibility aliases until a real feature change justifies migration.
+- Shared table rules are scoped under `.table-scroll`; do not restore global `table`, `th`, `td`, or `tbody tr` rules.
+- Prefer explicit semantic classes over DOM-position selectors such as `nth-last-child`.
+- Keep state styles explicit when meanings differ; do not merge archived/withdrawn just because colors look similar.
+- Preserve existing rendered values during maintenance-only CSS cleanup.
 
 ---
 
@@ -223,12 +229,15 @@ Invariant: worker is one-shot; scheduling is external.
 Read first:
 
 - `scripts/architecture-rules.mjs`
+- `scripts/architecture-rules.test.mjs`
 - `scripts/check-architecture.mjs`
 - root/package-level `package.json`
 - `.github/workflows/quality.yml`
 - `AGENTS.md`
 
-Hard architecture violations fail CI. File-size warnings are prompts to inspect responsibility, not automatic refactor orders.
+`pnpm test` includes the architecture-rule regression suite. Hard architecture violations fail CI; file-size warnings remain non-blocking prompts to inspect responsibility. DB store size warnings apply to `*store.ts` under `packages/db`.
+
+Prettier is installed but is **not** a CI hard gate: the Phase D trial found the existing repository baseline would require a broad format-only migration. Do not introduce a repository-wide formatting diff inside unrelated feature work.
 
 ---
 

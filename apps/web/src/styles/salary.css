@@ -203,7 +203,7 @@
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 8px;
-  box-shadow: 0 12px 28px rgb(16 34 53 / 14%);
+  box-shadow: var(--shadow-popover);
 }
 .month-panel-head {
   display: flex;
@@ -317,7 +317,7 @@
   padding: 0 12px;
   font-size: 12px;
 }
-.employee-toolbar > .button:nth-last-child(2) {
+.employee-toolbar-spacer-action {
   margin-left: auto;
   color: #9aa8b7;
 }
@@ -487,7 +487,7 @@
   .employee-toolbar > .button {
     flex: 1;
   }
-  .employee-toolbar > .button:nth-last-child(2) {
+  .employee-toolbar-spacer-action {
     margin-left: 0;
   }
   .more-menu {

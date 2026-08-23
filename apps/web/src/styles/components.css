@@ -25,7 +25,7 @@
   color: #de7b18;
 }
 .table-card {
-  background: #fff;
+  background: var(--color-surface);
   border: 1px solid var(--line);
   border-radius: 8px;
   overflow: hidden;
@@ -49,8 +49,8 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  color: #99a8b8;
-  background: #f5f7fa;
+  color: var(--color-text-placeholder);
+  background: var(--color-surface-subtle);
   border-radius: 5px;
   padding: 0 10px;
 }
@@ -64,20 +64,20 @@
   color: var(--ink);
 }
 .toolbar-note {
-  color: #99a8b8;
+  color: var(--color-text-placeholder);
   font-size: 12px;
   white-space: nowrap;
 }
 .table-scroll {
   overflow-x: auto;
 }
-table {
+.table-scroll table {
   width: 100%;
   border-collapse: collapse;
   min-width: 920px;
   font-size: 13px;
 }
-th {
+.table-scroll th {
   color: #8795a5;
   background: #fafbfd;
   font-size: 12px;
@@ -87,20 +87,20 @@ th {
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
 }
-td {
+.table-scroll td {
   padding: 16px 18px;
   border-bottom: 1px solid #eef2f6;
   color: #415267;
   white-space: nowrap;
 }
-tbody tr {
+.table-scroll tbody tr {
   transition: background 0.15s ease;
 }
-tbody tr:hover,
-.selected-row {
+.table-scroll tbody tr:hover,
+.table-scroll .selected-row {
   background: #f8fbff;
 }
-tbody tr:last-child td {
+.table-scroll tbody tr:last-child td {
   border-bottom: 0;
 }
 .strong {
@@ -140,39 +140,32 @@ tbody tr:last-child td {
   background: #eef2f6;
 }
 .status-sent,
-.status-confirmed {
-  color: #187a5b;
-  background: #e9f8f1;
+.status-confirmed,
+.status-notification_sent {
+  color: var(--color-success);
+  background: var(--color-success-soft);
 }
 .status-partially_failed {
-  color: #b56b16;
-  background: #fff3df;
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
 }
 .status-sending,
-.status-scheduled {
-  color: #286fca;
-  background: #e9f2ff;
-}
-.status-withdrawn,
-.status-archived {
-  color: #7b8795;
-  background: #eef1f4;
-}
+.status-scheduled,
 .status-viewed {
   color: #286fca;
   background: #e9f2ff;
 }
-.status-notification_sent {
-  color: #187a5b;
-  background: #e9f8f1;
+.status-archived {
+  color: #7b8795;
+  background: #eef1f4;
 }
 .status-unread {
   color: #8a96a3;
   background: #f0f2f5;
 }
 .status-withdrawn {
-  color: #ae5d5d;
-  background: #fff0f0;
+  color: var(--color-withdrawn);
+  background: var(--color-withdrawn-soft);
 }
 .notice {
   display: flex;
@@ -197,9 +190,9 @@ tbody tr:last-child td {
   background: #f0fbf6;
 }
 .notice.error {
-  color: #a64848;
+  color: var(--color-danger);
   border-color: #f1caca;
-  background: #fff7f7;
+  background: var(--color-danger-soft);
 }
 .empty {
   padding: 48px 20px;
@@ -231,7 +224,7 @@ tbody tr:last-child td {
 .drawer {
   width: min(600px, 100%);
   height: 100%;
-  background: #fff;
+  background: var(--color-surface);
   padding: 30px;
   overflow-y: auto;
   box-shadow: -10px 0 30px rgb(16 34 53 / 12%);
@@ -260,7 +253,7 @@ tbody tr:last-child td {
 }
 .modal {
   width: min(540px, 100%);
-  background: #fff;
+  background: var(--color-surface);
   border-radius: 9px;
   padding: 23px;
   box-shadow: 0 16px 50px rgb(16 34 53 / 20%);
@@ -288,12 +281,12 @@ tbody tr:last-child td {
   padding: 0 10px;
   outline: 0;
   color: var(--ink);
-  background: #fff;
+  background: var(--color-surface);
 }
 .field input:focus,
 .field select:focus {
   border-color: #74aef4;
-  box-shadow: 0 0 0 3px #eaf3ff;
+  box-shadow: 0 0 0 3px var(--color-primary-soft);
 }
 .field-help {
   color: #93a1af;
@@ -309,7 +302,7 @@ tbody tr:last-child td {
   padding-top: 5px;
 }
 .muted {
-  color: #9aa8b7 !important;
+  color: var(--color-text-tertiary) !important;
 }
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -344,7 +337,7 @@ tbody tr:last-child td {
   place-items: center;
   align-content: center;
   gap: 10px;
-  color: #a64848;
+  color: var(--color-danger);
   padding: 25px;
   text-align: center;
 }
