@@ -1,83 +1,149 @@
 # HANDOFF
 
-## 1. 当前任务目标
-完成一个钉钉企业内部工资条应用：HR 导入 Excel 后匹配企业通讯录、配置员工工资条并通过钉钉工作通知发送。管理员需要管理工资条、权限、模板、存证和报表；员工仅能在钉钉移动端查看自己的工资条。当前生产触达仍是已验证的钉钉工作通知 `link`；互动卡片是独立的未来功能，除非用户另行授权，不进入当前整改任务。
+> Current-state handoff only. Historical task logs and old implementation narratives belong in `CODEX_TASKS.md`, `docs/superpowers/`, or `docs/history/` and are not default agent context.
 
-## 2. 当前项目状态
-- 已完成：管理端、三步 Excel 导入、SQLite 加密存储、企业通讯录匹配、钉钉免登、钉钉工作通知 `link` 投递、单独发送、员工端页面、权限与模板配置基础能力。
-- 当前整改基线：GitHub `main` 提交 `3bcd9a6bc1cd3b8fcac86535137b9a8d0cefb7d1`。
-- 还没开始：互动卡片 API 接入工资条投递、待办自动创建、可靠的远程撤回、互动卡片的逐员工私有数据发送与更新；这些均不是当前默认任务。
+## 1. Current repository state
 
-## 3. 已完成内容
-- 实现工资条管理、发薪存证、报表中心、权限管理、系统设置的管理端界面。
-- 实现 Excel 三步导入：临时预览、企业通讯录精确匹配/人工匹配、确认后持久化。
-- 导入预览在内存中保留 15 分钟；过期后不可再使用，并由下一次预览、读取或提交操作触发清理，不承诺定时瞬间删除。
-- 预览保留汇总行供核对，但汇总行不会成为工资条接收人。
-- 工资数据写入 SQLite 前使用 AES-256-GCM 加密；员工端只能读取本人最近 12 个月工资条。
-- 实现企业管理员为默认主管理员、手动添加子管理员和工资表管理员的权限模型。
-- 实现单独发送和批量发送共用的工作通知、审计、存证和投递记录链路。
-- 当前钉钉工作通知使用已验证可投递的旧接口 `asyncsend_v2` 的 `link` 消息。
-- 实现发送、查看、确认状态刷新及本地“撤回”状态记录；远程工作通知撤回尚不具备可靠 API 能力。
-- 历史研究：曾在钉钉卡片平台创建模板 `c95d8b9a-05c6-4aeb-8821-25558ecb42dc.schema` 和公开变量 `salary_period_title`，但它们没有接入当前发送链路。
-- 历史研究：曾上传工资条互动卡片图片，得到 `media_id` `@lALPD1PWVmC9GlPNBD7NBag`；不得把它当作当前生产能力。
+- Repository: `alexzyuan/tanjiagongzitiao`
+- Current `main` baseline for this handoff: `cd923b79277dde069f4983f6ec1c29fab7e2deab`
+- Active work branch: `codex/codex-first-phase-b`
+- Pull request: `#17` targeting `main`.
+- The branch contains the Phase A Codex-first documentation baseline plus the Phase B salary-policy single-source cleanup.
+- It is not deployed.
+- The latest code-bearing head `e9d0515cc05234f3b81d45675d28f3629377b5f7` passed GitHub Quality run `#31` (`32617527197`): install, architecture check, test, typecheck, and build all succeeded.
+- Any commit after that verified head, including documentation-only synchronization, must receive a fresh successful Quality run before merge.
+- Production commit is **not** treated as known from this file; verify production runtime/release state directly before any deploy/rollback decision.
 
-## 4. 关键决策
-- 正式触达渠道是钉钉工作通知，不使用 DING。
-- 现有 `link` 工作通知是当前唯一已验证可投递的发送方式；不要在旧工作通知接口继续尝试 `action_card` 载荷。
-- 互动卡片是后续独立接入工作，必须使用钉钉受支持的互动卡片 API，而非复用 `asyncsend_v2` 的消息体。
-- `salary_period_title` 是公开变量，可传入如“2026年07月工资条”；姓名、工资金额、工资明细必须使用互动卡片私有数据，不能写入公开变量。
-- “撤回”只可撤销本地工资条访问/状态并留下审计，不能声称已远程删除用户已收到的工作通知。
-- 待办功能不能在未完成 OAuth 用户授权、token 安全存储、刷新和定时调度前显示为已启用。
-- 系统设置已移除没有服务端行为的密码验证、发薪提醒、员工专属视图和通知方式开关；员工可见期限仍由服务端固定为 12 个月。
-- 生产数据库继续使用独立 SQLite，不与 BI 项目共享数据库文件、服务账户或加密密钥。
-- GitHub `main` 是当前基线；本地 `codex/salary-slip-internal-app` 仅是已合并的历史工作分支。新的大规模或实验性改动必须从最新 `main` 新建 `codex/` 前缀分支。
+## 2. Product state
 
-## 5. 重要文件和路径
-- `AGENTS.md`：项目不可违背的业务边界、可观测性要求与钉钉消息现状。
-- `README.md`：本地运行、生产配置、权限规则、导入规则与当前通知/待办限制。
-- `apps/api/src/modules/salary/service.ts`：工资表导入、发送、撤回、审计与存证的核心业务服务。
-- `apps/api/src/modules/salary/routes.ts`：工资条、模板、单独发送和撤回的 HTTP 路由。
-- `packages/dingtalk/src/client.ts`：钉钉免登、通讯录与当前工作通知 `link` 投递实现。
-- `packages/dingtalk/src/types.ts`：钉钉客户端的领域接口与投递数据结构。
-- `packages/db/src/sqlite-store.ts`：SQLite 持久化、兼容迁移、批次设置快照与投递记录。
-- `packages/domain/src/salary.ts`：工资条状态机和展示设置领域模型。
-- `apps/web/src/App.tsx`：管理员端、导入向导、工资条设置和员工端主要 UI。
-- `apps/web/src/api.ts`：前端 API 类型与请求封装。
-- `docs/superpowers/specs/2026-08-18-salary-import-wizard-design.md`：导入向导的已落地设计约束。
-- `docs/superpowers/specs/2026-08-17-single-recipient-dual-notification-design.md`：单独发送与通知链路设计记录。
+The project is a DingTalk internal salary-slip application.
 
-## 6. 已验证结果
-- GitHub `main` 当前基线提交为 `3bcd9a6bc1cd3b8fcac86535137b9a8d0cefb7d1`；旧分支提交仅作历史记录。
-- 当前工作通知 `link` 消息已在钉钉企业环境实际验证可投递；`action_card` 载荷曾被旧接口明确拒绝。
-- 互动卡片模板已在钉钉开发者平台创建，公开变量 `salary_period_title` 已保存。
-- 图片媒体上传已成功，返回媒体 ID `@lALPD1PWVmC9GlPNBD7NBag`。
-- 本次交接尚未对互动卡片 API 调用、私有数据渲染或卡片发送做端到端验证。
+Current established capabilities include:
 
-## 7. 未完成事项
-1. 确认并接入钉钉互动卡片的受支持发送 API，将模板 `c95d8b9a-05c6-4aeb-8821-25558ecb42dc.schema` 用于工资条工作通知。
-2. 在卡片模板中绑定 `salary_period_title` 到新增文本组件，填充 Mock 数据并发布模板版本。
-3. 设计并实现每位员工的互动卡片私有数据：员工姓名、实发工资、跳转链接和撤销后的访问状态。
-4. 增加互动卡片发送/更新的结构化日志、投递记录和失败可见错误，补齐单元/集成测试。
-5. 明确互动卡片是否能够在工作通知入口发送；如不能，向用户说明渠道差异后再选择机器人或其他受支持的卡片发送方式。
-6. 设计并实现 OAuth 用户授权、token 生命周期管理和定时任务后，才启用“未查看/未确认待办”。
-7. 评估员工端在钉钉移动端的真实免登、查看、确认与撤销访问控制的端到端测试。
+- admin salary management;
+- three-step Excel import and DingTalk directory matching;
+- encrypted SQLite salary storage;
+- DingTalk/session authentication;
+- DingTalk work-notification `link` delivery;
+- batch and individual salary send flows;
+- withdrawal/edit/resend flows;
+- employee mobile salary view and confirmation;
+- permissions/admin management;
+- evidence/audit/report/settings features;
+- one-shot archive worker;
+- CI architecture/test/typecheck/build quality gate;
+- deployment health/readiness/rollback hardening in current `main`.
 
-## 8. 风险和边界
-- 不要把任何 `.env`、生产 AppSecret、会话密钥、SQLite 数据库、备份或真实工资数据提交、打包或输出到对话。
-- 不要修改或删除用户未跟踪的 `.superpowers/` 目录。
-- 不要在 `asyncsend_v2` 上继续猜测或伪造 `action_card` 字段；该路线已经被接口拒绝。
-- 不要把互动卡片公共变量用于姓名、工资、银行卡或其他个人敏感信息。
-- 不要把本地撤回状态描述为已远程撤回钉钉工作通知，除非已验证官方 API 的实际远程删除能力。
-- 不要在未拿到用户明确授权前发布互动卡片、修改钉钉应用权限、发送真实工资通知或写入生产环境配置。
-- 不要进行跨模块大重构；若确实需要实验性卡片集成，先创建新 `codex/` 分支。
+## 3. Current architecture
 
-## 9. 下一步最小动作
-先阅读根目录 `CODEX_TASKS.md`，仅执行用户明确授权的一个 Phase。互动卡片配置、发布和发送不是默认下一步；如未来单独授权，必须先验证受支持的卡片 API，不能复用已被拒绝的旧工作通知载荷。
+Read `docs/ARCHITECTURE.md` for the authoritative current structure.
 
-## 10. 给新对话的启动提示词
-请先阅读项目根目录的 `AGENTS.md`、`CODEX_TASKS.md`、`HANDOFF.md` 和 `README.md`，用简短清单复述当前工资条项目状态、已完成事项、互动卡片边界和本次明确授权的 Phase。不要把 Phase 清单当作全部授权；完成当前 Phase 后停止并等待确认，不要自行发布卡片、发送通知、push、merge 或改生产配置。
+Summary:
 
-## 11. 默认 Git 发布流程
-- 项目远端：`git@github.com:alexzyuan/tanjiagongzitiao.git`。
-- 默认在 `codex/*` 分支上工作，完成验证后推送分支并创建 draft PR 到 `main`，不直接推送 `main`。
-- 提交前必须排除 `.env`、生产密钥、SQLite 数据库、备份、依赖缓存、`.superpowers/` 和本地源码压缩包。
+```text
+apps/web (React)
+    ↓ HTTP
+apps/api (Fastify)
+  ├─ packages/domain
+  ├─ packages/db → SQLite/WAL
+  └─ packages/dingtalk → DingTalk APIs
+
+apps/worker → packages/db/domain
+(one-shot, externally scheduled)
+```
+
+Keep the system lightweight. Do not add Redis, a second production database, ORM, MQ, resident scheduler, Redux/React Query/Router, Tailwind/CSS-in-JS, or complex application-layer abstractions without explicit architecture approval.
+
+## 4. Hard business/security boundaries
+
+- Salary fields are encrypted at rest with AES-256-GCM.
+- Employee salary access is isolated server-side by authenticated identity.
+- `visibleFields` filtering is server-side.
+- Salary values and sensitive personal data must not be written to logs/audit metadata/docs.
+- Current verified notification channel is DingTalk work notification `asyncsend_v2` using a `link` message.
+- The project does not use DING.
+- Local withdrawal does not mean a delivered DingTalk notification was remotely deleted.
+- Archived salary is not editable through normal salary management actions.
+- Employee salary visibility is limited to the recent configured history window (currently 12 months).
+- Production SQLite must use an absolute path outside release directories.
+- Archive worker remains one-shot and externally scheduled.
+
+Read `docs/BUSINESS_RULES.md` before changing salary lifecycle, delete/edit/withdraw/resend, employee view/confirm, or archive behavior.
+
+## 5. Agent reading order
+
+For a normal new task:
+
+1. `AGENTS.md`
+2. `docs/ARCHITECTURE.md`
+3. `docs/AI_INDEX.md`
+4. `docs/BUSINESS_RULES.md` when business semantics are involved
+5. directly relevant implementation + tests
+
+Do not load the large historical `CODEX_TASKS.md` by default.
+
+## 6. Phase B current rule ownership
+
+Phase B establishes the following current ownership:
+
+- Pure delete eligibility lives in `packages/domain/src/salary.ts` as `canDeleteSalaryBatch`.
+- Pure edit eligibility lives in `packages/domain/src/salary.ts` as `canEditSalaryItem`.
+- Runtime in-flight send protection remains in `apps/api/src/modules/salary/service.ts` / delivery service and is not moved into domain.
+- Batch-list `canDelete` is calculated by the server and the Web UI consumes that capability instead of reconstructing lifecycle rules.
+- Employee failure filtering uses the employee item's latest `deliveryStatus`, not only the batch-level `partially_failed` state.
+- The UI wording for delivery failure is “发送异常”, not “导入数据异常”.
+
+Do not reintroduce a client-side delete fallback unless a separately approved backwards-compatibility requirement requires it.
+
+## 7. Current known maintainability targets
+
+These are improvement candidates, not automatic authorization to refactor:
+
+- `apps/web/src/pages/SalaryManagement.tsx` is large and should only be split by real UI responsibility when that work is explicitly taken on.
+- `apps/web/src/features/salary/ImportWizard.tsx` is large and should only be split by real wizard-step responsibility.
+- `packages/db/src/store.ts` / `sqlite-store.ts` are growing and may later be physically split by store/schema responsibility without introducing repository/DI layers.
+- CSS should move toward semantic tokens/classes and away from fragile DOM-position selectors/global element leakage.
+- `CODEX_TASKS.md` contains substantial historical task material and should eventually be archived/split, but Phase A intentionally did not rewrite it destructively.
+
+File-size architecture warnings are signals only; do not refactor solely to make warnings disappear.
+
+## 8. Current documentation contract
+
+- `AGENTS.md` — permanent execution constraints and Codex-First rules.
+- `docs/ARCHITECTURE.md` — current system architecture/ownership/invariants.
+- `docs/BUSINESS_RULES.md` — current salary business intent.
+- `docs/AI_INDEX.md` — change map: task → files to read first.
+- `HANDOFF.md` — current status only.
+- `docs/history/` — historical material, non-default context.
+- `docs/superpowers/specs/` and `docs/superpowers/plans/` — approved designs/plans and historical implementation context.
+- `CODEX_TASKS.md` — legacy task/phase record; read only when historical phase context is required.
+
+## 9. Git / deployment rules
+
+- Use `codex/*` branches for non-trivial work.
+- Protect local/untracked user files; do not use destructive cleanup/reset commands.
+- Do not commit `.env`, production secrets, SQLite DB/backup files, dependency caches, `.superpowers/`, or local source archives.
+- Do not merge or deploy without explicit user authorization.
+- Production changes require separate backup/readiness/rollback verification.
+
+## 10. Verification state
+
+Phase B verification evidence so far:
+
+- Pure domain policy was independently syntax/type checked and exercised with a small red/green policy harness during implementation.
+- GitHub branch scope/diff and PR changed-file scope have been checked.
+- PR #17 Quality run #30 exposed an `exactOptionalPropertyTypes` compile failure (`TS2379`); the root cause was fixed without changing business semantics.
+- PR #17 Quality run #31 on `e9d0515cc05234f3b81d45675d28f3629377b5f7` completed successfully through:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm architecture:check
+pnpm test
+pnpm typecheck
+pnpm build
+```
+
+- `git diff --check` is not part of the current GitHub Quality workflow and still requires separate verification before final integration if available.
+- Any commit after the verified head must receive a fresh successful Quality run before merge.
+
+Never report a command as passed unless it actually ran successfully.

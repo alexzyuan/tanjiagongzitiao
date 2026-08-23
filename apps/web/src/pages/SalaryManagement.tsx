@@ -81,8 +81,7 @@ export function SalaryManagement({
       setDetail(undefined);
       return;
     }
-    loadDetail(detailBatchId)
-      .catch((reason) => setError(errorText(reason)));
+    loadDetail(detailBatchId).catch((reason) => setError(errorText(reason)));
   }, [detailBatchId, loadDetail]);
   const selectedBatch = detailBatch ?? activeBatch;
   const employees = useMemo(() => {
@@ -98,11 +97,10 @@ export function SalaryManagement({
         statusFilter === "all" ||
         (statusFilter === "unread" && !item.viewedAt) ||
         (statusFilter === "unconfirmed" && !item.confirmedAt) ||
-        (statusFilter === "failed" &&
-          selectedBatch?.state === "partially_failed");
+        (statusFilter === "failed" && item.deliveryStatus === "failed");
       return matchesQuery && matchesStatus;
     });
-  }, [detail?.items, query, selectedBatch?.state, statusFilter]);
+  }, [detail?.items, query, statusFilter]);
   const unread = detailBatchId
     ? (detail?.items ?? []).filter((item) => !item.viewedAt).length
     : Math.max((activeBatch?.total ?? 0) - (activeBatch?.viewed ?? 0), 0);
@@ -286,7 +284,7 @@ export function SalaryManagement({
       <div className="salary-alert">
         <span>📣</span>
         <strong>
-          导入数据异常：{activeBatch?.state === "partially_failed" ? 1 : 0}
+          发送异常：{activeBatch?.state === "partially_failed" ? 1 : 0}
         </strong>
         <button
           className="link-button"
@@ -377,11 +375,7 @@ export function SalaryManagement({
         <div className="salary-batch-list">
           {monthBatches.map((batch) => {
             const allSent = batch.total > 0 && batch.sent >= batch.total;
-            const legacyCanDelete =
-              (["draft", "partially_failed"].includes(batch.state) &&
-                batch.sent === 0) ||
-              batch.state === "withdrawn";
-            const canDelete = batch.canDelete ?? legacyCanDelete;
+            const canDelete = batch.canDelete === true;
             return (
               <article className="salary-overview" key={batch.id}>
                 <div className="overview-title">
