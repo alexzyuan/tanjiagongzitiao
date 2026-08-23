@@ -21,9 +21,11 @@ import { ManualPanel } from "../features/salary/ManualPanel";
 export function SalaryManagement({
   refreshKey,
   onChanged,
+  onOpenPermissions = () => undefined,
 }: {
   refreshKey: number;
   onChanged: () => void;
+  onOpenPermissions?: () => void;
 }) {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [month, setMonth] = useState(currentMonth());
@@ -318,9 +320,8 @@ export function SalaryManagement({
           </span>
           <button
             className="icon-button"
-            onClick={() =>
-              window.dispatchEvent(new CustomEvent("salary-open-permissions"))
-            }
+            aria-label="打开权限管理"
+            onClick={onOpenPermissions}
           >
             ›
           </button>
