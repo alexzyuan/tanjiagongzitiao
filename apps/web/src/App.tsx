@@ -67,16 +67,6 @@ function AdminApp({ impersonatedId }: { impersonatedId: string | undefined }) {
       .then(setIdentity)
       .catch((reason) => setError(errorText(reason)));
   }, [impersonatedId]);
-  useEffect(() => {
-    const openPermissions = () => setModule("permissions");
-    const openSettings = () => setModule("settings");
-    window.addEventListener("salary-open-permissions", openPermissions);
-    window.addEventListener("salary-open-settings", openSettings);
-    return () => {
-      window.removeEventListener("salary-open-permissions", openPermissions);
-      window.removeEventListener("salary-open-settings", openSettings);
-    };
-  }, []);
 
   if (error) return <FullError message={error} />;
   if (!identity) return <Loading />;
@@ -125,6 +115,7 @@ function AdminApp({ impersonatedId }: { impersonatedId: string | undefined }) {
           {module === "salary" && (
             <SalaryManagement
               onChanged={() => setRefreshKey((value) => value + 1)}
+              onOpenPermissions={() => setModule("permissions")}
               refreshKey={refreshKey}
             />
           )}
@@ -142,10 +133,6 @@ function AdminApp({ impersonatedId }: { impersonatedId: string | undefined }) {
     </div>
   );
 }
-
-
-
-
 
 function FullError({ message }: { message: string }) {
   return (
