@@ -1,11 +1,18 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { api, type DirectoryUser, type EmployeeMatchStrategy, type SalaryImportPreview, type SalarySlipDisplaySettings, type SalarySlipFieldGroup, type SalarySlipTemplate } from "../../api";
+import {
+  api,
+  type DirectoryUser,
+  type EmployeeMatchStrategy,
+  type SalaryImportPreview,
+  type SalarySlipDisplaySettings,
+  type SalarySlipTemplate,
+} from "../../api";
 import { Icon } from "../../icons";
-import { formatSalaryValue } from "../../format";
-import { currentMonth, defaultFieldGroups, directoryLabel } from "../../utils/ui";
+import { currentMonth, defaultFieldGroups } from "../../utils/ui";
 import { errorText } from "../../utils/errors";
-import { Field } from "../../components/Field";
-import { SalarySlipPreview } from "./SalarySlipPreview";
+import { ImportUploadStep } from "./import/ImportUploadStep";
+import { ImportMatchStep } from "./import/ImportMatchStep";
+import { ImportConfirmStep } from "./import/ImportConfirmStep";
 
 export function ImportWizard({
   onClose,
@@ -40,6 +47,7 @@ export function ImportWizard({
   const [error, setError] = useState<string>();
   const [settingsMessage, setSettingsMessage] = useState<string>();
   const [templates, setTemplates] = useState<SalarySlipTemplate[]>([]);
+
   const unresolved =
     preview?.rows.filter(
       (row) => row.status !== "matched" && !resolutions[row.row],
@@ -63,6 +71,7 @@ export function ImportWizard({
       ),
     [employeeFields],
   );
+
   useEffect(() => {
     if (step === "settings")
       api<SalarySlipTemplate[]>("/v1/salary-slip-templates")
@@ -199,6 +208,7 @@ export function ImportWizard({
     { key: "preview", label: "预览表格数据" },
     { key: "settings", label: "设置工资条" },
   ] as const;
+
   return (
     <section className="import-wizard">
       <header className="import-wizard-header">
@@ -227,444 +237,56 @@ export function ImportWizard({
         ))}
       </div>
       {step === "upload" && (
-        <form className="wizard-panel wizard-upload" onSubmit={previewWorkbook}>
-          <h3>导入 Excel 工资表</h3>
-          <p>上传后只创建限时预览，不会生成工资条或发送通知。</p>
-          <div className="form-grid">
-            <Field label="发薪月份">
-              <input
-                value={month}
-                onChange={(event) => setMonth(event.target.value)}
-                pattern="\d{4}-\d{2}"
-                required
-              />
-            </Field>
-            <Field label="工资条标题">
-              <input
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                required
-              />
-            </Field>
-            <Field label="匹配企业人员">
-              <select
-                value={strategy}
-                onChange={(event) =>
-                  setStrategy(event.target.value as EmployeeMatchStrategy)
-                }
-              >
-                <option value="name">按姓名匹配</option>
-                <option value="employeeNo">按工号匹配</option>
-                <option value="userId">按钉钉用户 ID 匹配</option>
-              </select>
-            </Field>
-            <Field label="工资表文件">
-              <input
-                type="file"
-                accept=".xlsx,.xls,.csv"
-                onChange={(event) => setFile(event.target.files?.[0])}
-                required
-              />
-            </Field>
-          </div>
-          {error && <div className="notice error">{error}</div>}
-          <div className="wizard-actions">
-            <button
-              type="button"
-              className="button secondary"
-              onClick={onClose}
-            >
-              取消
-            </button>
-            <button className="button primary" disabled={busy}>
-              {busy ? "正在读取" : "下一步"}
-            </button>
-          </div>
-        </form>
+        <ImportUploadStep
+          month={month}
+          title={title}
+          strategy={strategy}
+          busy={busy}
+          error={error}
+          onMonthChange={setMonth}
+          onTitleChange={setTitle}
+          onStrategyChange={setStrategy}
+          onFileChange={setFile}
+          onSubmit={(event) => void previewWorkbook(event)}
+          onClose={onClose}
+        />
       )}
       {step === "preview" && preview && (
-        <div className="wizard-panel">
-          <div className="wizard-panel-title">
-            <div>
-              <h3>预览表格数据</h3>
-              <p>汇总行不会导入；异常人员需匹配到企业通讯录后才能进入设置。</p>
-            </div>
-            <span className="preview-count">
-              已匹配 {preview.matched} · 待处理 {unresolved.length}
-            </span>
-          </div>
-          <div className="source-preview-scroll">
-            <table className="source-preview-table">
-              <thead>
-                <tr>
-                  <th>行</th>
-                  <th>状态</th>
-                  {employeeFields.map((field) => (
-                    <th key={field}>{field}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {preview.sourceRows.map((row) => (
-                  <tr
-                    className={row.kind === "summary" ? "ignored-summary" : ""}
-                    key={row.row}
-                  >
-                    <td>{row.row}</td>
-                    <td>
-                      {row.kind === "summary"
-                        ? "汇总行，不导入"
-                        : preview.rows.find((item) => item.row === row.row)
-                              ?.status === "matched"
-                          ? "已匹配"
-                          : "待处理"}
-                    </td>
-                    {employeeFields.map((field) => (
-                      <td key={field}>
-                        {formatSalaryValue(
-                          row.source[field] as
-                            string | number | null | undefined,
-                        )}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {unresolved.length > 0 && (
-            <div className="import-match-list">
-              {unresolved.map((row) => (
-                <div className="import-match-row" key={row.row}>
-                  <div>
-                    <strong>第 {row.row} 行</strong>
-                    <span>{row.value ?? "未提供匹配字段"}</span>
-                  </div>
-                  {row.candidates.length ? (
-                    <div className="match-actions">
-                      {row.candidates.map((user) => (
-                        <button
-                          className="text-button"
-                          type="button"
-                          key={user.userId}
-                          onClick={() => selectUser(row.row, user)}
-                        >
-                          {directoryLabel(user)}
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <button
-                      className="button secondary"
-                      type="button"
-                      onClick={() => {
-                        setActiveRow(row.row);
-                        setDirectoryResults([]);
-                      }}
-                    >
-                      选择人员
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-          {activeRow && (
-            <div className="directory-search">
-              <strong>为第 {activeRow} 行选择企业人员</strong>
-              <div>
-                <input
-                  autoFocus
-                  value={directoryQuery}
-                  onChange={(event) => setDirectoryQuery(event.target.value)}
-                  placeholder="姓名、工号或钉钉用户 ID"
-                />
-                <button
-                  type="button"
-                  className="button secondary"
-                  disabled={busy || !directoryQuery.trim()}
-                  onClick={() => void searchDirectory()}
-                >
-                  搜索
-                </button>
-              </div>
-              {directoryResults.map((user) => (
-                <button
-                  className="directory-result"
-                  type="button"
-                  key={user.userId}
-                  onClick={() => selectUser(activeRow, user)}
-                >
-                  {directoryLabel(user)}
-                </button>
-              ))}
-            </div>
-          )}
-          {error && <div className="notice error">{error}</div>}
-          <div className="wizard-actions">
-            <button
-              className="button secondary"
-              type="button"
-              onClick={() => setStep("upload")}
-            >
-              重新上传
-            </button>
-            <button
-              className="button primary"
-              type="button"
-              disabled={unresolved.length > 0}
-              onClick={() => setStep("settings")}
-            >
-              下一步
-            </button>
-          </div>
-        </div>
+        <ImportMatchStep
+          preview={preview}
+          employeeFields={employeeFields}
+          unresolved={unresolved}
+          activeRow={activeRow}
+          directoryQuery={directoryQuery}
+          directoryResults={directoryResults}
+          busy={busy}
+          error={error}
+          onBack={() => setStep("upload")}
+          onNext={() => setStep("settings")}
+          onOpenDirectory={(row) => {
+            setActiveRow(row);
+            setDirectoryResults([]);
+          }}
+          onDirectoryQueryChange={setDirectoryQuery}
+          onSearchDirectory={() => void searchDirectory()}
+          onSelectUser={selectUser}
+        />
       )}
       {step === "settings" && preview && (
-        <div className="wizard-panel import-settings-grid">
-          <div>
-            <h3>设置工资条</h3>
-            <p>此配置随本次工资表保存，并用于员工在钉钉中查看的详情。</p>
-            {settingsMessage && (
-              <div className="notice success">{settingsMessage}</div>
-            )}
-            <div className="settings-form">
-              <Field label="保存的模板" wide>
-                <div className="template-actions">
-                  <select
-                    defaultValue=""
-                    onChange={(event) => {
-                      const template = templates.find(
-                        (item) => item.id === event.target.value,
-                      );
-                      if (template) setSettings(template.settings);
-                    }}
-                  >
-                    <option value="">选择并应用模板</option>
-                    {templates.map((template) => (
-                      <option key={template.id} value={template.id}>
-                        {template.name}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    className="button secondary"
-                    disabled={busy}
-                    onClick={() => void saveTemplate()}
-                  >
-                    保存为模板
-                  </button>
-                </div>
-              </Field>
-              <Field label="实发金额字段">
-                <select
-                  value={settings.netAmountField}
-                  onChange={(event) =>
-                    setSettings((value) => ({
-                      ...value,
-                      netAmountField: event.target.value,
-                    }))
-                  }
-                >
-                  <option value="">请选择</option>
-                  {salaryFields.map((field) => (
-                    <option key={field} value={field}>
-                      {field}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="显示薪资项" wide>
-                <div className="salary-field-picker">
-                  {salaryFields.map((field) => (
-                    <label key={field}>
-                      <input
-                        type="checkbox"
-                        checked={settings.visibleFields.includes(field)}
-                        onChange={(event) =>
-                          setSettings((value) => ({
-                            ...value,
-                            visibleFields: event.target.checked
-                              ? [...value.visibleFields, field]
-                              : value.visibleFields.filter(
-                                  (item) => item !== field,
-                                ),
-                          }))
-                        }
-                      />
-                      {field}
-                    </label>
-                  ))}
-                  <button
-                    type="button"
-                    className="text-button"
-                    onClick={() => {
-                      const field = window.prompt("新增薪资项名称");
-                      if (field?.trim())
-                        setSettings((value) => ({
-                          ...value,
-                          visibleFields: [...value.visibleFields, field.trim()],
-                        }));
-                    }}
-                  >
-                    ＋ 添加薪资项
-                  </button>
-                </div>
-              </Field>
-              <Field label="分组模板" wide>
-                <div className="salary-groups">
-                  {settings.fieldGroups.map((group) => (
-                    <div className="salary-group" key={group.id}>
-                      <b>{group.name}</b>
-                      <span>
-                        {group.fieldKeys
-                          .filter((field) =>
-                            settings.visibleFields.includes(field),
-                          )
-                          .join("、") || "暂无字段"}
-                      </span>
-                      <button
-                        type="button"
-                        className="text-button"
-                        onClick={() =>
-                          setSettings((value) => ({
-                            ...value,
-                            fieldGroups: value.fieldGroups.filter(
-                              (item) => item.id !== group.id,
-                            ),
-                          }))
-                        }
-                      >
-                        删除
-                      </button>
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    className="button secondary"
-                    onClick={() => {
-                      const name = window.prompt("分组名称");
-                      if (name?.trim())
-                        setSettings((value) => ({
-                          ...value,
-                          fieldGroups: [
-                            ...value.fieldGroups,
-                            {
-                              id: `group-${Date.now()}`,
-                              name: name.trim(),
-                              fieldKeys: value.visibleFields,
-                            },
-                          ],
-                        }));
-                    }}
-                  >
-                    ＋ 新建分组
-                  </button>
-                </div>
-              </Field>
-              <Field label="温馨提示">
-                <textarea
-                  value={settings.notice}
-                  maxLength={500}
-                  onChange={(event) =>
-                    setSettings((value) => ({
-                      ...value,
-                      notice: event.target.value,
-                    }))
-                  }
-                />
-              </Field>
-              <Field label="员工关怀">
-                <input
-                  value={settings.greeting}
-                  maxLength={200}
-                  onChange={(event) =>
-                    setSettings((value) => ({
-                      ...value,
-                      greeting: event.target.value,
-                    }))
-                  }
-                />
-              </Field>
-              <Field label="预览主题">
-                <select
-                  value={settings.theme}
-                  onChange={(event) =>
-                    setSettings((value) => ({
-                      ...value,
-                      theme: event.target
-                        .value as SalarySlipDisplaySettings["theme"],
-                    }))
-                  }
-                >
-                  <option value="default">默认背景</option>
-                  <option value="technology">科技创新</option>
-                  <option value="night">数智未来</option>
-                  <option value="gold">日进斗金</option>
-                  <option value="lotus">荷包满满</option>
-                </select>
-              </Field>
-              <div className="toggle-row">
-                <span>空值字段隐藏</span>
-                <button
-                  type="button"
-                  className={`toggle ${settings.hideEmptyFields ? "on" : ""}`}
-                  onClick={() =>
-                    setSettings((value) => ({
-                      ...value,
-                      hideEmptyFields: !value.hideEmptyFields,
-                    }))
-                  }
-                >
-                  <span />
-                </button>
-              </div>
-              <div className="toggle-row">
-                <span>确认无误</span>
-                <button
-                  type="button"
-                  className={`toggle ${settings.confirmationEnabled ? "on" : ""}`}
-                  onClick={() =>
-                    setSettings((value) => ({
-                      ...value,
-                      confirmationEnabled: !value.confirmationEnabled,
-                    }))
-                  }
-                >
-                  <span />
-                </button>
-              </div>
-            </div>
-          </div>
-          <SalarySlipPreview
-            title={title}
-            settings={settings}
-            fields={salaryFields}
-            sample={
-              preview.sourceRows.find((row) => row.kind === "employee")
-                ?.source ?? {}
-            }
-          />
-          {error && <div className="notice error">{error}</div>}
-          <div className="wizard-actions">
-            <button
-              className="button secondary"
-              type="button"
-              onClick={() => setStep("preview")}
-            >
-              上一步
-            </button>
-            <button
-              className="button primary"
-              type="button"
-              disabled={busy || !settings.netAmountField}
-              onClick={() => void complete()}
-            >
-              {busy ? "正在创建" : "完成并进入发送管理"}
-            </button>
-          </div>
-        </div>
+        <ImportConfirmStep
+          title={title}
+          preview={preview}
+          settings={settings}
+          salaryFields={salaryFields}
+          templates={templates}
+          busy={busy}
+          error={error}
+          settingsMessage={settingsMessage}
+          setSettings={setSettings}
+          onSaveTemplate={() => void saveTemplate()}
+          onBack={() => setStep("preview")}
+          onComplete={() => void complete()}
+        />
       )}
     </section>
   );
