@@ -1,16 +1,38 @@
 :root {
   font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
-  color: #102235;
-  background: #f3f6fa;
+  color: var(--color-text);
+  background: var(--color-canvas);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --blue: #1677ff;
-  --blue-dark: #075ecb;
-  --ink: #102235;
-  --muted: #708096;
-  --line: #e5ebf2;
-  --soft-blue: #eaf3ff;
-  --panel: #fff;
+
+  --color-primary: #1677ff;
+  --color-primary-hover: #075ecb;
+  --color-primary-soft: #eaf3ff;
+  --color-text: #102235;
+  --color-text-secondary: #708096;
+  --color-text-tertiary: #9aa8b7;
+  --color-border: #e5ebf2;
+  --color-surface: #fff;
+  --color-surface-subtle: #f5f7fa;
+  --color-canvas: #f3f6fa;
+  --color-success: #187a5b;
+  --color-success-soft: #e9f8f1;
+  --color-warning: #b56b16;
+  --color-warning-soft: #fff3df;
+  --color-danger: #a64848;
+  --color-danger-soft: #fff7f7;
+  --color-withdrawn: #ae5d5d;
+  --color-withdrawn-soft: #fff0f0;
+  --shadow-popover: 0 12px 28px rgb(16 34 53 / 14%);
+
+  /* Compatibility aliases for existing feature styles. */
+  --blue: var(--color-primary);
+  --blue-dark: var(--color-primary-hover);
+  --ink: var(--color-text);
+  --muted: var(--color-text-secondary);
+  --line: var(--color-border);
+  --soft-blue: var(--color-primary-soft);
+  --panel: var(--color-surface);
 }
 * {
   box-sizing: border-box;
@@ -18,7 +40,7 @@
 body {
   margin: 0;
   min-width: 320px;
-  background: #f3f6fa;
+  background: var(--color-canvas);
 }
 button,
 input,
@@ -46,7 +68,7 @@ a {
 }
 .sidebar {
   width: 244px;
-  background: #fff;
+  background: var(--color-surface);
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
@@ -72,7 +94,7 @@ a {
   border-radius: 9px;
 }
 .sidebar-caption {
-  color: #9aa8b7;
+  color: var(--color-text-tertiary);
   font-size: 12px;
   padding: 32px 12px 11px;
 }
@@ -121,7 +143,7 @@ a {
 }
 .topbar {
   height: 92px;
-  background: #fff;
+  background: var(--color-surface);
   border-bottom: 1px solid var(--line);
   display: flex;
   align-items: center;
@@ -130,7 +152,7 @@ a {
 }
 .eyebrow {
   display: block;
-  color: #9aa8b7;
+  color: var(--color-text-tertiary);
   font-size: 12px;
   letter-spacing: 0.04em;
   margin-bottom: 6px;
@@ -231,7 +253,7 @@ p {
 .button.secondary {
   color: #405268;
   border-color: #d9e2ec;
-  background: #fff;
+  background: var(--color-surface);
 }
 .button.secondary:hover {
   border-color: #b9c8d8;
