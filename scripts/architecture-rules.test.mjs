@@ -66,6 +66,23 @@ describe("architecture rules", () => {
     assert.equal(result.warnings.some((warning) => warning.includes("App.tsx")), true);
   });
 
+  it("reports size warnings for db store implementations", async () => {
+    const root = await fixture();
+    await writeFixture(root, "package.json", "{}");
+    await writeFixture(root, "packages/db/src/sqlite-store.ts", `${"x\n".repeat(701)}`);
+    await writeFixture(root, "packages/db/src/memory-store.ts", `${"x\n".repeat(701)}`);
+    const result = await scanArchitecture(root);
+    assert.deepEqual(result.errors, []);
+    assert.equal(
+      result.warnings.some((warning) => warning.includes("sqlite-store.ts")),
+      true,
+    );
+    assert.equal(
+      result.warnings.some((warning) => warning.includes("memory-store.ts")),
+      true,
+    );
+  });
+
   it("allows only documented print overrides", () => {
     assert.equal(
       isExpectedDuplicate("body", ["apps/web/src/styles/base.css", "apps/web/src/styles/salary.css"]),
