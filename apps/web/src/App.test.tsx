@@ -18,7 +18,7 @@ import { SalarySlipPreview } from "./features/salary/SalarySlipPreview";
 
 const batch = {
   id: "batch-1", payrollMonth: "2026-08", title: "2026年08月工资条",
-  state: "draft", total: 1, sent: 0, viewed: 0, confirmed: 0,
+  state: "draft", total: 1, sent: 0, viewed: 0, confirmed: 0, canDelete: true,
   assignedAdminIds: [], createdById: "dev-admin", displaySettings: {
     netAmountField: "实发金额", hideEmptyFields: true,
     confirmationEnabled: false, notice: "", greeting: "", theme: "default", visibleFields: [], fieldGroups: []
@@ -78,7 +78,7 @@ describe("salary management", () => {
   it("renders failed and withdrawn employee delivery states", async () => {
     const user = userEvent.setup();
     apiMock.mockImplementation((path: string) => {
-      if (path === "/v1/salary-batches") return Promise.resolve([{ ...batch, state: "partially_failed", total: 2 }]);
+      if (path === "/v1/salary-batches") return Promise.resolve([{ ...batch, state: "partially_failed", total: 2, canDelete: false }]);
       if (path === "/v1/salary-batches/batch-1") return Promise.resolve({
         ...batch,
         state: "partially_failed",
@@ -95,6 +95,35 @@ describe("salary management", () => {
     expect(await screen.findByText("员工失败")).toBeInTheDocument();
     expect(document.querySelector(".status-failed")).toHaveTextContent("发送失败");
     expect(document.querySelector(".status-withdrawn")).toHaveTextContent("已撤回");
+  });
+
+  it("filters a partially failed batch by each employee's latest delivery status", async () => {
+    const user = userEvent.setup();
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/v1/salary-batches")
+        return Promise.resolve([
+          { ...batch, state: "partially_failed", total: 2, canDelete: false },
+        ]);
+      if (path === "/v1/salary-batches/batch-1")
+        return Promise.resolve({
+          ...batch,
+          state: "partially_failed",
+          total: 2,
+          items: [
+            { id: "item-failed", employeeName: "员工失败", employeeUserId: "employee-failed", fields: { 实发金额: 10000 }, deliveryStatus: "failed" },
+            { id: "item-withdrawn", employeeName: "员工撤回", employeeUserId: "employee-withdrawn", fields: { 实发金额: 9000 }, deliveryStatus: "withdrawn" },
+          ],
+        });
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+    render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
+    await user.click(await screen.findByRole("button", { name: "前往发送" }));
+    expect(await screen.findByText("员工失败")).toBeInTheDocument();
+    expect(screen.getByText("员工撤回")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /前往处理/ }));
+    expect(screen.getByText("员工失败")).toBeInTheDocument();
+    expect(screen.queryByText("员工撤回")).not.toBeInTheDocument();
+    expect(screen.getByText(/发送异常/)).toBeInTheDocument();
   });
 
   it("loads only summaries until a batch is opened, then opens the import wizard", async () => {
@@ -119,9 +148,9 @@ describe("salary management", () => {
     apiMock.mockImplementation((path: string) => {
       if (path === "/v1/salary-batches")
         return Promise.resolve([
-          { ...batch, id: "draft-batch", title: "未发送工资条", total: 2 },
-          { ...batch, id: "partial-batch", title: "部分发送工资条", total: 2, sent: 1, state: "partially_failed" },
-          { ...batch, id: "sent-batch", title: "已发送工资条", sent: 1, total: 1, state: "sent" },
+          { ...batch, id: "draft-batch", title: "未发送工资条", total: 2, canDelete: true },
+          { ...batch, id: "partial-batch", title: "部分发送工资条", total: 2, sent: 1, state: "partially_failed", canDelete: false },
+          { ...batch, id: "sent-batch", title: "已发送工资条", sent: 1, total: 1, state: "sent", canDelete: false },
         ]);
       if (path === "/v1/salary-batches/sent-batch")
         return Promise.resolve({ ...batch, id: "sent-batch", title: "已发送工资条", sent: 1, total: 1, state: "sent", items: [] });
@@ -149,13 +178,29 @@ describe("salary management", () => {
     expect(await screen.findByRole("columnheader", { name: "姓名" })).toBeInTheDocument();
   });
 
+  it("uses the server canDelete capability instead of inferring it from batch state", async () => {
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/v1/salary-batches")
+        return Promise.resolve([
+          { ...batch, id: "blocked-draft", title: "服务端禁止删除", canDelete: false },
+          { ...batch, id: "allowed-partial", title: "服务端允许删除", state: "partially_failed", sent: 1, total: 2, canDelete: true },
+        ]);
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+    render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
+    expect(await screen.findByText("服务端禁止删除")).toBeInTheDocument();
+    const deleteButtons = screen.getAllByRole("button", { name: "删除" });
+    expect(deleteButtons[0]).toBeDisabled();
+    expect(deleteButtons[1]).toBeEnabled();
+  });
+
   it("deletes an untouched draft through an in-app confirmation dialog", async () => {
     const user = userEvent.setup();
     const nativeConfirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     let deleted = false;
     apiMock.mockImplementation((path: string, options?: { method?: string }) => {
       if (path === "/v1/salary-batches" && !options?.method)
-        return Promise.resolve(deleted ? [] : [{ ...batch, total: 2 }]);
+        return Promise.resolve(deleted ? [] : [{ ...batch, total: 2, canDelete: true }]);
       if (path === "/v1/salary-batches/batch-1" && options?.method === "DELETE") {
         deleted = true;
         return Promise.resolve({ deleted: true, batchId: batch.id });
@@ -195,7 +240,7 @@ describe("salary management", () => {
     apiMock.mockImplementation((path: string, options?: { method?: string }) => {
       if (path === "/v1/salary-batches" && !options?.method)
         return Promise.resolve([
-          { ...batch, state: "partially_failed", sent: 0, total: 1 },
+          { ...batch, state: "partially_failed", sent: 0, total: 1, canDelete: true },
         ]);
       if (path === "/v1/salary-batches/batch-1" && options?.method === "DELETE")
         return Promise.resolve({ deleted: true, batchId: batch.id });
@@ -217,7 +262,7 @@ describe("salary management", () => {
     const user = userEvent.setup();
     apiMock.mockImplementation((path: string, options?: { method?: string }) => {
       if (path === "/v1/salary-batches" && !options?.method)
-        return Promise.resolve([{ ...batch, total: 2 }]);
+        return Promise.resolve([{ ...batch, total: 2, canDelete: true }]);
       if (path === "/v1/salary-batches/batch-1" && options?.method === "DELETE")
         return Promise.reject(new Error("salary_batch_not_deletable"));
       return Promise.reject(new Error(`unexpected_request:${path}`));
@@ -240,6 +285,7 @@ describe("salary management", () => {
             sent: 2,
             total: 2,
             title: "全部撤回工资条",
+            canDelete: true,
           },
         ]);
       return Promise.reject(new Error(`unexpected_request:${path}`));
@@ -280,7 +326,7 @@ describe("salary management", () => {
     const withdrawn = { ...delivered, fields: { 实发金额: 10100 }, deliveryStatus: "withdrawn" as const };
     let withdrawnState = false;
     apiMock.mockImplementation((path: string, options?: { method?: string; body?: string }) => {
-      if (path === "/v1/salary-batches") return Promise.resolve([{ ...batch, sent: 1, total: 1, state: "sent" }]);
+      if (path === "/v1/salary-batches") return Promise.resolve([{ ...batch, sent: 1, total: 1, state: "sent", canDelete: false }]);
       if (path === "/v1/salary-batches/batch-1/items/item-1" && options?.method === "PATCH") return Promise.resolve({ ...batch, sent: 1, total: 1, state: "sent", items: [withdrawn] });
       if (path === "/v1/salary-batches/batch-1/items/item-1/withdraw") {
         withdrawnState = true;
