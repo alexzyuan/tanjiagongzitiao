@@ -1,138 +1,121 @@
 # Codex-First Phase C Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> Status: implementation complete; final PR-head Quality confirmation required before merge.
 
 **Goal:** Improve responsibility locality so ordinary salary-feature work normally requires reading only 3–6 main files, without fragmenting the codebase or changing business behavior.
 
-**Architecture:** Keep the existing React/Fastify/SQLite architecture. Split only along existing responsibilities: salary overview vs employee batch detail, import wizard orchestration vs wizard steps, API transport vs type groups, in-memory store implementation vs public store contracts, and SQLite schema/migrations vs SQLite runtime store behavior. Replace hidden global UI events with explicit props.
+**Architecture:** Keep the existing React/Fastify/SQLite architecture. Split only along existing responsibilities: salary overview vs employee detail presentation, import orchestration vs steps, API transport vs type declarations, in-memory store implementation vs public contracts, and SQLite schema/migrations vs runtime CRUD. Hidden global UI navigation is replaced with explicit props.
 
-**Tech Stack:** TypeScript, React, Vitest, Fastify, SQLite, pnpm workspace.
+**Spec:** `docs/superpowers/specs/2026-08-23-codex-first-maintainability-design.md`
 
-**Spec:** `docs/superpowers/specs/2026-08-23-codex-first-maintainability-design.md` plus the approved Phase C scope from the Codex-first optimization plan.
-
-## Global Constraints
+## Global constraints
 
 - No new runtime dependencies.
-- No ORM, Redis, MQ, DI framework, Repository/UseCase layers, or microservices.
-- No Redux, React Query, React Router, UI framework, Tailwind, or CSS-in-JS.
-- Do not change PostgreSQL/SQLite architecture, encryption, schema semantics, or SQL behavior merely to split files.
-- Do not change salary lifecycle, permissions, DingTalk behavior, import semantics, employee visibility, or archive semantics.
-- Do not split files solely to silence size warnings; every new file must own a real responsibility.
-- Preserve existing public imports unless a small explicit compatibility re-export is needed.
-- No deployment changes.
+- No ORM, Redis, MQ, DI/Repository/UseCase layers, microservices, Redux, React Query, React Router, UI framework, Tailwind, or CSS-in-JS.
+- No salary lifecycle, permission, DingTalk, import, employee-visibility, archive, encryption, SQL, schema-semantic, CSS, or deployment behavior changes.
+- File splitting must correspond to real responsibility boundaries, not warning suppression.
 
 ---
 
-### Task 1: Replace hidden admin-navigation CustomEvent usage
+## Task 1 — Explicit admin navigation
 
-**Files:**
-- Modify: `apps/web/src/App.tsx`
-- Modify: `apps/web/src/pages/SalaryManagement.tsx`
-- Test: `apps/web/src/App.test.tsx`
+- [x] Add a behavior test for opening permissions from salary management.
+- [x] Remove `salary-open-permissions` CustomEvent dispatch/listener.
+- [x] Remove unused `salary-open-settings` listener.
+- [x] Pass `onOpenPermissions={() => setModule("permissions")}` explicitly from `App`.
+- [x] Verify with GitHub Quality; final green implementation was included in run #38 and later regression runs.
 
-**Produces:** `SalaryManagement` receives an explicit `onOpenPermissions: () => void` prop.
+Current test location after Task 4: `apps/web/src/admin-modules.test.tsx`.
 
-- [ ] Add/adjust a test that clicks the salary-page administrator control and observes the permissions module.
-- [ ] Remove `window.dispatchEvent(new CustomEvent("salary-open-permissions"))` from salary management.
-- [ ] Remove the matching global event listener from `AdminApp` and pass `onOpenPermissions={() => setModule("permissions")}` explicitly.
-- [ ] Remove the unused `salary-open-settings` listener if no current producer exists.
-- [ ] Run Web tests and typecheck.
+---
 
-### Task 2: Split SalaryManagement by real UI responsibility
+## Task 2 — Split SalaryManagement by UI responsibility
 
-**Files:**
-- Modify: `apps/web/src/pages/SalaryManagement.tsx`
-- Create: `apps/web/src/features/salary/SalaryBatchOverview.tsx`
-- Create: `apps/web/src/features/salary/SalaryEmployeeTable.tsx`
-- Create only if it owns editing UI/state cleanly: `apps/web/src/features/salary/SalaryItemEditor.tsx`
-- Test: salary-management tests split in Task 4
+- [x] Keep `SalaryManagement.tsx` as page/data/API/dialog orchestration.
+- [x] Move month controls and batch summary cards to `SalaryBatchOverview.tsx`.
+- [x] Move employee filtering/table/action presentation to `SalaryEmployeeTable.tsx`.
+- [x] Keep failed filtering based on item `deliveryStatus`.
+- [x] Keep server `canDelete` authoritative.
+- [x] Do not move lifecycle API orchestration into child components.
+- [x] Verify with GitHub Quality; run #41 passed architecture/test/typecheck/build.
 
-**Interfaces:**
-- Overview consumes batch summaries and callbacks; it does not call lifecycle APIs itself.
-- Employee table consumes a loaded batch/detail and explicit send/withdraw/edit callbacks.
-- `SalaryManagement` remains the orchestration/data-loading entry point.
+No extra `SalaryItemEditor` file was created because edit dialog state remained a coherent responsibility in the page orchestrator.
 
-- [ ] Move monthly card rendering/month controls into `SalaryBatchOverview` without moving API orchestration.
-- [ ] Move employee filtering/table rendering into `SalaryEmployeeTable`; failed filtering must remain `item.deliveryStatus === "failed"`.
-- [ ] Keep `canDelete` server-authoritative; do not reintroduce fallback rules.
-- [ ] Keep modal/editor state in the smallest coherent owner.
-- [ ] Run salary-management tests and Web typecheck.
+---
 
-### Task 3: Split ImportWizard by wizard-step responsibility
+## Task 3 — Split ImportWizard by wizard-step responsibility
 
-**Files:**
-- Modify: `apps/web/src/features/salary/ImportWizard.tsx`
-- Create: `apps/web/src/features/salary/import/ImportUploadStep.tsx`
-- Create: `apps/web/src/features/salary/import/ImportMatchStep.tsx`
-- Create: `apps/web/src/features/salary/import/ImportConfirmStep.tsx`
-- Create only if shared types/helpers are substantial: `apps/web/src/features/salary/import/model.ts`
+- [x] Create `import/ImportUploadStep.tsx`.
+- [x] Create `import/ImportMatchStep.tsx`.
+- [x] Create `import/ImportConfirmStep.tsx`.
+- [x] Keep step state, preview id, resolutions, API search/preview/commit and completion in `ImportWizard.tsx`.
+- [x] Preserve validation/error behavior.
+- [x] Verify with GitHub Quality; run #48 passed architecture/test/typecheck/build.
 
-**Interfaces:**
-- `ImportWizard` owns step state, API orchestration, preview id, resolutions, and completion.
-- Step components receive typed data/callback props and do not invent additional data stores.
+No extra model/store layer was added.
 
-- [ ] Extract upload/parse UI.
-- [ ] Extract directory matching/resolution UI.
-- [ ] Extract final display-settings/commit UI.
-- [ ] Preserve three-step import behavior and all validation/error states.
-- [ ] Run import-related Web tests and typecheck.
+---
 
-### Task 4: Split oversized Web tests by behavior area
+## Task 4 — Split oversized Web tests by behavior area
 
-**Files:**
-- Modify: `apps/web/src/App.test.tsx`
-- Create: `apps/web/src/salary-management.test.tsx`
-- Create: `apps/web/src/admin-modules.test.tsx`
-- Create: `apps/web/src/employee-salary.test.tsx`
-- Create shared test helpers only if reused by 2+ files: `apps/web/src/test-fixtures.ts`
+- [x] Move salary-management tests to `apps/web/src/salary-management.test.tsx`.
+- [x] Move admin/navigation tests to `apps/web/src/admin-modules.test.tsx`.
+- [x] Move app-level employee salary semantics to `apps/web/src/employee-salary.test.tsx`.
+- [x] Remove obsolete oversized `App.test.tsx` after behavior-preserving relocation.
+- [x] Keep existing assertions/behavior names.
+- [x] Verify complete Web suite; run #52 passed architecture/test/typecheck/build.
 
-- [ ] Move salary-management behavior tests out of `App.test.tsx`.
-- [ ] Move admin module smoke tests into `admin-modules.test.tsx`.
-- [ ] Move employee salary semantics into `employee-salary.test.tsx`.
-- [ ] Keep tests behavior-named; do not weaken assertions during relocation.
-- [ ] Run the complete Web test suite.
+---
 
-### Task 5: Split Web API transport from stable API types
+## Task 5 — Split Web API transport from stable types
 
-**Files:**
-- Modify: `apps/web/src/api.ts`
-- Create: `apps/web/src/api-types.ts`
-- Create only if endpoint helpers are genuinely grouped: `apps/web/src/salary-api.ts`
+- [x] Keep HTTP/session/DingTalk boot transport in `apps/web/src/api.ts`.
+- [x] Move stable DTO/type declarations to `apps/web/src/api-types.ts`.
+- [x] Re-export types from `api.ts` for compatibility.
+- [x] Add no client framework/cache/generated SDK/contracts package.
+- [x] Verify with GitHub Quality; run #54 passed architecture/test/typecheck/build.
 
-- [ ] Keep `api()` and session transport logic in `api.ts`.
-- [ ] Move stable response/request type declarations to `api-types.ts` and re-export from `api.ts` for compatibility where useful.
-- [ ] Do not add a client framework, caching layer, generated SDK, or contracts package.
-- [ ] Run Web tests/typecheck/build.
+---
 
-### Task 6: Physically split DB contracts, MemorySalaryStore, and SQLite schema
+## Task 6 — Split DB contracts, MemorySalaryStore, and SQLite schema
 
-**Files:**
-- Modify: `packages/db/src/store.ts`
-- Create: `packages/db/src/memory-store.ts`
-- Modify: `packages/db/src/sqlite-store.ts`
-- Create: `packages/db/src/sqlite-schema.ts`
-- Modify if needed: `packages/db/src/index.ts`
-- Tests: existing DB/API test suites
+- [x] Keep public DB types and `SalaryStore` interface in `packages/db/src/store.ts`.
+- [x] Move `MemorySalaryStore` implementation to `packages/db/src/memory-store.ts`.
+- [x] Preserve package export through `index.ts`.
+- [x] Preserve the historical direct `store.ts` module import with an explicit compatibility re-export after CI exposed that contract.
+- [x] Move schema creation, compatibility ALTER, and withdrawn-interaction startup normalization to `packages/db/src/sqlite-schema.ts`.
+- [x] Keep runtime CRUD/mapping/transactions in `packages/db/src/sqlite-store.ts` and call `applySqliteSchema(this.db)` from construction.
+- [x] Preserve SQL text, migration order, encryption, store interface and SQLite/WAL behavior.
+- [x] Verify with GitHub Quality; after the compatibility re-export fix, run #60 passed architecture/test/typecheck/build.
 
-**Interfaces:**
-- `store.ts` owns public DB types and the `SalaryStore` interface.
-- `memory-store.ts` owns `MemorySalaryStore` only.
-- `sqlite-schema.ts` owns schema SQL/migration application helpers only.
-- `sqlite-store.ts` owns runtime SQLite CRUD/store behavior and calls schema helpers.
+The initial Task 6 CI failure was `MemorySalaryStore is not a constructor` because `packages/db/test/sqlite-store.test.ts` intentionally imported it from `../src/store.js`. SQLite-specific tests, including reopen/migration normalization, were already passing. The fix restored that public module path without moving implementation back.
 
-- [ ] Move `MemorySalaryStore` implementation out of `store.ts` without changing public behavior.
-- [ ] Preserve existing exports via `index.ts` / explicit re-export as needed.
-- [ ] Move SQLite schema/migration setup out of `sqlite-store.ts`; do not alter SQL text or migration order.
-- [ ] Run DB tests, API tests, typecheck, and build.
+---
 
-### Task 7: Final locality and verification review
+## Task 7 — Locality and final verification
 
-- [ ] Confirm ordinary salary management changes now have an obvious 3–6 file reading path documented in `docs/AI_INDEX.md`.
-- [ ] Update `HANDOFF.md` with Phase C current state.
-- [ ] Run `pnpm architecture:check`.
-- [ ] Run `pnpm test`.
-- [ ] Run `pnpm typecheck`.
-- [ ] Run `pnpm build`.
-- [ ] Run `git diff --check` where a full repository checkout is available.
-- [ ] Confirm no business-rule, DB schema semantic, CSS, deployment, or runtime dependency changes.
-- [ ] Open a PR against the then-current `main`; do not merge until Quality is green.
+- [x] Rewrite `docs/AI_INDEX.md` as a current 3–6-file change map for salary UI/import/app navigation/DB work.
+- [x] Update `HANDOFF.md` with Phase C ownership and verification state.
+- [x] Confirm PR changed-file scope contains the expected Web/DB/docs responsibility files and no CSS/package/deployment files.
+- [x] `pnpm architecture:check` — passed on documentation/locality head via Quality run #62.
+- [x] `pnpm test` — passed on documentation/locality head via Quality run #62.
+- [x] `pnpm typecheck` — passed on documentation/locality head via Quality run #62.
+- [x] `pnpm build` — passed on documentation/locality head via Quality run #62.
+- [ ] `git diff --check` — not independently runnable in this execution environment because no full authenticated local checkout is available; it is not part of current Quality workflow.
+- [x] Confirm no intentional business-rule, DB schema semantic, CSS, deployment, or runtime dependency changes.
+- [x] Draft PR #18 exists against `main` and has been the continuous verification surface.
+- [ ] Require a fresh successful Quality run on the final documentation/checklist head, then mark PR ready and merge.
+
+## Verification history
+
+Key green runs during Phase C:
+
+- #38 — explicit navigation
+- #41 — SalaryManagement split
+- #48 — ImportWizard split
+- #52 — Web test responsibility split
+- #54 — Web API/type split
+- #60 — DB split after compatibility fix
+- #62 — AI_INDEX/HANDOFF locality synchronization
+
+No Phase C change has been deployed.
