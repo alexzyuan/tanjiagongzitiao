@@ -47,7 +47,7 @@
 - [x] Review existing API regression assertions for `canDelete`, delete states, withdrawn/resend states, archived editing, and in-flight guards; do not duplicate already sufficient coverage.
 - [x] Replace duplicated pure delete/edit predicates in `SalaryService` with domain policy calls while keeping in-flight checks in the service.
 - [x] Keep `deliverySummary(...).canDelete` as the complete server capability, including in-flight state.
-- [ ] Verify the full API salary action test suite in an environment with repository dependencies available.
+- [x] Verify the full API salary action test suite through the PR Quality workflow.
 
 ### Task 3: Make the Web consume server truth and item delivery truth
 
@@ -61,7 +61,7 @@
 - [x] Change failure filtering to `item.deliveryStatus === "failed"`.
 - [x] Rename the batch alert wording from import anomaly to send anomaly where it represents delivery failure.
 - [x] Remove the legacy client-side `canDelete` fallback and use server capability only.
-- [ ] Verify the full Web test suite in an environment with repository dependencies available.
+- [x] Verify the full Web test suite through the PR Quality workflow.
 
 ### Task 4: Reuse safe domain types in the Web only if it stays compile-time only
 
@@ -74,14 +74,20 @@ Adding a Web workspace dependency / lockfile change solely for a few duplicated 
 
 ### Task 5: Verification and scope review
 
-- [ ] Run `pnpm architecture:check` in a full repository environment.
-- [ ] Run `pnpm test` in a full repository environment.
-- [ ] Run `pnpm typecheck` in a full repository environment.
-- [ ] Run `pnpm build` in a full repository environment.
+- [x] Run `pnpm architecture:check` through GitHub Quality.
+- [x] Run `pnpm test` through GitHub Quality.
+- [x] Run `pnpm typecheck` through GitHub Quality.
+- [x] Run `pnpm build` through GitHub Quality.
 - [ ] Run `git diff --check` in a full repository environment.
 - [x] Confirm no DB schema, CSS, deployment, runtime dependency, `.superpowers/`, zip, or SQLite data changes in the GitHub diff.
 - [x] Compare branch against `codex/codex-first-phase-a` and `main`.
 
-## Current verification limitation
+## Verification record
 
-The GitHub Quality workflow currently triggers on pull requests and pushes to `main`. This branch has not been turned into a PR and therefore has no Quality run yet. Do not mark the five full-repository verification commands above complete until they actually run successfully.
+PR #17 was opened against `main`.
+
+- Quality run #30 (`32617476201`) failed during `pnpm test` because the API build hit `TS2379` under `exactOptionalPropertyTypes` when explicitly passing an undefined latest-delivery status.
+- The type boundary was corrected without changing salary business semantics.
+- Quality run #31 (`32617527197`) on code-bearing head `e9d0515cc05234f3b81d45675d28f3629377b5f7` passed install, architecture check, tests, typecheck, and build.
+- Documentation synchronization commits after that verified head require a fresh successful Quality run before merge.
+- `git diff --check` is not part of the current Quality workflow and remains separately pending until it can be executed in a full repository environment.
