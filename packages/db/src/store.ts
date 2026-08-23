@@ -134,3 +134,5 @@ export interface SalaryStore {
   }): SalarySlipTemplate;
   listSalaryTemplates(): SalarySlipTemplate[];
 }
+
+export { MemorySalaryStore } from "./memory-store.js";
