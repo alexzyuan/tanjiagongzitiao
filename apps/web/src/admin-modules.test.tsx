@@ -61,7 +61,7 @@ describe("admin module navigation", () => {
     );
 
     expect(
-      await screen.findByRole("heading", { name: "权限管理" }),
+      await screen.findByRole("button", { name: "从企业通讯录选择人员" }),
     ).toBeInTheDocument();
   });
 });
