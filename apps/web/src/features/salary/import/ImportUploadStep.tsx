@@ -19,7 +19,7 @@ export function ImportUploadStep({
   title: string;
   strategy: EmployeeMatchStrategy;
   busy: boolean;
-  error?: string;
+  error: string | undefined;
   onMonthChange: (value: string) => void;
   onTitleChange: (value: string) => void;
   onStrategyChange: (value: EmployeeMatchStrategy) => void;
