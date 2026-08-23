@@ -79,7 +79,7 @@ export function canDeleteSalaryBatch(input: {
 
 export function canEditSalaryItem(input: {
   batchState: SalaryBatchState;
-  latestDeliveryStatus?: SalaryDeliveryStatus;
+  latestDeliveryStatus?: SalaryDeliveryStatus | undefined;
 }): boolean {
   return (
     input.batchState !== "archived" &&
