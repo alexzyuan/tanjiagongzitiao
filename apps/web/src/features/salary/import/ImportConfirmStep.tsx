@@ -27,8 +27,8 @@ export function ImportConfirmStep({
   salaryFields: string[];
   templates: SalarySlipTemplate[];
   busy: boolean;
-  error?: string;
-  settingsMessage?: string;
+  error: string | undefined;
+  settingsMessage: string | undefined;
   setSettings: Dispatch<SetStateAction<SalarySlipDisplaySettings>>;
   onSaveTemplate: () => void;
   onBack: () => void;
