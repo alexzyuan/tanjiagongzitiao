@@ -5,7 +5,11 @@ import type {
   SalaryFieldValue,
   SalarySlipDisplaySettings,
 } from "@salary/domain";
-import { canManageBatch } from "@salary/domain";
+import {
+  canDeleteSalaryBatch,
+  canEditSalaryItem,
+  canManageBatch,
+} from "@salary/domain";
 import type { SalaryStore } from "@salary/db";
 import type { AuditService } from "../audit/service.js";
 import { SalaryDeliveryService } from "./delivery.js";
@@ -345,11 +349,7 @@ export class SalaryService {
       batch,
       this.store.listDeliveries(batchId),
     ).canDelete;
-    if (
-      this.delivery.hasBatchSendInFlight(batchId) ||
-      !canDelete
-    )
-      throw new Error("salary_batch_not_deletable");
+    if (!canDelete) throw new Error("salary_batch_not_deletable");
     this.store.deleteBatch(batchId);
     this.audit.record({
       correlationId: `batch:${batchId}`,
@@ -388,25 +388,12 @@ export class SalaryService {
     const withdrawn = deliveryHistories.filter(
       (deliveries) => deliveries.at(-1)?.status === "withdrawn",
     ).length;
-    const hasDeliveredItems = deliveryHistories.some((deliveries) =>
-      deliveries.some((delivery) => delivery.status === "delivered"),
-    );
-    const allDeliveredItemsWithdrawn = deliveryHistories.every((deliveries) =>
-      !deliveries.some((delivery) => delivery.status === "delivered") ||
-      deliveries.at(-1)?.status === "withdrawn",
-    );
-    const onlyInitialDeliveryFailures =
-      batch.sent === 0 &&
-      batchDeliveries.length > 0 &&
-      batchDeliveries.every((delivery) => delivery.status === "failed");
-    const untouchedDraft =
-      batch.state === "draft" && batchDeliveries.length === 0;
     const canDelete =
-      batch.state !== "archived" &&
-      (untouchedDraft ||
-        onlyInitialDeliveryFailures ||
-        (hasDeliveredItems && allDeliveredItemsWithdrawn)) &&
-      !this.delivery.hasBatchSendInFlight(batch.id);
+      canDeleteSalaryBatch({
+        state: batch.state,
+        sent: batch.sent,
+        deliveries: batchDeliveries,
+      }) && !this.delivery.hasBatchSendInFlight(batch.id);
     return { withdrawn, canDelete };
   }
 
@@ -421,16 +408,17 @@ export class SalaryService {
     const batch = this.store.getBatch(batchId);
     const item = batch.items.find((candidate) => candidate.id === itemId);
     if (!item) throw new Error("salary_item_not_found");
-    if (
-      batch.state === "archived" ||
-      this.delivery.isItemSendInFlight(batchId, item.employeeUserId)
-    )
-      throw new Error("salary_item_not_editable");
     const latestDelivery = this.store
       .listDeliveries(batchId)
       .filter((delivery) => delivery.employeeUserId === item.employeeUserId)
       .at(-1);
-    if (latestDelivery?.status !== "withdrawn")
+    if (
+      this.delivery.isItemSendInFlight(batchId, item.employeeUserId) ||
+      !canEditSalaryItem({
+        batchState: batch.state,
+        latestDeliveryStatus: latestDelivery?.status,
+      })
+    )
       throw new Error("salary_item_not_editable");
     this.store.updateItemFields(batchId, itemId, fields);
     this.audit.record({
