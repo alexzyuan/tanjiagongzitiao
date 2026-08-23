@@ -6,8 +6,10 @@
 
 - Repository: `alexzyuan/tanjiagongzitiao`
 - Current `main` baseline for this handoff: `cd923b79277dde069f4983f6ec1c29fab7e2deab`
-- Active documentation work branch: `codex/codex-first-phase-a`
-- This branch is documentation-only and is not merged or deployed.
+- Active work branch: `codex/codex-first-phase-b`
+- The branch contains the Phase A Codex-first documentation baseline plus the Phase B salary-policy single-source cleanup.
+- It is not merged or deployed.
+- The branch has no GitHub Quality workflow run yet because the current workflow triggers on pull requests and pushes to `main`.
 - Production commit is **not** treated as known from this file; verify production runtime/release state directly before any deploy/rollback decision.
 
 ## 2. Product state
@@ -78,20 +80,32 @@ For a normal new task:
 
 Do not load the large historical `CODEX_TASKS.md` by default.
 
-## 6. Current known maintainability targets
+## 6. Phase B current rule ownership
+
+Phase B establishes the following current ownership:
+
+- Pure delete eligibility lives in `packages/domain/src/salary.ts` as `canDeleteSalaryBatch`.
+- Pure edit eligibility lives in `packages/domain/src/salary.ts` as `canEditSalaryItem`.
+- Runtime in-flight send protection remains in `apps/api/src/modules/salary/service.ts` / delivery service and is not moved into domain.
+- Batch-list `canDelete` is calculated by the server and the Web UI consumes that capability instead of reconstructing lifecycle rules.
+- Employee failure filtering uses the employee item's latest `deliveryStatus`, not only the batch-level `partially_failed` state.
+- The UI wording for delivery failure is “发送异常”, not “导入数据异常”.
+
+Do not reintroduce a client-side delete fallback unless a separately approved backwards-compatibility requirement requires it.
+
+## 7. Current known maintainability targets
 
 These are improvement candidates, not automatic authorization to refactor:
 
 - `apps/web/src/pages/SalaryManagement.tsx` is large and should only be split by real UI responsibility when that work is explicitly taken on.
 - `apps/web/src/features/salary/ImportWizard.tsx` is large and should only be split by real wizard-step responsibility.
 - `packages/db/src/store.ts` / `sqlite-store.ts` are growing and may later be physically split by store/schema responsibility without introducing repository/DI layers.
-- Web salary capability rules should increasingly rely on server/domain truth instead of UI fallbacks.
 - CSS should move toward semantic tokens/classes and away from fragile DOM-position selectors/global element leakage.
-- `CODEX_TASKS.md` contains substantial historical task material and should eventually be archived/split, but Phase A intentionally does not rewrite it destructively.
+- `CODEX_TASKS.md` contains substantial historical task material and should eventually be archived/split, but Phase A intentionally did not rewrite it destructively.
 
 File-size architecture warnings are signals only; do not refactor solely to make warnings disappear.
 
-## 7. Current documentation contract
+## 8. Current documentation contract
 
 - `AGENTS.md` — permanent execution constraints and Codex-First rules.
 - `docs/ARCHITECTURE.md` — current system architecture/ownership/invariants.
@@ -102,7 +116,7 @@ File-size architecture warnings are signals only; do not refactor solely to make
 - `docs/superpowers/specs/` and `docs/superpowers/plans/` — approved designs/plans and historical implementation context.
 - `CODEX_TASKS.md` — legacy task/phase record; read only when historical phase context is required.
 
-## 8. Git / deployment rules
+## 9. Git / deployment rules
 
 - Use `codex/*` branches for non-trivial work.
 - Protect local/untracked user files; do not use destructive cleanup/reset commands.
@@ -110,9 +124,15 @@ File-size architecture warnings are signals only; do not refactor solely to make
 - Do not merge or deploy without explicit user authorization.
 - Production changes require separate backup/readiness/rollback verification.
 
-## 9. Definition of completion for normal code work
+## 10. Verification state
 
-Before reporting completion, actually run the relevant target tests plus:
+For Phase B so far:
+
+- Pure domain policy was independently syntax/type checked with TypeScript and exercised with a small local red/green policy harness.
+- GitHub branch scope/diff has been checked.
+- Full repository `pnpm test`, `pnpm typecheck`, and `pnpm build` have **not** been independently run in this execution environment because the repository/dependencies are not locally available and this branch has no PR-triggered Quality run yet.
+
+Before integration, require a fresh GitHub Quality run or an equivalent environment that actually runs:
 
 ```bash
 pnpm architecture:check
@@ -121,7 +141,5 @@ pnpm typecheck
 pnpm build
 git diff --check
 ```
-
-If a repository `format:check` script is added later, run it as well.
 
 Never report a command as passed unless it actually ran successfully.
