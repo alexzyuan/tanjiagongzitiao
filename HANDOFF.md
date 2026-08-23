@@ -7,9 +7,11 @@
 - Repository: `alexzyuan/tanjiagongzitiao`
 - Current `main` baseline for this handoff: `cd923b79277dde069f4983f6ec1c29fab7e2deab`
 - Active work branch: `codex/codex-first-phase-b`
+- Pull request: `#17` targeting `main`.
 - The branch contains the Phase A Codex-first documentation baseline plus the Phase B salary-policy single-source cleanup.
-- It is not merged or deployed.
-- The branch has no GitHub Quality workflow run yet because the current workflow triggers on pull requests and pushes to `main`.
+- It is not deployed.
+- The latest code-bearing head `e9d0515cc05234f3b81d45675d28f3629377b5f7` passed GitHub Quality run `#31` (`32617527197`): install, architecture check, test, typecheck, and build all succeeded.
+- Any commit after that verified head, including documentation-only synchronization, must receive a fresh successful Quality run before merge.
 - Production commit is **not** treated as known from this file; verify production runtime/release state directly before any deploy/rollback decision.
 
 ## 2. Product state
@@ -126,20 +128,22 @@ File-size architecture warnings are signals only; do not refactor solely to make
 
 ## 10. Verification state
 
-For Phase B so far:
+Phase B verification evidence so far:
 
-- Pure domain policy was independently syntax/type checked with TypeScript and exercised with a small local red/green policy harness.
-- GitHub branch scope/diff has been checked.
-- Full repository `pnpm test`, `pnpm typecheck`, and `pnpm build` have **not** been independently run in this execution environment because the repository/dependencies are not locally available and this branch has no PR-triggered Quality run yet.
-
-Before integration, require a fresh GitHub Quality run or an equivalent environment that actually runs:
+- Pure domain policy was independently syntax/type checked and exercised with a small red/green policy harness during implementation.
+- GitHub branch scope/diff and PR changed-file scope have been checked.
+- PR #17 Quality run #30 exposed an `exactOptionalPropertyTypes` compile failure (`TS2379`); the root cause was fixed without changing business semantics.
+- PR #17 Quality run #31 on `e9d0515cc05234f3b81d45675d28f3629377b5f7` completed successfully through:
 
 ```bash
+pnpm install --frozen-lockfile
 pnpm architecture:check
 pnpm test
 pnpm typecheck
 pnpm build
-git diff --check
 ```
+
+- `git diff --check` is not part of the current GitHub Quality workflow and still requires separate verification before final integration if available.
+- Any commit after the verified head must receive a fresh successful Quality run before merge.
 
 Never report a command as passed unless it actually ran successfully.
