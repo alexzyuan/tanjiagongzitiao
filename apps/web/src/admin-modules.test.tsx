@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -38,6 +38,19 @@ const batch = {
     fieldGroups: [],
   },
 };
+const report = {
+  totals: {
+    batches: 1,
+    recipients: 2,
+    sent: 1,
+    viewed: 1,
+    confirmed: 1,
+    failedDeliveries: 0,
+    evidenceEvents: 1,
+    salaryTotals: { gross: 12000, net: 10000, tax: 1000, socialInsurance: 1000 },
+  },
+  batches: [{ ...batch, deliveryFailures: 0, evidenceEvents: 1 }],
+};
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -59,9 +72,181 @@ describe("admin module navigation", () => {
     await user.click(
       await screen.findByRole("button", { name: "打开权限管理" }),
     );
-
     expect(
       await screen.findByRole("button", { name: "从企业通讯录选择人员" }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("admin module smoke tests", () => {
+  it("loads evidence and renders its empty state", async () => {
+    const user = userEvent.setup();
+    ensureSessionMock.mockResolvedValue(identity);
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/v1/salary-batches") return Promise.resolve([]);
+      if (path === "/v1/payment-evidence/employees?employmentStatus=active")
+        return Promise.resolve([]);
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "发薪存证" }));
+    expect(await screen.findByText("暂无发薪存证")).toBeInTheDocument();
+    expect(apiMock).toHaveBeenCalledWith(
+      "/v1/payment-evidence/employees?employmentStatus=active",
+    );
+  });
+
+  it("renders a non-empty evidence record", async () => {
+    const user = userEvent.setup();
+    ensureSessionMock.mockResolvedValue(identity);
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/v1/salary-batches") return Promise.resolve([]);
+      if (path === "/v1/payment-evidence/employees?employmentStatus=active")
+        return Promise.resolve([
+          {
+            employeeUserId: "employee-a",
+            employeeName: "员工A",
+            employeeNo: "A001",
+            position: "会计",
+            employmentStatus: "active",
+            evidenceCount: 1,
+            latestEvidenceAt: "2026-08-01T08:00:00.000Z",
+          },
+        ]);
+      if (path === "/v1/payment-evidence/employees/employee-a")
+        return Promise.resolve({
+          employee: {
+            employeeUserId: "employee-a",
+            employeeName: "员工A",
+            employeeNo: "A001",
+            position: "会计",
+            employmentStatus: "active",
+            evidenceCount: 1,
+            latestEvidenceAt: "2026-08-01T08:00:00.000Z",
+          },
+          availableFields: ["实发金额"],
+          rows: [
+            {
+              batchId: "batch-2026-08",
+              itemId: "item-1",
+              payrollMonth: "2026-08",
+              title: "2026年08月工资条",
+              state: "sent",
+              employeeUserId: "employee-a",
+              employeeName: "员工A",
+              employeeNo: "A001",
+              position: "会计",
+              fields: { 实发金额: 9000 },
+              sendStatus: "sent",
+              viewStatus: "viewed",
+              confirmStatus: "confirmed",
+              confirmedAt: "2026-08-01T08:00:00.000Z",
+              confirmedBy: "employee-a",
+            },
+          ],
+        });
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "发薪存证" }));
+    expect(await screen.findByText("员工A")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "查看发薪存证" }));
+    expect(await screen.findByText("2026年08月工资条")).toBeInTheDocument();
+    expect(screen.getByText("已确认")).toBeInTheDocument();
+  });
+
+  it("loads the report and renders salary totals", async () => {
+    const user = userEvent.setup();
+    ensureSessionMock.mockResolvedValue(identity);
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/v1/salary-batches") return Promise.resolve([]);
+      if (path === "/v1/reports/summary") return Promise.resolve(report);
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "报表中心" }));
+    expect(await screen.findByText("¥ 10,000.00")).toBeInTheDocument();
+    expect(apiMock).toHaveBeenCalledWith("/v1/reports/summary");
+  });
+
+  it("filters the report by payroll month", async () => {
+    const user = userEvent.setup();
+    ensureSessionMock.mockResolvedValue(identity);
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/v1/salary-batches") return Promise.resolve([]);
+      if (path === "/v1/reports/summary") return Promise.resolve(report);
+      if (path === "/v1/reports/summary?payrollMonth=2026-08")
+        return Promise.resolve(report);
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "报表中心" }));
+    await user.selectOptions(
+      await screen.findByRole("combobox", { name: "发薪月份" }),
+      "2026-08",
+    );
+    await waitFor(() =>
+      expect(apiMock).toHaveBeenCalledWith(
+        "/v1/reports/summary?payrollMonth=2026-08",
+      ),
+    );
+  });
+
+  it("loads permission data and opens the directory picker", async () => {
+    const user = userEvent.setup();
+    ensureSessionMock.mockResolvedValue(identity);
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/v1/salary-batches") return Promise.resolve([batch]);
+      if (path === "/v1/salary-batches/batch-1")
+        return Promise.resolve({ ...batch, items: [] });
+      if (path === "/v1/sub-admins") return Promise.resolve([]);
+      if (path === "/v1/directory/users") return Promise.resolve([]);
+      if (path === "/v1/directory/users?query=") return Promise.resolve([]);
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "权限管理" }));
+    await user.click(
+      await screen.findByRole("button", { name: "从企业通讯录选择人员" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "请选择人员" }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders sub-admin names resolved from the directory", async () => {
+    const user = userEvent.setup();
+    ensureSessionMock.mockResolvedValue(identity);
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/v1/salary-batches") return Promise.resolve([]);
+      if (path === "/v1/sub-admins") return Promise.resolve(["finance-1"]);
+      if (path === "/v1/directory/users")
+        return Promise.resolve([
+          {
+            userId: "finance-1",
+            name: "财务小李",
+            departmentIds: [],
+          },
+        ]);
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "权限管理" }));
+    expect(await screen.findByText("财务小李")).toBeInTheDocument();
+  });
+
+  it("loads settings and renders the actual fixed configuration", async () => {
+    const user = userEvent.setup();
+    ensureSessionMock.mockResolvedValue(identity);
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/v1/salary-batches") return Promise.resolve([]);
+      if (path === "/v1/settings")
+        return Promise.resolve({ employeeVisibilityMonths: 12 });
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "系统设置" }));
+    expect(await screen.findByText("员工可查看范围")).toBeInTheDocument();
+    expect(screen.getByText("12 个月")).toBeInTheDocument();
   });
 });
