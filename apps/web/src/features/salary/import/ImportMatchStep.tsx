@@ -23,11 +23,11 @@ export function ImportMatchStep({
   preview: SalaryImportPreview;
   employeeFields: string[];
   unresolved: PreviewRow[];
-  activeRow?: number;
+  activeRow: number | undefined;
   directoryQuery: string;
   directoryResults: DirectoryUser[];
   busy: boolean;
-  error?: string;
+  error: string | undefined;
   onBack: () => void;
   onNext: () => void;
   onOpenDirectory: (row: number) => void;
