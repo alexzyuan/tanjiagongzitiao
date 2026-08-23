@@ -1,18 +1,18 @@
 # AI Change Index
 
-> Fast change map for Codex/AI agents. Use this to decide what to read first. It intentionally avoids duplicating implementation details.
+> Fast change map for Codex/AI agents. Use this to decide what to read first. It intentionally points to current sources of truth instead of duplicating implementation details.
 
 ## Default reading order
 
-For a normal repository task, read:
+For a normal task:
 
 1. `AGENTS.md`
 2. `docs/ARCHITECTURE.md`
 3. the relevant section below
-4. `docs/BUSINESS_RULES.md` if salary lifecycle/permissions/employee behavior is involved
-5. only the directly relevant code and tests
+4. `docs/BUSINESS_RULES.md` when salary lifecycle, permissions, employee visibility, confirmation, withdrawal, resend, or archive semantics are involved
+5. only the directly relevant implementation and tests
 
-Do **not** load `CODEX_TASKS.md` or `docs/history/` by default unless the task explicitly depends on historical reasoning.
+Do **not** load `CODEX_TASKS.md`, `docs/history/`, or old implementation plans by default.
 
 ---
 
@@ -22,38 +22,32 @@ Read first:
 
 - `packages/domain/src/salary.ts`
 - `apps/api/src/modules/salary/service.ts`
+- `apps/api/src/modules/salary/delivery.ts` when send/withdraw/resend is involved
 - `apps/api/test/salary-management-actions.test.ts`
 - `docs/BUSINESS_RULES.md`
 
-Typical tasks:
-
-- delete rules
-- edit rules
-- archive rules
-- state transitions
-- batch capabilities
+Use for delete/edit/archive/state-transition/capability changes. Pure rules belong in domain; runtime/in-flight checks stay in API orchestration.
 
 ---
 
-## DingTalk send / withdraw / resend
+## Salary management Web UI
 
 Read first:
 
-- `apps/api/src/modules/salary/delivery.ts`
-- `packages/dingtalk/src/`
-- salary delivery-related API tests
-- `docs/BUSINESS_RULES.md`
+- `apps/web/src/pages/SalaryManagement.tsx`
+- `apps/web/src/features/salary/SalaryBatchOverview.tsx`
+- `apps/web/src/features/salary/SalaryEmployeeTable.tsx`
+- `apps/web/src/salary-management.test.tsx`
+- `apps/web/src/api-types.ts` only when response/DTO shape changes
+- `apps/web/src/styles/salary.css` only when visual behavior changes
 
-Typical tasks:
+Responsibilities:
 
-- single send
-- batch send
-- resend
-- withdrawal
-- in-flight concurrency protection
-- DingTalk work-notification payloads
+- `SalaryManagement.tsx` — page orchestration, loading, API actions, edit/delete dialog state.
+- `SalaryBatchOverview.tsx` — month controls and batch summary cards; no lifecycle API calls.
+- `SalaryEmployeeTable.tsx` — loaded employee rows, filtering, row actions; failed filtering uses item `deliveryStatus`.
 
-Remember: current verified channel is work notification `asyncsend_v2` using a `link` message. Local withdrawal is not remote deletion.
+Business capabilities such as `canDelete` remain server-authoritative.
 
 ---
 
@@ -64,39 +58,30 @@ Read first:
 - `apps/api/src/modules/salary/import.ts`
 - `apps/api/src/modules/salary/routes.ts`
 - `apps/web/src/features/salary/ImportWizard.tsx`
+- the one relevant step under `apps/web/src/features/salary/import/`
 - import-related API/Web tests
 
-Typical tasks:
+Step ownership:
 
-- workbook parsing
-- header aliases
-- summary rows
-- employee matching
-- temporary previews
-- import confirmation
+- `ImportUploadStep.tsx` — upload/parse presentation.
+- `ImportMatchStep.tsx` — directory matching/resolution presentation.
+- `ImportConfirmStep.tsx` — salary-slip settings/final confirmation presentation.
+- `ImportWizard.tsx` — step state, preview id, resolutions, API search/preview/commit orchestration.
+
+Do not move independent data stores or API orchestration into step components without a real need.
 
 ---
 
-## Salary management Web UI
+## DingTalk send / withdraw / resend
 
 Read first:
 
-- `apps/web/src/pages/SalaryManagement.tsx`
-- `apps/web/src/features/salary/`
-- `apps/web/src/api.ts`
-- `apps/web/src/styles/salary.css`
-- relevant Web tests
+- `apps/api/src/modules/salary/delivery.ts`
+- `packages/dingtalk/src/`
+- relevant salary API tests
+- `docs/BUSINESS_RULES.md`
 
-Typical tasks:
-
-- batch list
-- employee table
-- delete/edit dialogs
-- filters
-- status display
-- month selection
-
-Business capability must come from server/domain truth rather than being re-derived in the UI.
+Remember: the verified channel is DingTalk work notification `asyncsend_v2` with a `link` message. Local withdrawal is not remote deletion.
 
 ---
 
@@ -105,20 +90,28 @@ Business capability must come from server/domain truth rather than being re-deri
 Read first:
 
 - `apps/api/src/modules/salary/employee.ts`
-- employee salary routes in `apps/api/src/modules/salary/routes.ts`
+- employee routes in `apps/api/src/modules/salary/routes.ts`
 - `apps/web/src/pages/EmployeeSalary.tsx`
 - `apps/web/src/pages/EmployeeSalary.test.tsx`
+- `apps/web/src/employee-salary.test.tsx` when app-level employee routing/semantics matter
 - `docs/BUSINESS_RULES.md`
 
-Typical tasks:
+Employee identity isolation and `visibleFields` filtering are server-side security boundaries.
 
-- own-salary access
-- recent salary list
-- view tracking
-- confirmation
-- withdrawal/reconfirmation behavior
+---
 
-Security boundary: employee identity isolation and `visibleFields` filtering are server-side.
+## App shell / admin navigation / session boot
+
+Read first:
+
+- `apps/web/src/App.tsx`
+- `apps/web/src/api.ts`
+- `apps/web/src/admin-modules.test.tsx`
+- the destination page/component involved
+
+Admin navigation is explicit through props/state. Do not reintroduce global `CustomEvent` navigation for normal module transitions.
+
+`api.ts` owns HTTP/session/DingTalk boot transport. Stable DTO/type declarations live in `api-types.ts` and are re-exported from `api.ts` for compatibility.
 
 ---
 
@@ -130,13 +123,45 @@ Read first:
 - `apps/api/src/modules/authorization/`
 - `apps/web/src/pages/PermissionCenter.tsx`
 - `apps/web/src/pages/PermissionCenter.test.tsx`
+- `apps/web/src/admin-modules.test.tsx` when navigation is involved
 
-Typical tasks:
+---
 
-- main admin
-- sub-admin
-- batch admin
-- directory validation
+## Database contract / Memory store
+
+Read first:
+
+- `packages/db/src/store.ts`
+- `packages/db/src/memory-store.ts`
+- `packages/db/test/`
+- the API/domain test exercising the behavior
+
+Ownership:
+
+- `store.ts` — public DB types and `SalaryStore` contract only, plus compatibility re-export for `MemorySalaryStore`.
+- `memory-store.ts` — in-memory implementation used by tests/local flows.
+
+Do not add Repository/UnitOfWork/DI layers merely because the implementation is in a separate file.
+
+---
+
+## SQLite queries / schema / encryption
+
+Read first:
+
+- `packages/db/src/sqlite-store.ts`
+- `packages/db/src/sqlite-schema.ts`
+- `packages/db/src/crypto.ts`
+- `packages/db/test/sqlite-store.test.ts`
+- `packages/domain/src/salary.ts` when state transitions are involved
+
+Ownership:
+
+- `sqlite-store.ts` — runtime SQLite CRUD, mapping, transactions, store behavior.
+- `sqlite-schema.ts` — schema creation, compatibility ALTERs, startup data normalization/migration helpers.
+- `crypto.ts` — salary-field encryption/decryption.
+
+Production remains SQLite/WAL. Schema SQL or migration order must not change during a file-only refactor.
 
 ---
 
@@ -146,40 +171,11 @@ Read first:
 
 - `apps/api/src/modules/audit/`
 - `apps/api/src/modules/reports/`
-- evidence/report methods in `packages/db/src/store.ts` and `packages/db/src/sqlite-store.ts`
-- `apps/web/src/pages/EvidenceCenter.tsx`
-- `apps/web/src/pages/ReportCenter.tsx`
+- relevant methods in `packages/db/src/store.ts` and the selected implementation (`memory-store.ts` or `sqlite-store.ts`)
+- `apps/web/src/pages/EvidenceCenter.tsx` or `ReportCenter.tsx`
 - relevant tests
 
-Typical tasks:
-
-- delivery evidence
-- viewed/confirmed evidence
-- audit events
-- report totals
-
 Do not place salary values or sensitive personal data in audit/evidence metadata.
-
----
-
-## Database / encryption / migrations
-
-Read first:
-
-- `packages/db/src/store.ts`
-- `packages/db/src/sqlite-store.ts`
-- `packages/db/src/crypto.ts`
-- `packages/domain/src/salary.ts`
-
-Typical tasks:
-
-- SalaryStore contract
-- SQLite queries
-- schema compatibility
-- encrypted salary fields
-- memory-store behavior
-
-Production remains SQLite/WAL. Do not introduce ORM or a second database without explicit architecture approval.
 
 ---
 
@@ -191,71 +187,21 @@ Read first:
 - auth-related modules under `apps/api/src/modules/auth/`
 - `apps/web/src/api.ts` for DingTalk JSAPI/session bootstrapping
 
-Typical tasks:
-
--免登/auth
-- directory lookup
-- work notifications
-- DingTalk transport/error handling
-
 Do not guess unsupported card payload fields on the existing work-notification endpoint.
 
 ---
 
-## Shared Web components
+## CSS / shared Web presentation
 
 Read first:
 
-- `apps/web/src/components/`
-- `apps/web/src/styles/components.css`
-- `apps/web/src/styles/base.css`
-
-Typical tasks:
-
-- modal
-- field
-- status
-- loading/empty state
-- shared table/button behavior
-
-Prefer reusing an existing shared component only when semantics truly match.
-
----
-
-## CSS / visual maintenance
-
-Read first:
-
-- `apps/web/src/styles.css`
 - `apps/web/src/styles/base.css`
 - `apps/web/src/styles/components.css`
-- the feature-specific stylesheet (`salary.css`, `employee.css`, `import.css`, or `admin.css`)
-- `scripts/architecture-rules.mjs` for duplicate-selector checks
+- the single feature stylesheet involved (`salary.css`, `employee.css`, `import.css`, or `admin.css`)
+- the relevant TSX component
+- `scripts/architecture-rules.mjs` only when selector/dependency rules matter
 
-Principles:
-
-- plain CSS remains the default;
-- prefer semantic class names/tokens;
-- avoid selectors coupled to DOM position when a named class is clearer;
-- avoid global selectors that unintentionally style unrelated feature markup.
-
----
-
-## App shell / navigation / session boot
-
-Read first:
-
-- `apps/web/src/App.tsx`
-- `apps/web/src/api.ts`
-- `apps/web/src/App.test.tsx`
-- auth/session API modules
-
-Typical tasks:
-
-- admin navigation
-- app boot
-- employee/admin viewport routing
-- session loading/errors
+Use semantic classes/tokens, avoid DOM-position coupling, and avoid global selectors leaking into unrelated features.
 
 ---
 
@@ -264,8 +210,9 @@ Typical tasks:
 Read first:
 
 - `apps/worker/`
-- archive methods in `packages/db/`
+- archive methods in `packages/db/src/store.ts` plus the active store implementation
 - `docs/ARCHITECTURE.md`
+- `docs/BUSINESS_RULES.md`
 
 Invariant: worker is one-shot; scheduling is external.
 
@@ -281,13 +228,7 @@ Read first:
 - `.github/workflows/quality.yml`
 - `AGENTS.md`
 
-Typical tasks:
-
-- dependency boundaries
-- banned infrastructure
-- file-size warnings
-- CSS duplicate warnings
-- CI quality gate
+Hard architecture violations fail CI. File-size warnings are prompts to inspect responsibility, not automatic refactor orders.
 
 ---
 
@@ -297,15 +238,10 @@ Read first:
 
 - `deploy.sh`
 - `.env.example`
-- deployment-related files under repository root/docs
+- deployment/operations docs
 - `HANDOFF.md`
 
-Rules:
-
-- never output secret values;
-- production SQLite path stays outside release directories;
-- deployment must preserve backup/rollback capability;
-- do not modify production/deploy behavior during unrelated feature work.
+Never output secrets. Production SQLite stays outside release directories, and deployment must preserve backup/readiness/rollback capability.
 
 ---
 
