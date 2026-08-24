@@ -227,15 +227,15 @@ export function SalaryManagement({
   return (
     <section className="salary-workspace">
       <div className="salary-heading">
-        <button
-          className="back-button"
-          aria-label="返回"
-          onClick={() =>
-            detailBatchId ? setDetailBatchId(undefined) : window.history.back()
-          }
-        >
-          ‹ <span>返回</span>
-        </button>
+        {detailBatchId && (
+          <button
+            className="back-button"
+            aria-label="返回"
+            onClick={() => setDetailBatchId(undefined)}
+          >
+            ‹ <span>返回</span>
+          </button>
+        )}
         <h2>
           {detailBatch
             ? detailBatch.title
