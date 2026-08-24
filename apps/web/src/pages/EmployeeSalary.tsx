@@ -61,9 +61,7 @@ export function EmployeeHome({ employeeId }: { employeeId: string | undefined })
   return (
     <div className="employee-page employee-mobile-shell">
       <div className="employee-mobile-nav">
-        <span>‹</span>
-        <strong>我的</strong>
-        <span>中文</span>
+        <strong>我的工资条</strong>
       </div>
       <main className="employee-home">
         <select
@@ -109,17 +107,6 @@ export function EmployeeHome({ employeeId }: { employeeId: string | undefined })
           })}
         </section>
       </main>
-      <nav className="employee-bottom-nav">
-        <span>
-          ▣<b>工资条</b>
-        </span>
-        <span>
-          ◇<b>发现</b>
-        </span>
-        <span className="active">
-          ♟<b>我的</b>
-        </span>
-      </nav>
     </div>
   );
 }
