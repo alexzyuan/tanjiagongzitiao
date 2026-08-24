@@ -25,6 +25,7 @@ export function EmployeeHome({ employeeId }: { employeeId: string | undefined })
     [],
   );
   const [month, setMonth] = useState<string>();
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string>();
   useEffect(() => {
     ensureSession(employeeId)
@@ -35,6 +36,7 @@ export function EmployeeHome({ employeeId }: { employeeId: string | undefined })
       .then((value) => {
         setSlips(value);
         setMonth(value[0]?.batch.payrollMonth);
+        setLoaded(true);
       })
       .catch((reason) => setError(errorText(reason)));
   }, [employeeId]);
@@ -44,10 +46,21 @@ export function EmployeeHome({ employeeId }: { employeeId: string | undefined })
         <EmployeeFullError message={error} />
       </div>
     );
-  if (!identity || !month)
+  if (!identity || !loaded)
     return (
       <div className="employee-page">
         <EmployeeLoading />
+      </div>
+    );
+  if (!month)
+    return (
+      <div className="employee-page employee-mobile-shell">
+        <div className="employee-mobile-nav">
+          <strong>我的工资条</strong>
+        </div>
+        <main className="employee-home employee-empty-home">
+          <p>暂无可查看的工资条</p>
+        </main>
       </div>
     );
   const monthSlips = slips.filter(
@@ -111,8 +124,16 @@ export function EmployeeHome({ employeeId }: { employeeId: string | undefined })
   );
 }
 
-export function EmployeePage({ employeeId }: { employeeId: string | undefined }) {
-  const batchId = window.location.pathname.split("/").filter(Boolean).at(-1);
+export function EmployeePage({
+  employeeId,
+  preview = false,
+}: {
+  employeeId: string | undefined;
+  preview?: boolean;
+}) {
+  const pathParts = window.location.pathname.split("/").filter(Boolean);
+  const batchId = preview ? pathParts.at(2) : pathParts.at(-1);
+  const previewItemId = preview ? pathParts.at(3) : undefined;
   const [identity, setIdentity] = useState<Identity>();
   const [payload, setPayload] = useState<{ batch: Batch; item: SalaryItem }>();
   const [error, setError] = useState<string>();
@@ -123,14 +144,16 @@ export function EmployeePage({ employeeId }: { employeeId: string | undefined })
       .then(() =>
         batchId
           ? api<{ batch: Batch; item: SalaryItem }>(
-              `/v1/me/salary-slips/${batchId}`,
+              preview && previewItemId
+                ? `/v1/salary-batches/${batchId}/items/${previewItemId}/employee-preview`
+                : `/v1/me/salary-slips/${batchId}`,
             ).then(setPayload)
           : Promise.resolve(),
       )
       .catch((reason) => setError(errorText(reason)));
-  }, [batchId, employeeId]);
+  }, [batchId, employeeId, preview, previewItemId]);
   useEffect(() => {
-    if (!payload || !batchId || payload.item.viewedAt) return;
+    if (preview || !payload || !batchId || payload.item.viewedAt) return;
     api(`/v1/me/salary-slips/${batchId}/view`, { method: "POST" })
       .then(() =>
         setPayload((value) =>
@@ -143,9 +166,9 @@ export function EmployeePage({ employeeId }: { employeeId: string | undefined })
         ),
       )
       .catch((reason) => setError(errorText(reason)));
-  }, [batchId, payload]);
+  }, [batchId, payload, preview]);
   async function confirm() {
-    if (!batchId) return;
+    if (preview || !batchId) return;
     try {
       await api(`/v1/me/salary-slips/${batchId}/view`, { method: "POST" });
       await api(`/v1/me/salary-slips/${batchId}/confirm`, { method: "POST" });
@@ -177,6 +200,7 @@ export function EmployeePage({ employeeId }: { employeeId: string | undefined })
     );
   const allFields = Object.entries(payload.item.fields);
   const settings = payload.batch.displaySettings;
+  const displayName = preview ? payload.item.employeeName : identity.name;
   const netValue = payload.item.fields[settings.netAmountField];
   const visible = settings.visibleFields.length
     ? settings.visibleFields
@@ -206,7 +230,7 @@ export function EmployeePage({ employeeId }: { employeeId: string | undefined })
         </span>
         <div>
           <strong>工资条</strong>
-          <small>仅本人可见</small>
+          <small>{preview ? "管理员预览" : "仅本人可见"}</small>
         </div>
         <span className="employee-security">
           <Icon name="shield" size={15} />
@@ -218,7 +242,7 @@ export function EmployeePage({ employeeId }: { employeeId: string | undefined })
           <span className="eyebrow">{payload.batch.payrollMonth}</span>
           <h1>{payload.batch.title}</h1>
           <p>
-            {identity.name} ·{" "}
+            {displayName} ·{" "}
             {payload.item.employeeNo ?? payload.item.employeeUserId}
           </p>
         </div>
@@ -246,7 +270,7 @@ export function EmployeePage({ employeeId }: { employeeId: string | undefined })
           })}
           {fields.filter(([key]) => !groupedKeys.has(key)).map(renderField)}
         </div>
-        {settings.confirmationEnabled && (
+        {settings.confirmationEnabled && !preview && (
           <button
             className={`employee-confirm ${confirmed || payload.item.confirmedAt ? "confirmed" : ""}`}
             onClick={confirm}
@@ -258,9 +282,11 @@ export function EmployeePage({ employeeId }: { employeeId: string | undefined })
         )}
         <p className="employee-footnote">
           本工资条通过企业内部工作通知送达，
-          {settings.confirmationEnabled
-            ? "查看和确认时间将生成存证记录。"
-            : "查看时间将生成存证记录。"}
+          {preview
+            ? "管理员预览不会记录员工查看或确认状态。"
+            : settings.confirmationEnabled
+              ? "查看和确认时间将生成存证记录。"
+              : "查看时间将生成存证记录。"}
         </p>
       </main>
     </div>
