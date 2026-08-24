@@ -153,6 +153,59 @@ describe("salary delivery", () => {
     await app.close();
   });
 
+  it("records withdrawn delivery history for every delivered item in a batch withdrawal", async () => {
+    const { app, store } = buildApp();
+    const auth = await app.inject({ method: "POST", url: "/v1/auth/dev" });
+    const cookie = auth.headers["set-cookie"]?.split(";")[0];
+    const draft = await app.inject({
+      method: "POST",
+      url: "/v1/salary-batches",
+      headers: { cookie },
+      payload: {
+        payrollMonth: "2026-08",
+        title: "批次撤回链路测试",
+        rows: [
+          { userId: "employee-a", name: "员工A", 实发金额: 10000 },
+          { userId: "employee-b", name: "员工B", 实发金额: 9000 },
+        ],
+      },
+    });
+    const batchId = draft.json().batchId as string;
+    const sent = await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${batchId}/send`,
+      headers: { cookie },
+      payload: {},
+    });
+    expect(sent.statusCode).toBe(200);
+
+    const withdrawn = await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${batchId}/withdraw`,
+      headers: { cookie },
+      payload: {},
+    });
+    expect(withdrawn.statusCode).toBe(200);
+
+    const detail = await app.inject({
+      method: "GET",
+      url: `/v1/salary-batches/${batchId}`,
+      headers: { cookie },
+    });
+    expect(detail.json().items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ deliveryStatus: "withdrawn" }),
+        expect.objectContaining({ deliveryStatus: "withdrawn" }),
+      ]),
+    );
+    expect(
+      store
+        .listEvidence(batchId)
+        .filter((event) => event.eventType === "withdrawn"),
+    ).toHaveLength(2);
+    await app.close();
+  });
+
   it("adds an incrementing update version to each successful resend", async () => {
     const { app, dingtalk } = buildApp();
     const admin = await app.inject({ method: "POST", url: "/v1/auth/dev" });

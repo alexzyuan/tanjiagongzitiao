@@ -90,13 +90,15 @@ public_url="${SALARY_DEPLOY_URL:-https://salary.tanjiabi.cc}"
 local_health_url="${SALARY_DEPLOY_LOCAL_HEALTH_URL:-http://127.0.0.1:3100/healthz}"
 service_name="${SALARY_DEPLOY_SERVICE:-salary-slip.service}"
 nginx_user="${SALARY_DEPLOY_NGINX_USER:-www-data}"
+database_path="${SALARY_DEPLOY_DATABASE_PATH:-}"
+backup_dir="${SALARY_DEPLOY_BACKUP_DIR:-$remote_base/backups}"
 remote_archive="/tmp/$archive_name"
 
 log "uploading release to $deploy_host"
 scp -q "$archive_path" "$deploy_host:$remote_archive"
 
 ssh "$deploy_host" bash -s -- \
-  "$commit" "$remote_archive" "$remote_base" "$public_url" "$local_health_url" "$service_name" "$nginx_user" <<'REMOTE'
+  "$commit" "$remote_archive" "$remote_base" "$public_url" "$local_health_url" "$service_name" "$nginx_user" "$database_path" "$backup_dir" <<'REMOTE'
 set -Eeuo pipefail
 
 commit="$1"
@@ -106,6 +108,8 @@ public_url="$4"
 local_health_url="$5"
 service_name="$6"
 nginx_user="$7"
+database_path="$8"
+backup_dir="$9"
 release="$base/releases/$commit"
 previous="$(readlink -f "$base/current")"
 switched=0
@@ -133,13 +137,27 @@ rollback() {
 
 test -f "$archive" || fail "missing uploaded archive: $archive"
 test -d "$base/current" || fail "missing current release: $base/current"
+command -v pnpm >/dev/null 2>&1 || fail "pnpm is required on the deployment host"
+command -v sqlite3 >/dev/null 2>&1 || fail "sqlite3 is required for the pre-deploy backup"
+[[ "$database_path" = /* ]] || fail "SALARY_DEPLOY_DATABASE_PATH must be an absolute path"
+case "$database_path" in
+  "$base"/*) fail "SALARY_DEPLOY_DATABASE_PATH must be outside the deployment directory" ;;
+esac
+test -f "$database_path" || fail "SQLite database does not exist: $database_path"
+
+mkdir -p "$backup_dir"
+backup_path="$backup_dir/salary-slip-$commit-$(date -u +%Y%m%dT%H%M%SZ).sqlite"
+sqlite3 "$database_path" ".backup '$backup_path'"
+integrity="$(sqlite3 "$backup_path" 'PRAGMA integrity_check;')"
+[[ "$integrity" == "ok" ]] || fail "SQLite backup integrity check failed"
 
 if [[ "$(readlink -f "$base/current")" != "$release" ]]; then
   test ! -e "$release" || fail "release already exists but is not current: $release"
   mkdir -p "$base/releases"
-  cp -a "$previous" "$release"
+  mkdir -p "$release"
   tar -xzf "$archive" -C "$release"
   test "$(cat "$release/RELEASE_COMMIT")" = "$commit" || fail "release marker mismatch"
+  pnpm install --prod --frozen-lockfile --dir "$release"
   chown -R --no-dereference salary-slip:salary-slip "$release"
   ensure_web_readable
   nginx -t

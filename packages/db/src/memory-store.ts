@@ -22,6 +22,7 @@ import type {
   PaymentEvidenceRecord,
   SalaryStore,
   StoredBatch,
+  StoredEmployeeEvidenceData,
   StoredEmployeeEvidenceSummary,
   StoredItem,
   StoredItemMetadata,
@@ -158,6 +159,39 @@ export class MemorySalaryStore implements SalaryStore {
       if (latestEvidenceAt) employee.latestEvidenceAt = latestEvidenceAt;
     }
     return structuredClone([...employees.values()]);
+  }
+
+  listEmployeeEvidenceData(
+    batchIds: string[],
+    employeeUserId: string,
+  ): StoredEmployeeEvidenceData[] {
+    const result: StoredEmployeeEvidenceData[] = [];
+    for (const batchId of batchIds) {
+      const batch = this.batches.get(batchId);
+      if (!batch) throw new Error(`salary_batch_not_found:${batchId}`);
+      const item = batch.items.find(
+        (candidate) => candidate.employeeUserId === employeeUserId,
+      );
+      if (!item) continue;
+      const deliveries = this.deliveries.filter(
+        (delivery) =>
+          delivery.batchId === batchId &&
+          delivery.employeeUserId === employeeUserId,
+      );
+      const evidence = this.evidence.filter(
+        (event) =>
+          event.batchId === batchId &&
+          event.employeeUserId === employeeUserId,
+      );
+      if (deliveries.length === 0 && evidence.length === 0) continue;
+      result.push({
+        batchId,
+        item: this.itemMetadata(item),
+        deliveries,
+        evidence,
+      });
+    }
+    return structuredClone(result);
   }
 
   getBatchSummary(id: string): SalaryBatchSummary {
@@ -336,10 +370,15 @@ export class MemorySalaryStore implements SalaryStore {
     return this.publicBatch(current);
   }
 
-  getEmployeeItem(id: string, employeeUserId: string): StoredItem {
+  getEmployeeItem(
+    id: string,
+    employeeUserId: string,
+    options: { includeArchived?: boolean } = {},
+  ): StoredItem {
     const batch = this.batches.get(id);
     if (!batch) throw new Error(`salary_batch_not_found:${id}`);
-    if (batch.state === "archived") throw new Error("salary_item_archived");
+    if (batch.state === "archived" && !options.includeArchived)
+      throw new Error("salary_item_archived");
     const item = batch.items.find(
       (candidate) => candidate.employeeUserId === employeeUserId,
     );
@@ -459,6 +498,20 @@ export class MemorySalaryStore implements SalaryStore {
         encryptedFields,
         this.encryptionKey,
       ) as StoredItem["fields"],
+    };
+  }
+
+  private itemMetadata(item: StoredEncryptedItem): StoredItemMetadata {
+    return {
+      id: item.id,
+      batchId: item.batchId,
+      employeeUserId: item.employeeUserId,
+      employeeName: item.employeeName,
+      ...(item.employeeNo ? { employeeNo: item.employeeNo } : {}),
+      ...(item.department ? { department: item.department } : {}),
+      ...(item.position ? { position: item.position } : {}),
+      ...(item.viewedAt ? { viewedAt: item.viewedAt } : {}),
+      ...(item.confirmedAt ? { confirmedAt: item.confirmedAt } : {}),
     };
   }
 }

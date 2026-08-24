@@ -26,6 +26,7 @@ import type {
   PaymentEvidenceRecord,
   SalaryStore,
   StoredBatch,
+  StoredEmployeeEvidenceData,
   StoredEmployeeEvidenceSummary,
   StoredItem,
   StoredItemMetadata,
@@ -227,6 +228,114 @@ export class SqliteSalaryStore implements SalaryStore {
         };
       });
   }
+  listEmployeeEvidenceData(
+    batchIds: string[],
+    employeeUserId: string,
+  ): StoredEmployeeEvidenceData[] {
+    if (batchIds.length === 0) return [];
+    const placeholders = batchIds.map(() => "?").join(", ");
+    const items = this.db
+      .prepare(
+        `SELECT id, batch_id, employee_user_id, employee_name, employee_no, department, position, viewed_at, confirmed_at
+           FROM salary_items
+          WHERE batch_id IN (${placeholders}) AND employee_user_id = ?`,
+      )
+      .all(...batchIds, employeeUserId) as Array<{
+      id: string;
+      batch_id: string;
+      employee_user_id: string;
+      employee_name: string;
+      employee_no: string | null;
+      department: string | null;
+      position: string | null;
+      viewed_at: string | null;
+      confirmed_at: string | null;
+    }>;
+    const itemByBatch = new Map(
+      items.map((row) => [
+        row.batch_id,
+        {
+          id: row.id,
+          batchId: row.batch_id,
+          employeeUserId: row.employee_user_id,
+          employeeName: row.employee_name,
+          ...(row.employee_no ? { employeeNo: row.employee_no } : {}),
+          ...(row.department ? { department: row.department } : {}),
+          ...(row.position ? { position: row.position } : {}),
+          ...(row.viewed_at ? { viewedAt: row.viewed_at } : {}),
+          ...(row.confirmed_at ? { confirmedAt: row.confirmed_at } : {}),
+        } satisfies StoredEmployeeEvidenceData["item"],
+      ]),
+    );
+    const deliveryRows = this.db
+      .prepare(
+        `SELECT id, batch_id, employee_user_id, status, task_id, error, created_at
+           FROM salary_deliveries
+          WHERE batch_id IN (${placeholders}) AND employee_user_id = ?
+          ORDER BY created_at, rowid`,
+      )
+      .all(...batchIds, employeeUserId) as Array<{
+      id: string;
+      batch_id: string;
+      employee_user_id: string;
+      status: DeliveryRecord["status"];
+      task_id: string | null;
+      error: string | null;
+      created_at: string;
+    }>;
+    const evidenceRows = this.db
+      .prepare(
+        `SELECT id, batch_id, employee_user_id, event_type, fingerprint, metadata, created_at
+           FROM salary_evidence
+          WHERE batch_id IN (${placeholders}) AND employee_user_id = ?
+          ORDER BY created_at, rowid`,
+      )
+      .all(...batchIds, employeeUserId) as Array<{
+      id: string;
+      batch_id: string;
+      employee_user_id: string;
+      event_type: PaymentEvidenceRecord["eventType"];
+      fingerprint: string;
+      metadata: string;
+      created_at: string;
+    }>;
+    const deliveriesByBatch = new Map<string, DeliveryRecord[]>();
+    for (const row of deliveryRows) {
+      const deliveries = deliveriesByBatch.get(row.batch_id) ?? [];
+      deliveries.push({
+        id: row.id,
+        batchId: row.batch_id,
+        employeeUserId: row.employee_user_id,
+        status: row.status,
+        ...(row.task_id ? { taskId: row.task_id } : {}),
+        ...(row.error ? { error: row.error } : {}),
+        createdAt: row.created_at,
+      });
+      deliveriesByBatch.set(row.batch_id, deliveries);
+    }
+    const evidenceByBatch = new Map<string, PaymentEvidenceRecord[]>();
+    for (const row of evidenceRows) {
+      const evidence = evidenceByBatch.get(row.batch_id) ?? [];
+      evidence.push({
+        id: row.id,
+        batchId: row.batch_id,
+        employeeUserId: row.employee_user_id,
+        eventType: row.event_type,
+        fingerprint: row.fingerprint,
+        metadata: JSON.parse(row.metadata),
+        createdAt: row.created_at,
+      });
+      evidenceByBatch.set(row.batch_id, evidence);
+    }
+    return batchIds.flatMap((batchId) => {
+      const item = itemByBatch.get(batchId);
+      const deliveries = deliveriesByBatch.get(batchId) ?? [];
+      const evidence = evidenceByBatch.get(batchId) ?? [];
+      return item && (deliveries.length > 0 || evidence.length > 0)
+        ? [{ batchId, item, deliveries, evidence }]
+        : [];
+    });
+  }
   getBatchSummary(id: string): SalaryBatchSummary {
     return this.toBatchSummary(this.batchRow(id));
   }
@@ -410,9 +519,14 @@ export class SqliteSalaryStore implements SalaryStore {
     return this.getBatch(id);
   }
 
-  getEmployeeItem(id: string, employeeUserId: string): StoredItem {
+  getEmployeeItem(
+    id: string,
+    employeeUserId: string,
+    options: { includeArchived?: boolean } = {},
+  ): StoredItem {
     const batch = this.batchRow(id);
-    if (batch.state === "archived") throw new Error("salary_item_archived");
+    if (batch.state === "archived" && !options.includeArchived)
+      throw new Error("salary_item_archived");
     return this.toItem(this.itemRow(id, employeeUserId));
   }
 

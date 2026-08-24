@@ -162,6 +162,55 @@ describe("SQLite salary store", () => {
     store.close();
   });
 
+  it("loads one employee's evidence state in batch without decrypting fields", async () => {
+    const implementation = await import("../src/sqlite-store.js");
+    const store = new implementation.SqliteSalaryStore(":memory:", encryptionKey);
+    const first = store.createBatch({
+      payrollMonth: "2026-08",
+      title: "目标员工存证一",
+      createdById: "admin-1",
+      items: [
+        { employeeUserId: "employee-1", employeeName: "员工一", fields: { 实发金额: 17000 } },
+        { employeeUserId: "employee-2", employeeName: "员工二", fields: { 实发金额: 18000 } },
+      ],
+    });
+    const second = store.createBatch({
+      payrollMonth: "2026-07",
+      title: "目标员工存证二",
+      createdById: "admin-1",
+      items: [
+        { employeeUserId: "employee-1", employeeName: "员工一", fields: { 实发金额: 19000 } },
+      ],
+    });
+    for (const batch of [first, second]) {
+      store.recordDelivery({
+        batchId: batch.id,
+        employeeUserId: "employee-1",
+        status: "delivered",
+        taskId: `task-${batch.id}`,
+      });
+      store.recordEvidence({
+        batchId: batch.id,
+        employeeUserId: "employee-1",
+        eventType: "notification_sent",
+        fingerprint: `fingerprint-${batch.id}`,
+        metadata: {},
+      });
+    }
+
+    const data = store.listEmployeeEvidenceData(
+      [first.id, second.id],
+      "employee-1",
+    );
+
+    expect(data.map((entry) => entry.batchId)).toEqual([first.id, second.id]);
+    expect(data[0]?.item.employeeUserId).toBe("employee-1");
+    expect(JSON.stringify(data)).not.toContain("17000");
+    expect(JSON.stringify(data)).not.toContain("18000");
+    expect(JSON.stringify(data)).not.toContain("19000");
+    store.close();
+  });
+
   it("persists encrypted salary data, roles, and settings after reopening", async () => {
     const implementation = await import("../src/sqlite-store.js").catch(() => null);
     expect(implementation).not.toBeNull();

@@ -223,13 +223,6 @@
   background: #fff;
   box-shadow: 0 12px 30px rgb(16 34 53 / 8%);
 }
-.salary-field-group h2 {
-  margin: 14px 0 5px;
-  padding: 0 4px;
-  color: #8d9aaa;
-  font-size: 12px;
-  font-weight: 650;
-}
 .salary-slip-preview > strong {
   text-align: center;
   font-size: 16px;

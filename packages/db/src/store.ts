@@ -36,6 +36,13 @@ export interface StoredEmployeeEvidenceSummary {
   latestEvidenceAt?: string;
 }
 
+export interface StoredEmployeeEvidenceData {
+  batchId: string;
+  item: StoredItemMetadata;
+  deliveries: DeliveryRecord[];
+  evidence: PaymentEvidenceRecord[];
+}
+
 export interface AuditRecord {
   id: string;
   correlationId: string;
@@ -93,6 +100,10 @@ export interface SalaryStore {
   listEmployeeEvidenceSummaries(
     batchIds: string[],
   ): StoredEmployeeEvidenceSummary[];
+  listEmployeeEvidenceData(
+    batchIds: string[],
+    employeeUserId: string,
+  ): StoredEmployeeEvidenceData[];
   getBatchSummary(id: string): SalaryBatchSummary;
   getBatch(id: string): StoredBatch;
   deleteBatch(id: string): void;
@@ -114,7 +125,11 @@ export interface SalaryStore {
   markConfirmed(id: string, employeeUserId: string): StoredItem;
   clearItemInteractions(id: string, employeeUserId: string): StoredItem;
   clearBatchInteractions(id: string): StoredBatch;
-  getEmployeeItem(id: string, employeeUserId: string): StoredItem;
+  getEmployeeItem(
+    id: string,
+    employeeUserId: string,
+    options?: { includeArchived?: boolean },
+  ): StoredItem;
   recordAudit(input: Omit<AuditRecord, "id" | "createdAt">): AuditRecord;
   listAudits(): AuditRecord[];
   recordDelivery(

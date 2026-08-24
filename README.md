@@ -48,10 +48,11 @@ pnpm dev
 从与 `origin/main` 一致的干净 `main` 分支运行：
 
 ```bash
+SALARY_DEPLOY_DATABASE_PATH=/srv/salary/data/salary-slip.sqlite \
 bash deploy.sh
 ```
 
-脚本会执行质量门禁，生成不含密钥、SQLite 或本地缓存的 release，校验 Nginx 静态文件权限，等待 API 就绪并检查公网首页与 `/healthz`。任一步失败都会自动回滚到上一个 release；只检查本地构建和打包时可运行 `bash deploy.sh --dry-run`。
+`SALARY_DEPLOY_DATABASE_PATH` 必须指向部署目录之外的生产 SQLite 文件。脚本会执行质量门禁，生成不含密钥、SQLite 或本地缓存的 release，在远端全新 release 中按锁文件安装生产依赖（包括必要的 native build），并在切换前通过 SQLite 在线备份和 `PRAGMA integrity_check`。随后校验 Nginx 静态文件权限，等待 API 就绪并检查公网首页与 `/healthz`。任一步失败都会自动回滚代码版本；备份文件保留用于人工恢复，不会在自动回滚时覆盖并发产生的新数据。只检查本地构建和打包时可运行 `bash deploy.sh --dry-run`。
 
 ## 质量门禁
 

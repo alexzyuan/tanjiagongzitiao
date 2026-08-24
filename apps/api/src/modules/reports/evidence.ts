@@ -150,19 +150,19 @@ export class EvidenceService {
     let employeeMetadata: StoredItemMetadata | undefined;
     let evidenceCount = 0;
     let latestEvidenceAt: string | undefined;
+    const evidenceDataByBatch = new Map(
+      this.store
+        .listEmployeeEvidenceData(
+          summaries.map((summary) => summary.id),
+          employeeUserId,
+        )
+        .map((data) => [data.batchId, data]),
+    );
 
     for (const summary of summaries) {
-      const metadata = this.store
-        .listBatchItemMetadata(summary.id)
-        .find((item) => item.employeeUserId === employeeUserId);
-      if (!metadata) continue;
-      const evidence = this.store
-        .listEvidence(summary.id)
-        .filter((event) => event.employeeUserId === employeeUserId);
-      const deliveries = this.store
-        .listDeliveries(summary.id)
-        .filter((delivery) => delivery.employeeUserId === employeeUserId);
-      if (evidence.length === 0 && deliveries.length === 0) continue;
+      const data = evidenceDataByBatch.get(summary.id);
+      if (!data) continue;
+      const { item: metadata, evidence, deliveries } = data;
       employeeMetadata ??= metadata;
       evidenceCount += 1;
       latestEvidenceAt = latestDate(
@@ -192,11 +192,10 @@ export class EvidenceService {
 
     const rows: EvidenceRow[] = [];
     for (const candidate of candidates) {
-      const batch = this.store.getBatch(candidate.summary.id);
-      const item = batch.items.find(
-        (storedItem) => storedItem.id === candidate.metadata.id,
-      );
-      if (!item) throw new Error("salary_item_not_found");
+      const item = this.store.getEmployeeItem(candidate.summary.id, employeeUserId, {
+        includeArchived: true,
+      });
+      if (item.id !== candidate.metadata.id) throw new Error("salary_item_not_found");
       rows.push(toEvidenceRow(candidate.summary, item, candidate.status));
     }
     const availableFields = [

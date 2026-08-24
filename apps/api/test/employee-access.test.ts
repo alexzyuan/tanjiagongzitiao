@@ -11,6 +11,86 @@ function sessionCookie(response: {
 }
 
 describe("employee salary access", () => {
+  it("does not expose salary before a successful delivery", async () => {
+    const { app, dingtalk } = buildApp();
+    const admin = sessionCookie(
+      await app.inject({ method: "POST", url: "/v1/auth/dev" }),
+    );
+    const draft = await app.inject({
+      method: "POST",
+      url: "/v1/salary-batches",
+      headers: { cookie: admin },
+      payload: {
+        payrollMonth: "2026-08",
+        title: "未投递工资条不可访问",
+        rows: [{ userId: "employee-a", name: "员工A", 基本工资: 9000 }],
+      },
+    });
+    const batchId = draft.json().batchId as string;
+    const detail = await app.inject({
+      method: "GET",
+      url: `/v1/salary-batches/${batchId}`,
+      headers: { cookie: admin },
+    });
+    const itemId = detail.json().items[0].id as string;
+    const employee = sessionCookie(
+      await app.inject({
+        method: "POST",
+        url: "/v1/auth/dev",
+        payload: { userId: "employee-a", name: "员工A" },
+      }),
+    );
+
+    const listBeforeDelivery = await app.inject({
+      method: "GET",
+      url: "/v1/me/salary-slips",
+      headers: { cookie: employee },
+    });
+    expect(listBeforeDelivery.statusCode).toBe(200);
+    expect(listBeforeDelivery.json()).toEqual([]);
+
+    for (const url of [
+      `/v1/me/salary-slips/${batchId}`,
+      `/v1/me/salary-slips/${batchId}/view`,
+      `/v1/me/salary-slips/${batchId}/confirm`,
+    ]) {
+      const response = await app.inject({
+        method: url.endsWith("/view") || url.endsWith("/confirm") ? "POST" : "GET",
+        url,
+        headers: { cookie: employee },
+      });
+      expect(response.statusCode).toBe(404);
+      expect(response.json().code).toBe("salary_item_not_found");
+    }
+
+    dingtalk.sendWorkNotification = async () => {
+      throw new Error("notification_failed");
+    };
+    const failedSend = await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${batchId}/items/${itemId}/send`,
+      headers: { cookie: admin },
+      payload: {},
+    });
+    expect(failedSend.statusCode).toBe(500);
+
+    const listAfterFailure = await app.inject({
+      method: "GET",
+      url: "/v1/me/salary-slips",
+      headers: { cookie: employee },
+    });
+    expect(listAfterFailure.statusCode).toBe(200);
+    expect(listAfterFailure.json()).toEqual([]);
+    const detailAfterFailure = await app.inject({
+      method: "GET",
+      url: `/v1/me/salary-slips/${batchId}`,
+      headers: { cookie: employee },
+    });
+    expect(detailAfterFailure.statusCode).toBe(404);
+    expect(detailAfterFailure.json().code).toBe("salary_item_not_found");
+    await app.close();
+  });
+
   it("only exposes the signed-in employee's own current salary slip", async () => {
     const { app } = buildApp();
     const admin = sessionCookie(
@@ -140,6 +220,13 @@ describe("employee salary access", () => {
       },
     });
     const batchId = draft.json().batchId as string;
+    const sent = await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${batchId}/send`,
+      headers: { cookie: admin },
+      payload: {},
+    });
+    expect(sent.statusCode).toBe(200);
     const employee = sessionCookie(
       await app.inject({
         method: "POST",
@@ -214,6 +301,13 @@ describe("employee salary access", () => {
       },
     });
     const batchId = draft.json().batchId as string;
+    const sent = await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${batchId}/send`,
+      headers: { cookie: admin },
+      payload: {},
+    });
+    expect(sent.statusCode).toBe(200);
     const employee = sessionCookie(
       await app.inject({
         method: "POST",

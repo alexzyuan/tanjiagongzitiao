@@ -718,6 +718,55 @@ describe("salary management actions", () => {
     await app.close();
   });
 
+  it("rejects withdrawing a delivered item after its batch is archived", async () => {
+    const { app, store } = buildApp();
+    const admin = sessionCookie(
+      await app.inject({ method: "POST", url: "/v1/auth/dev" }),
+    );
+    const draft = await createDraft(app, admin);
+    const itemId = draft.detail.items[0].id;
+
+    const sent = await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${draft.batchId}/items/${itemId}/send`,
+      headers: { cookie: admin },
+      payload: {},
+    });
+    expect(sent.statusCode).toBe(200);
+    store.archiveExpired("2026-09");
+
+    const before = await app.inject({
+      method: "GET",
+      url: `/v1/salary-batches/${draft.batchId}`,
+      headers: { cookie: admin },
+    });
+    expect(before.json().state).toBe("archived");
+    expect(before.json().items[0]).toMatchObject({
+      deliveryStatus: "delivered",
+      canWithdraw: false,
+    });
+
+    const withdrawn = await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${draft.batchId}/items/${itemId}/withdraw`,
+      headers: { cookie: admin },
+      payload: {},
+    });
+    expect(withdrawn.statusCode).toBe(409);
+    expect(withdrawn.json().code).toBe("salary_item_not_withdrawable");
+
+    const after = await app.inject({
+      method: "GET",
+      url: `/v1/salary-batches/${draft.batchId}`,
+      headers: { cookie: admin },
+    });
+    expect(after.json().items[0]).toMatchObject({
+      deliveryStatus: "delivered",
+      canWithdraw: false,
+    });
+    await app.close();
+  });
+
   it("rejects deleting a batch while a single-item send is in flight", async () => {
     const { app, dingtalk } = buildApp();
     const admin = sessionCookie(

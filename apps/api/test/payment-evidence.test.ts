@@ -10,7 +10,9 @@ class BoundaryStore extends MemorySalaryStore {
   listBatchesCalled = false;
   listBatchItemMetadataCalls = 0;
   listEvidenceCalls = 0;
+  listEmployeeEvidenceDataCalls = 0;
   forbiddenBatchId?: string;
+  forbidFullBatchReads = false;
 
   override listBatches() {
     this.listBatchesCalled = true;
@@ -27,8 +29,16 @@ class BoundaryStore extends MemorySalaryStore {
     return super.listEvidence(batchId);
   }
 
+  override listEmployeeEvidenceData(
+    batchIds: string[],
+    employeeUserId: string,
+  ) {
+    this.listEmployeeEvidenceDataCalls += 1;
+    return super.listEmployeeEvidenceData(batchIds, employeeUserId);
+  }
+
   override getBatch(id: string) {
-    if (id === this.forbiddenBatchId)
+    if (this.forbidFullBatchReads || id === this.forbiddenBatchId)
       throw new Error("test_unauthorized_full_batch_read");
     return super.getBatch(id);
   }
@@ -206,6 +216,33 @@ describe("payment evidence service", () => {
     );
 
     expect(detail.rows.map((row) => row.batchId)).toEqual([allowed.id]);
+  });
+
+  it("loads employee evidence detail without reading the full batch", async () => {
+    const store = new BoundaryStore(Buffer.alloc(32, 9));
+    const batch = createBatch(store, {
+      employeeUserId: "employee-a",
+      employeeName: "员工A",
+      position: "财务",
+    });
+    store.forbidFullBatchReads = true;
+    const service = new EvidenceService(
+      store,
+      directoryClient([{ userId: "employee-a", name: "员工A" }]),
+      new AuditService(store),
+    );
+
+    const detail = await service.getEmployeeDetail(
+      { kind: "main_admin", userId: "admin" },
+      "employee-a",
+    );
+
+    expect(detail.rows).toEqual([
+      expect.objectContaining({ batchId: batch.id, employeeUserId: "employee-a" }),
+    ]);
+    expect(store.listEmployeeEvidenceDataCalls).toBe(1);
+    expect(store.listBatchItemMetadataCalls).toBe(0);
+    expect(store.listEvidenceCalls).toBe(0);
   });
 
   it("aggregates employee list evidence without per-batch metadata or event queries", async () => {

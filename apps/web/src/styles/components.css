@@ -63,6 +63,9 @@
   font-size: 12px;
   color: var(--ink);
 }
+.search:focus-within {
+  box-shadow: 0 0 0 3px var(--color-primary-soft);
+}
 .toolbar-note {
   color: var(--color-text-placeholder);
   font-size: 12px;
@@ -253,6 +256,8 @@
 }
 .modal {
   width: min(540px, 100%);
+  max-height: calc(100vh - 36px);
+  overflow-y: auto;
   background: var(--color-surface);
   border-radius: 9px;
   padding: 23px;
@@ -329,6 +334,11 @@
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
   }
 }
 .full-error {

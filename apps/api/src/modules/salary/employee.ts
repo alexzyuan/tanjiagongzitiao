@@ -118,6 +118,8 @@ export class SalaryEmployeeService {
       .at(-1);
     if (latestDelivery?.status === "withdrawn")
       throw new Error("salary_item_withdrawn");
+    if (latestDelivery?.status !== "delivered")
+      throw new Error("salary_item_not_found");
     return { batch, item };
   }
 }

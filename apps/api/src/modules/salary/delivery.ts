@@ -162,26 +162,15 @@ export class SalaryDeliveryService {
     const batch = this.store.getBatch(batchId);
     const item = batch.items.find((candidate) => candidate.id === itemId);
     if (!item) throw new Error("salary_item_not_found");
+    if (batch.state === "archived")
+      throw new Error("salary_item_not_withdrawable");
     const delivery = this.store
       .listDeliveries(batchId)
       .filter((candidate) => candidate.employeeUserId === item.employeeUserId)
       .at(-1);
     if (!delivery || delivery.status !== "delivered")
       throw new Error("salary_item_not_withdrawable");
-    this.store.recordDelivery({
-      batchId,
-      employeeUserId: item.employeeUserId,
-      status: "withdrawn",
-      ...(delivery.taskId ? { taskId: delivery.taskId } : {}),
-    });
-    this.store.recordEvidence({
-      batchId,
-      employeeUserId: item.employeeUserId,
-      eventType: "withdrawn",
-      fingerprint: salarySlipFingerprint(batch, item),
-      metadata: delivery.taskId ? { taskId: delivery.taskId } : {},
-    });
-    this.store.clearItemInteractions(batchId, item.employeeUserId);
+    this.recordItemWithdrawal(batch, item, delivery);
     const deliveriesByEmployee = new Map<string, DeliveryRecord[]>();
     for (const candidate of this.store.listDeliveries(batchId)) {
       const deliveries =
@@ -235,8 +224,19 @@ export class SalaryDeliveryService {
   withdraw(actor: Access, batchId: string) {
     if (!canManageBatch(actor, batchId))
       throw new Error("salary_batch_access_denied");
+    const batch = this.store.getBatch(batchId);
+    if (!canTransition(batch.state, "withdrawn"))
+      throw new Error(`invalid_salary_batch_transition:${batch.state}->withdrawn`);
+    const latestByEmployee = new Map<string, DeliveryRecord>();
+    for (const delivery of this.store.listDeliveries(batchId))
+      latestByEmployee.set(delivery.employeeUserId, delivery);
+    for (const item of batch.items) {
+      const delivery = latestByEmployee.get(item.employeeUserId);
+      if (delivery?.status === "delivered")
+        this.recordItemWithdrawal(batch, item, delivery);
+    }
     this.store.setState(batchId, "withdrawn");
-    const batch = this.store.clearBatchInteractions(batchId);
+    const clearedBatch = this.store.clearBatchInteractions(batchId);
     this.audit.record({
       correlationId: `batch:${batchId}`,
       actorUserId: actor.userId,
@@ -245,7 +245,28 @@ export class SalaryDeliveryService {
       targetId: batchId,
       outcome: "completed",
     });
-    return batch;
+    return clearedBatch;
+  }
+
+  private recordItemWithdrawal(
+    batch: ReturnType<SalaryStore["getBatch"]>,
+    item: ReturnType<SalaryStore["getEmployeeItem"]>,
+    delivery: DeliveryRecord,
+  ) {
+    this.store.recordDelivery({
+      batchId: batch.id,
+      employeeUserId: item.employeeUserId,
+      status: "withdrawn",
+      ...(delivery.taskId ? { taskId: delivery.taskId } : {}),
+    });
+    this.store.recordEvidence({
+      batchId: batch.id,
+      employeeUserId: item.employeeUserId,
+      eventType: "withdrawn",
+      fingerprint: salarySlipFingerprint(batch, item),
+      metadata: delivery.taskId ? { taskId: delivery.taskId } : {},
+    });
+    this.store.clearItemInteractions(batch.id, item.employeeUserId);
   }
 
   withDeliveryStatus(batch: ReturnType<SalaryStore["getBatch"]>) {
@@ -276,7 +297,8 @@ export class SalaryDeliveryService {
             !inFlight &&
             !["archived", "sending"].includes(batch.state) &&
             delivery?.status !== "delivered",
-          canWithdraw: delivery?.status === "delivered",
+          canWithdraw:
+            batch.state !== "archived" && delivery?.status === "delivered",
         };
       }),
     };

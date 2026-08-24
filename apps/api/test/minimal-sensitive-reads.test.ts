@@ -21,7 +21,7 @@ class BoundaryStore extends MemorySalaryStore {
 }
 
 function createBatch(store: BoundaryStore, employeeUserId: string) {
-  return store.createBatch({
+  const batch = store.createBatch({
     payrollMonth: "2026-08",
     title: "最小读取测试",
     createdById: "admin",
@@ -43,6 +43,13 @@ function createBatch(store: BoundaryStore, employeeUserId: string) {
       fieldGroups: [],
     },
   });
+  store.recordDelivery({
+    batchId: batch.id,
+    employeeUserId,
+    status: "delivered",
+    taskId: `task-${employeeUserId}`,
+  });
+  return batch;
 }
 
 describe("minimal sensitive salary reads", () => {

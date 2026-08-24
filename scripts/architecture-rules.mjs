@@ -1,4 +1,5 @@
 import { readFile, readdir } from "node:fs/promises";
+import { builtinModules } from "node:module";
 import { basename, dirname, relative, resolve } from "node:path";
 
 const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".mts", ".mjs"]);
@@ -30,6 +31,8 @@ const IMPORT_RULES = [
   ["apps/web", ["@salary/db", "@salary/dingtalk", "apps/api", "better-sqlite3", "node:fs", "node:path"]],
   ["apps/worker", ["@salary/dingtalk", "fastify", "react", "apps/api", "apps/web"]],
 ];
+
+const NODE_BUILTIN_FREE_PACKAGES = new Set(["packages/domain", "apps/web"]);
 
 const EXPECTED_CSS_DUPLICATES = [
   {
@@ -114,6 +117,14 @@ async function checkImportDirections(root, files, errors) {
       if (!(relativeFile === directory || relativeFile.startsWith(`${directory}/`))) continue;
       const source = await readFile(file, "utf8");
       for (const specifier of importsFrom(source)) {
+        if (
+          NODE_BUILTIN_FREE_PACKAGES.has(directory) &&
+          isNodeBuiltin(specifier)
+        ) {
+          errors.push(
+            `ARCH-ERROR forbidden Node builtin import ${specifier} in ${relativeFile} (rule ${directory})`,
+          );
+        }
         const blocked = forbidden.find(
           (prefix) =>
             specifier === prefix ||
@@ -212,6 +223,17 @@ function resolvedTargetMatches(root, sourceFile, specifier, forbiddenPrefix) {
   if (forbiddenPrefix === "apps/api") return targetRelative.startsWith("apps/api/");
   if (forbiddenPrefix === "apps/web") return targetRelative.startsWith("apps/web/");
   return false;
+}
+
+function isNodeBuiltin(specifier) {
+  const normalized = specifier.startsWith("node:")
+    ? specifier.slice("node:".length)
+    : specifier;
+  return builtinModules.some(
+    (builtin) =>
+      builtin === normalized ||
+      (builtin.startsWith("node:") && builtin.slice("node:".length) === normalized),
+  );
 }
 
 function extname(file) {

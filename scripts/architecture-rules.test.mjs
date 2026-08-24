@@ -57,6 +57,27 @@ describe("architecture rules", () => {
     assert.equal(result.errors.some((error) => error.includes("./helper.js")), false);
   });
 
+  it("rejects Node builtins from domain and web packages", async () => {
+    const root = await fixture();
+    await writeFixture(root, "package.json", "{}");
+    await writeFixture(root, "packages/domain/src/index.ts", 'import fs from "node:fs";\n');
+    await writeFixture(root, "apps/web/src/index.ts", 'import path from "path";\n');
+    const result = await scanArchitecture(root);
+    assert.equal(
+      result.errors.some(
+        (error) =>
+          error.includes("node:fs") && error.includes("packages/domain"),
+      ),
+      true,
+    );
+    assert.equal(
+      result.errors.some(
+        (error) => error.includes("path") && error.includes("apps/web"),
+      ),
+      true,
+    );
+  });
+
   it("reports size warnings without hard failure", async () => {
     const root = await fixture();
     await writeFixture(root, "package.json", "{}");
