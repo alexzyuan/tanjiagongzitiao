@@ -42,6 +42,20 @@ afterEach(() => {
 });
 
 describe("salary management", () => {
+  it("does not show a back button on the monthly batch overview", async () => {
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/v1/salary-batches") return Promise.resolve([batch]);
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+
+    render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
+
+    await screen.findByText("0/1");
+    expect(
+      screen.queryByRole("button", { name: "返回" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("does not open the salary detail drawer when the management page first loads", async () => {
     apiMock.mockImplementation((path: string) => {
       if (path === "/v1/salary-batches") return Promise.resolve([batch]);
