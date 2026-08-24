@@ -121,7 +121,7 @@
 
 - 开始重要任务前确认当前 branch/main 基线和工作区状态。
 - 保护用户已有未提交修改；禁止 `git reset --hard`、`git clean -fd`、覆盖或回滚用户代码。
-- 未经用户明确授权，不 merge 或 deploy；需要大规模改动时先创建 `codex/` 前缀分支。
-- 行为 bug 必须尽量测试先行：先增加失败回归测试，确认修复前失败，再做最小修改。
+- 未经用户明确授权，不 push、merge 或 deploy；需要大规模改动时先创建 `codex/` 前缀分支。
+- 行为 bug 必须测试先行：先增加失败回归测试，确认修复前失败，再做最小修改。
 - 完成前运行目标测试、相关测试、`pnpm architecture:check`、`pnpm test`、`pnpm typecheck`、`pnpm build` 和 `git diff --check`；如果仓库启用了 `format:check`，同时运行它。
 - 命令未实际成功不得报告为通过。
