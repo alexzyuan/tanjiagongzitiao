@@ -630,6 +630,12 @@ describe("salary management actions", () => {
       payload: {},
     });
     expect(withdrawn.statusCode).toBe(200);
+    expect(withdrawn.json().items[0]).toMatchObject({
+      deliveryStatus: "withdrawn",
+      canEdit: true,
+      canSend: true,
+      canWithdraw: false,
+    });
 
     const edited = await app.inject({
       method: "PATCH",
@@ -687,6 +693,12 @@ describe("salary management actions", () => {
       method: "GET",
       url: `/v1/salary-batches/${draft.batchId}`,
       headers: { cookie: admin },
+    });
+    expect(before.json().items[0]).toMatchObject({
+      deliveryStatus: "withdrawn",
+      canEdit: false,
+      canSend: false,
+      canWithdraw: false,
     });
     const edited = await app.inject({
       method: "PATCH",

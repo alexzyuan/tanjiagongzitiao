@@ -74,6 +74,7 @@ describe("salary management", () => {
               employeeName: "员工A",
               employeeUserId: "employee-a",
               fields: { 实发金额: 10000 },
+              canSend: true,
             },
           ],
         });
@@ -104,6 +105,7 @@ describe("salary management", () => {
               employeeUserId: "employee-failed",
               fields: { 实发金额: 10000 },
               deliveryStatus: "failed",
+              canSend: true,
             },
             {
               id: "item-withdrawn",
@@ -111,6 +113,8 @@ describe("salary management", () => {
               employeeUserId: "employee-withdrawn",
               fields: { 实发金额: 9000 },
               deliveryStatus: "withdrawn",
+              canEdit: true,
+              canSend: true,
             },
           ],
         });
@@ -142,6 +146,7 @@ describe("salary management", () => {
               employeeUserId: "employee-failed",
               fields: { 实发金额: 10000 },
               deliveryStatus: "failed",
+              canSend: true,
             },
             {
               id: "item-withdrawn",
@@ -149,6 +154,8 @@ describe("salary management", () => {
               employeeUserId: "employee-withdrawn",
               fields: { 实发金额: 9000 },
               deliveryStatus: "withdrawn",
+              canEdit: true,
+              canSend: true,
             },
           ],
         });
@@ -381,11 +388,17 @@ describe("salary management", () => {
       employeeUserId: "employee-a",
       fields: { 实发金额: 10000 },
       deliveryStatus: "delivered",
+      canEdit: false,
+      canSend: false,
+      canWithdraw: true,
     };
     const withdrawn = {
       ...delivered,
       fields: { 实发金额: 10100 },
       deliveryStatus: "withdrawn" as const,
+      canEdit: true,
+      canSend: true,
+      canWithdraw: false,
     };
     let withdrawnState = false;
     apiMock.mockImplementation(
@@ -444,5 +457,46 @@ describe("salary management", () => {
         expect.objectContaining({ method: "PATCH" }),
       ),
     );
+  });
+
+  it("uses server capabilities to disable archived withdrawn item actions", async () => {
+    const user = userEvent.setup();
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/v1/salary-batches")
+        return Promise.resolve([
+          {
+            ...batch,
+            state: "archived",
+            sent: 1,
+            total: 1,
+            canDelete: false,
+          },
+        ]);
+      if (path === "/v1/salary-batches/batch-1")
+        return Promise.resolve({
+          ...batch,
+          state: "archived",
+          sent: 1,
+          total: 1,
+          items: [
+            {
+              id: "item-1",
+              employeeName: "员工A",
+              employeeUserId: "employee-a",
+              fields: { 实发金额: 10000 },
+              deliveryStatus: "withdrawn",
+              canEdit: false,
+              canSend: false,
+              canWithdraw: false,
+            },
+          ],
+        });
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+
+    render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
+    await user.click(await screen.findByRole("button", { name: "查看发送" }));
+    expect(await screen.findByRole("button", { name: "编辑" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "重新发送" })).toBeDisabled();
   });
 });

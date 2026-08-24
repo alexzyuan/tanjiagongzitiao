@@ -180,7 +180,7 @@ export function SalaryManagement({
   }
 
   function startEdit(item: SalaryItem) {
-    if (item.deliveryStatus !== "withdrawn") return;
+    if (item.canEdit !== true) return;
     setEditingItem(item);
     setEditFields(
       Object.fromEntries(

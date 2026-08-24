@@ -211,7 +211,7 @@ export function SalaryEmployeeTable({
                       {item.deliveryStatus === "delivered" && (
                         <button
                           className="text-button danger"
-                          disabled={busy}
+                          disabled={item.canWithdraw !== true || busy}
                           onClick={() => onWithdrawItem(item)}
                         >
                           撤回
@@ -219,7 +219,7 @@ export function SalaryEmployeeTable({
                       )}
                       <button
                         className="text-button"
-                        disabled={item.deliveryStatus !== "withdrawn" || busy}
+                        disabled={item.canEdit !== true || busy}
                         onClick={() => onEditItem(item)}
                       >
                         编辑
@@ -227,7 +227,7 @@ export function SalaryEmployeeTable({
                       {item.deliveryStatus === "withdrawn" ? (
                         <button
                           className="text-button"
-                          disabled={busy}
+                          disabled={item.canSend !== true || busy}
                           onClick={() => onSendItem(item)}
                         >
                           重新发送
@@ -235,7 +235,7 @@ export function SalaryEmployeeTable({
                       ) : item.deliveryStatus !== "delivered" ? (
                         <button
                           className="text-button"
-                          disabled={busy}
+                          disabled={item.canSend !== true || busy}
                           onClick={() => onSendItem(item)}
                         >
                           单独发送

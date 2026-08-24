@@ -1,6 +1,10 @@
 import type { DingTalkClient } from "@salary/dingtalk";
 import type { Access, SalaryBatchState } from "@salary/domain";
-import { canManageBatch, canTransition } from "@salary/domain";
+import {
+  canEditSalaryItem,
+  canManageBatch,
+  canTransition,
+} from "@salary/domain";
 import {
   fingerprintSalaryPayload,
   type DeliveryRecord,
@@ -255,7 +259,25 @@ export class SalaryDeliveryService {
       ...batch,
       items: batch.items.map((item) => {
         const delivery = latestByEmployee.get(item.employeeUserId);
-        return delivery ? { ...item, deliveryStatus: delivery.status } : item;
+        const inFlight = this.isItemSendInFlight(
+          batch.id,
+          item.employeeUserId,
+        );
+        return {
+          ...item,
+          ...(delivery ? { deliveryStatus: delivery.status } : {}),
+          canEdit:
+            !inFlight &&
+            canEditSalaryItem({
+              batchState: batch.state,
+              latestDeliveryStatus: delivery?.status,
+            }),
+          canSend:
+            !inFlight &&
+            !["archived", "sending"].includes(batch.state) &&
+            delivery?.status !== "delivered",
+          canWithdraw: delivery?.status === "delivered",
+        };
       }),
     };
   }
