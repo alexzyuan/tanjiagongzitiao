@@ -48,7 +48,7 @@ function mockEmployeeHome(displaySettings: ReturnType<typeof settings>) {
           batch: {
             id: "batch-1",
             payrollMonth: "2026-08",
-            title: "2026年08月工资条",
+            title: "历史自定义标题",
             displaySettings,
           },
           item: {
@@ -80,16 +80,20 @@ function mockEmployeePreview(displaySettings: ReturnType<typeof settings>) {
 afterEach(() => vi.clearAllMocks());
 
 describe("employee salary semantics", () => {
-  it("keeps the employee home focused on 我的工资条 without fake navigation", async () => {
+  it("matches the compact employee home layout with an explicit month picker", async () => {
     mockEmployeeHome(settings(false));
     render(<EmployeeHome employeeId="employee-a" />);
-    expect(await screen.findByText("我的工资条", { selector: "strong" })).toBeInTheDocument();
+    expect(await screen.findByText("实发金额总和")).toBeInTheDocument();
     expect(screen.getByText("2026年08月工资条")).toBeInTheDocument();
     expect(screen.getByText("明细")).toBeInTheDocument();
-    expect(screen.queryByText("工资条", { exact: true })).not.toBeInTheDocument();
-    expect(screen.queryByText("发现", { exact: true })).not.toBeInTheDocument();
-    expect(screen.queryByText("中文", { exact: true })).not.toBeInTheDocument();
-    expect(screen.queryByText("‹", { exact: true })).not.toBeInTheDocument();
+    expect(document.querySelector(".employee-month-chevron")).toBeInTheDocument();
+    expect(document.querySelector(".employee-mobile-nav")).not.toBeInTheDocument();
+    expect(screen.queryByText("我的工资条", { exact: true })).not.toBeInTheDocument();
+    expect(document.querySelector(".employee-hero")).toBeInTheDocument();
+    expect(document.querySelectorAll(".employee-watermark")).toHaveLength(2);
+    const card = screen.getByRole("button", { name: /2026年08月工资条/ });
+    expect(card.querySelector(".employee-slip-card-amount")).toBeInTheDocument();
+    expect(card.querySelector(".employee-slip-card-amount em")).toHaveTextContent("实发工资");
   });
 
   it("shows an update notice when the salary item has been withdrawn", async () => {

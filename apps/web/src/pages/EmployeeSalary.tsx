@@ -19,6 +19,19 @@ function errorText(reason: unknown) {
   const message = reason instanceof Error ? reason.message : typeof reason === "string" ? reason : "unknown_error";
   return message === "salary_item_withdrawn" ? withdrawnNotice : message;
 }
+function formatSalaryBatchTitle(payrollMonth: string) {
+  const match = /^(\d{4})-(\d{2})$/.exec(payrollMonth);
+  return match ? `${match[1]}年${match[2]}月工资条` : `${payrollMonth}工资条`;
+}
+function EmployeeWatermark({ name }: { name: string }) {
+  return (
+    <div className="employee-watermark" aria-hidden="true">
+      {Array.from({ length: 9 }, (_, index) => (
+        <span key={`${name}-${index}`}>{name}</span>
+      ))}
+    </div>
+  );
+}
 export function EmployeeHome({ employeeId }: { employeeId: string | undefined }) {
   const [identity, setIdentity] = useState<Identity>();
   const [slips, setSlips] = useState<Array<{ batch: Batch; item: SalaryItem }>>(
@@ -55,9 +68,6 @@ export function EmployeeHome({ employeeId }: { employeeId: string | undefined })
   if (!month)
     return (
       <div className="employee-page employee-mobile-shell">
-        <div className="employee-mobile-nav">
-          <strong>我的工资条</strong>
-        </div>
         <main className="employee-home employee-empty-home">
           <p>暂无可查看的工资条</p>
         </main>
@@ -73,25 +83,28 @@ export function EmployeeHome({ employeeId }: { employeeId: string | undefined })
   const months = [...new Set(slips.map((entry) => entry.batch.payrollMonth))];
   return (
     <div className="employee-page employee-mobile-shell">
-      <div className="employee-mobile-nav">
-        <strong>我的工资条</strong>
-      </div>
       <main className="employee-home">
-        <select
-          className="employee-month-select"
-          value={month}
-          onChange={(event) => setMonth(event.target.value)}
-        >
-          {months.map((value) => (
-            <option key={value} value={value}>
-              {value.replace("-", ".")}
-            </option>
-          ))}
-        </select>
-        <section className="employee-total">
-          <small>{identity.name}</small>
-          <strong>{formatSalaryValue(total)}</strong>
-          <span>实发金额总和</span>
+        <section className="employee-hero">
+          <EmployeeWatermark name={identity.name} />
+          <div className="employee-month-picker">
+            <select
+              aria-label="选择工资月份"
+              className="employee-month-select"
+              value={month}
+              onChange={(event) => setMonth(event.target.value)}
+            >
+              {months.map((value) => (
+                <option key={value} value={value}>
+                  {value.replace("-", ".")}
+                </option>
+              ))}
+            </select>
+            <span className="employee-month-chevron" aria-hidden="true" />
+          </div>
+          <section className="employee-total">
+            <strong>{formatSalaryValue(total)}</strong>
+            <span>实发金额总和</span>
+          </section>
         </section>
         <section className="employee-slip-list">
           {monthSlips.map(({ batch, item }) => {
@@ -105,16 +118,19 @@ export function EmployeeHome({ employeeId }: { employeeId: string | undefined })
                   window.location.assign(`/employee/salary-slips/${batch.id}`)
                 }
               >
-                <span>
-                  <b>{batch.title}</b>
+                <span className="employee-slip-card-header">
+                  <b>{formatSalaryBatchTitle(batch.payrollMonth)}</b>
                   <small>
                     明细 <i>›</i>
                   </small>
                 </span>
-                <strong>
-                  {typeof net === "number" ? formatSalaryValue(net) : "--"}
-                </strong>
-                <em>{batch.displaySettings.netAmountField}</em>
+                <span className="employee-slip-card-amount">
+                  <strong>
+                    {typeof net === "number" ? formatSalaryValue(net) : "--"}
+                  </strong>
+                  <em>实发工资</em>
+                </span>
+                <EmployeeWatermark name={identity.name} />
               </button>
             );
           })}
