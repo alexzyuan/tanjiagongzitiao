@@ -45,7 +45,26 @@ export function App() {
         <EmployeePage employeeId={impersonatedId} />
       </EmployeeViewport>
     );
-  return <AdminApp impersonatedId={impersonatedId} />;
+  return <RootRoute impersonatedId={impersonatedId} />;
+}
+
+function RootRoute({ impersonatedId }: { impersonatedId: string | undefined }) {
+  const isMobile = useIsMobileViewport();
+  return isMobile ? (
+    <EmployeeHome employeeId={impersonatedId} />
+  ) : (
+    <AdminApp impersonatedId={impersonatedId} />
+  );
+}
+
+function useIsMobileViewport() {
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 700);
+  useEffect(() => {
+    const update = () => setIsMobile(window.innerWidth <= 700);
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+  return isMobile;
 }
 
 function EmployeeViewport({
@@ -55,12 +74,7 @@ function EmployeeViewport({
   children: ReactNode;
   preview?: boolean;
 }) {
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 700);
-  useEffect(() => {
-    const update = () => setIsMobile(window.innerWidth <= 700);
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
-  }, []);
+  const isMobile = useIsMobileViewport();
   if (!isMobile && !preview)
     return (
       <main className="employee-desktop-notice">请在手机钉钉中查看工资条</main>
