@@ -72,6 +72,7 @@ for directory in \
   cp -a "$ROOT_DIR/$directory/." "$stage_dir/$directory/"
 done
 printf '%s\n' "$commit" > "$stage_dir/RELEASE_COMMIT"
+node "$ROOT_DIR/scripts/release-version.mjs" "$commit" "$stage_dir/apps/web/dist/version.json"
 tar -czf "$archive_path" -C "$stage_dir" .
 
 if tar -tzf "$archive_path" | grep -E '(^|/)\.env($|/)|node_modules|\.superpowers|salary-slip-internal-app-20260818\.zip|\.sqlite($|/)' >/dev/null; then
@@ -195,10 +196,17 @@ if ! curl --fail --silent --show-error --max-time 10 "$public_url/healthz" >/dev
   rollback
   fail "public health check failed"
 fi
+version_json="$(curl --fail --silent --show-error --max-time 10 "$public_url/version.json")"
+expected_version_json="{\"commit\":\"$commit\"}"
+if [[ "$version_json" != "$expected_version_json" ]]; then
+  rollback
+  fail "public version mismatch: expected $commit"
+fi
 
 printf 'previous=%s\ncurrent=%s\n' "$previous" "$(readlink -f "$base/current")"
 printf 'service=%s\n' "$(systemctl is-active "$service_name")"
 printf 'home_status=%s\n' "$home_status"
+printf 'version=%s\n' "$commit"
 printf 'health='; cat "$health_file"; printf '\n'
 rm -f "$archive" "$health_file"
 REMOTE
