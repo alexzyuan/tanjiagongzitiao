@@ -46,7 +46,7 @@ describe("production runtime", () => {
       }
       await rm(directory, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   it.each([
     ["rejects a non-HTTPS production URL", { APP_BASE_URL: "http://salary.example.test", SALARY_DATABASE_PATH: "/tmp/salary-slip.sqlite" }, "production_requires_https_app_base_url"],

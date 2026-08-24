@@ -6,6 +6,13 @@
   background: #f4f7fb;
   font-size: 15px;
 }
+.employee-preview-viewport {
+  width: min(430px, 100%);
+  min-height: 100vh;
+  margin: 0 auto;
+  background: #f4f7fb;
+  box-shadow: 0 0 0 1px #dfe7f0, 0 12px 30px rgb(28 53 81 / 12%);
+}
 .employee-page {
   min-height: 100vh;
   background: #f4f7fb;
@@ -150,6 +157,12 @@
   min-height: calc(100vh - 132px);
   background: linear-gradient(165deg, #1c99f8 0, #61b3fb 28%, #f6f7fc 50%);
   padding: 22px 18px 24px;
+}
+.employee-empty-home {
+  display: grid;
+  place-items: center;
+  color: #708197;
+  font-size: 14px;
 }
 .employee-month-select {
   appearance: none;

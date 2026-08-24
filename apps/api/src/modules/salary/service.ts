@@ -499,6 +499,10 @@ export class SalaryService {
     return this.employee.confirmEmployeeItem(access, batchId);
   }
 
+  previewEmployeeItem(access: Access, batchId: string, itemId: string) {
+    return this.employee.previewEmployeeItem(access, batchId, itemId);
+  }
+
   private importPreviewFor(
     actorUserId: string,
     previewId: string,

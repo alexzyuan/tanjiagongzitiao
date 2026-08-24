@@ -182,6 +182,18 @@ export function registerSalaryRoutes(
       (request.params as { batchId: string }).batchId,
     );
   });
+  app.get(
+    "/v1/salary-batches/:batchId/items/:itemId/employee-preview",
+    async (request) => {
+      const identity = user(request, deps.sessions);
+      const params = request.params as { batchId: string; itemId: string };
+      return deps.salary.previewEmployeeItem(
+        deps.authz.accessFor(identity.userId),
+        params.batchId,
+        params.itemId,
+      );
+    },
+  );
   app.delete("/v1/salary-batches/:batchId", async (request) => {
     const identity = user(request, deps.sessions);
     return deps.salary.deleteBatch(

@@ -100,6 +100,32 @@ describe("salary management", () => {
     expect(screen.queryByText(/DING/)).not.toBeInTheDocument();
   });
 
+  it("links each employee row to a read-only employee preview", async () => {
+    const user = userEvent.setup();
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/v1/salary-batches") return Promise.resolve([batch]);
+      if (path === "/v1/salary-batches/batch-1")
+        return Promise.resolve({
+          ...batch,
+          items: [
+            {
+              id: "item-1",
+              employeeName: "员工A",
+              employeeUserId: "employee-a",
+              fields: { 实发金额: 10000 },
+              canSend: true,
+            },
+          ],
+        });
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+    render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
+    await user.click(await screen.findByRole("button", { name: "前往发送" }));
+    const preview = await screen.findByRole("link", { name: "员工端预览" });
+    expect(preview).toHaveAttribute("href", "/employee/preview/batch-1/item-1");
+    expect(preview).toHaveAttribute("target", "_blank");
+  });
+
   it("renders failed and withdrawn employee delivery states", async () => {
     const user = userEvent.setup();
     apiMock.mockImplementation((path: string) => {

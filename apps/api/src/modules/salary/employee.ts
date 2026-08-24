@@ -3,6 +3,7 @@ import type {
   SalaryBatchSummary,
   SalarySlipDisplaySettings,
 } from "@salary/domain";
+import { canManageBatch } from "@salary/domain";
 import { fingerprintSalaryPayload, type SalaryStore } from "@salary/db";
 import type { AuditService } from "../audit/service.js";
 
@@ -92,6 +93,27 @@ export class SalaryEmployeeService {
       outcome: "completed",
     });
     return employeeVisibleItem(item, employeeSlip.batch.displaySettings);
+  }
+
+  previewEmployeeItem(access: Access, batchId: string, itemId: string) {
+    if (!canManageBatch(access, batchId))
+      throw new Error("salary_batch_access_denied");
+    const batchSummary = this.store.getBatchSummary(batchId);
+    if (batchSummary.state === "archived" && access.kind !== "main_admin")
+      throw new Error("salary_archive_access_denied");
+    const batch = this.store.getBatch(batchId);
+    const item = batch.items.find((candidate) => candidate.id === itemId);
+    if (!item) throw new Error("salary_item_not_found");
+    this.audit.record({
+      correlationId: `item:${item.id}`,
+      actorUserId: access.userId,
+      action: "salary_item.preview",
+      targetType: "salary_item",
+      targetId: item.id,
+      outcome: "completed",
+      metadata: { previewOnly: true },
+    });
+    return employeeSlipResponse(batchSummary, item);
   }
 
   private employeeAccessibleSlip(

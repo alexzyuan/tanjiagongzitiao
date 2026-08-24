@@ -64,6 +64,19 @@ function mockEmployeeHome(displaySettings: ReturnType<typeof settings>) {
   });
 }
 
+function mockEmployeePreview(displaySettings: ReturnType<typeof settings>) {
+  window.history.pushState({}, "", "/employee/preview/batch-1/item-1");
+  sessionMock.mockResolvedValue({ userId: "dev-admin", name: "企业管理员", corpId: "corp" });
+  apiMock.mockImplementation((path: string) => {
+    if (path === "/v1/salary-batches/batch-1/items/item-1/employee-preview")
+      return Promise.resolve({
+        batch: { id: "batch-1", payrollMonth: "2026-08", title: "工资条", displaySettings },
+        item: { id: "item-1", batchId: "batch-1", employeeUserId: "employee-a", employeeName: "员工A", fields: { 基本工资: 10000, 实发金额: 9000 } },
+      });
+    return Promise.reject(new Error(`unexpected_request:${path}`));
+  });
+}
+
 afterEach(() => vi.clearAllMocks());
 
 describe("employee salary semantics", () => {
@@ -115,5 +128,24 @@ describe("employee salary semantics", () => {
     expect(confirmationButton).not.toBeDisabled();
     expect(screen.queryByRole("button", { name: "已确认查看" })).not.toBeInTheDocument();
     expect(screen.getByText(/查看和确认时间将生成存证记录/)).toBeInTheDocument();
+  });
+
+  it("renders admin employee preview as read-only and does not create view activity", async () => {
+    mockEmployeePreview(settings(true));
+    render(<EmployeePage employeeId={undefined} preview />);
+    await screen.findByText("员工A · employee-a");
+    expect(screen.getByText("管理员预览")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /确认已查看/ })).not.toBeInTheDocument();
+    expect(apiMock).not.toHaveBeenCalledWith("/v1/me/salary-slips/batch-1/view", { method: "POST" });
+    expect(apiMock).not.toHaveBeenCalledWith("/v1/me/salary-slips/batch-1/confirm", { method: "POST" });
+  });
+
+  it("shows an empty mobile list when the signed-in administrator has no own salary slip", async () => {
+    window.history.pushState({}, "", "/employee/salary-slips");
+    sessionMock.mockResolvedValue({ userId: "dev-admin", name: "企业管理员", corpId: "corp" });
+    apiMock.mockResolvedValue([]);
+    render(<EmployeeHome employeeId={undefined} />);
+    expect(await screen.findByText("暂无可查看的工资条")).toBeInTheDocument();
+    expect(screen.queryByText("加载中")).not.toBeInTheDocument();
   });
 });

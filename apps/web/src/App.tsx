@@ -33,6 +33,12 @@ export function App() {
         <EmployeeHome employeeId={impersonatedId} />
       </EmployeeViewport>
     );
+  if (window.location.pathname.startsWith("/employee/preview/"))
+    return (
+      <EmployeeViewport preview>
+        <EmployeePage employeeId={undefined} preview />
+      </EmployeeViewport>
+    );
   if (window.location.pathname.startsWith("/employee/"))
     return (
       <EmployeeViewport>
@@ -42,18 +48,28 @@ export function App() {
   return <AdminApp impersonatedId={impersonatedId} />;
 }
 
-function EmployeeViewport({ children }: { children: ReactNode }) {
+function EmployeeViewport({
+  children,
+  preview = false,
+}: {
+  children: ReactNode;
+  preview?: boolean;
+}) {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 700);
   useEffect(() => {
     const update = () => setIsMobile(window.innerWidth <= 700);
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
   }, []);
-  if (!isMobile)
+  if (!isMobile && !preview)
     return (
       <main className="employee-desktop-notice">请在手机钉钉中查看工资条</main>
     );
-  return <>{children}</>;
+  return preview ? (
+    <div className="employee-preview-viewport">{children}</div>
+  ) : (
+    <>{children}</>
+  );
 }
 
 function AdminApp({ impersonatedId }: { impersonatedId: string | undefined }) {
