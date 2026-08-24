@@ -55,6 +55,49 @@ const report = {
 afterEach(() => {
   vi.clearAllMocks();
   vi.restoreAllMocks();
+  window.history.replaceState({}, "", "/");
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    value: 1024,
+  });
+});
+
+describe("root route viewport split", () => {
+  it("shows the current user's employee home at the root on a mobile viewport", async () => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 500,
+    });
+    ensureSessionMock.mockResolvedValue(identity);
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/v1/me/salary-slips") return Promise.resolve([]);
+      if (path === "/v1/salary-batches") return Promise.resolve([]);
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText("暂无可查看的工资条")).toBeInTheDocument();
+    expect(apiMock).toHaveBeenCalledWith("/v1/me/salary-slips");
+    expect(screen.queryByRole("button", { name: "工资条管理" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the administrator shell at the root on a desktop viewport", async () => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 1024,
+    });
+    ensureSessionMock.mockResolvedValue(identity);
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/v1/salary-batches") return Promise.resolve([]);
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole("button", { name: "工资条管理" })).toBeInTheDocument();
+    expect(apiMock).not.toHaveBeenCalledWith("/v1/me/salary-slips");
+  });
 });
 
 describe("admin module navigation", () => {
