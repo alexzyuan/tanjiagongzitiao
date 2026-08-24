@@ -59,6 +59,9 @@ export interface SalaryItem {
   viewedAt?: string;
   confirmedAt?: string;
   deliveryStatus?: "delivered" | "failed" | "withdrawn";
+  canEdit?: boolean;
+  canSend?: boolean;
+  canWithdraw?: boolean;
 }
 
 export type EmployeeMatchStrategy = "userId" | "employeeNo" | "name";
