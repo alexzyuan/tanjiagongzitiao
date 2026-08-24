@@ -11,7 +11,7 @@ vi.mock("../api", async () => {
   return { ...actual, api: apiMock, ensureSession: sessionMock };
 });
 
-import { EmployeePage } from "./EmployeeSalary";
+import { EmployeeHome, EmployeePage } from "./EmployeeSalary";
 
 const settings = (confirmationEnabled: boolean) => ({
   netAmountField: "实发金额",
@@ -38,9 +38,47 @@ function mockEmployeePage(displaySettings: ReturnType<typeof settings>) {
   });
 }
 
+function mockEmployeeHome(displaySettings: ReturnType<typeof settings>) {
+  window.history.pushState({}, "", "/employee/salary-slips");
+  sessionMock.mockResolvedValue({ userId: "employee-a", name: "员工A", corpId: "corp" });
+  apiMock.mockImplementation((path: string) => {
+    if (path === "/v1/me/salary-slips")
+      return Promise.resolve([
+        {
+          batch: {
+            id: "batch-1",
+            payrollMonth: "2026-08",
+            title: "2026年08月工资条",
+            displaySettings,
+          },
+          item: {
+            id: "item-1",
+            batchId: "batch-1",
+            employeeUserId: "employee-a",
+            employeeName: "员工A",
+            fields: { 基本工资: 10000, 实发金额: 9000 },
+          },
+        },
+      ]);
+    return Promise.reject(new Error(`unexpected_request:${path}`));
+  });
+}
+
 afterEach(() => vi.clearAllMocks());
 
 describe("employee salary semantics", () => {
+  it("keeps the employee home focused on 我的工资条 without fake navigation", async () => {
+    mockEmployeeHome(settings(false));
+    render(<EmployeeHome employeeId="employee-a" />);
+    expect(await screen.findByText("我的工资条", { selector: "strong" })).toBeInTheDocument();
+    expect(screen.getByText("2026年08月工资条")).toBeInTheDocument();
+    expect(screen.getByText("明细")).toBeInTheDocument();
+    expect(screen.queryByText("工资条", { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByText("发现", { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByText("中文", { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByText("‹", { exact: true })).not.toBeInTheDocument();
+  });
+
   it("shows an update notice when the salary item has been withdrawn", async () => {
     window.history.pushState({}, "", "/employee/salary-slips/batch-1");
     sessionMock.mockResolvedValue({ userId: "employee-a", name: "员工A", corpId: "corp" });
