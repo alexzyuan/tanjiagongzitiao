@@ -5,11 +5,11 @@
 ## Repository state
 
 - Repository: `alexzyuan/tanjiagongzitiao`
-- `main`: `efd7aba75c896a1b89ee541bad53e8477bc3c44a`
-- Codex-first Phases A–D: merged
-- Open PRs: none at the time of this handoff
-- Active refactor: none
-- Next work: normal product-driven iteration; no Phase E/F is pre-approved
+- Latest verified `main` baseline before the production-version verification change: `563ef139ad366e20935f35c19bde3a286fa90c15` (`fix: harden salary access and deployment boundaries`).
+- Do not treat a SHA in this document as a permanent pointer. At the start of every task, run/fetch the current `origin/main` and use GitHub as the live source of truth.
+- Codex-first Phases A–D: merged.
+- Recent product/ops changes after Phase D include server-authoritative salary row capabilities, removal of the salary overview back button, stricter employee access after successful delivery only, batch-withdrawal evidence consistency, payment-evidence minimal reads, E2E smoke coverage, and stronger deployment backup/install boundaries.
+- Active refactor: none. Next work should remain product-driven; no Phase E/F is pre-approved.
 
 The current working tree may contain user-owned untracked files. Preserve them and never stage `.superpowers/`, source archives, SQLite files, dependency caches, or secrets.
 
@@ -27,9 +27,10 @@ The application is React + Fastify + TypeScript + SQLite/WAL with AES-256-GCM sa
 Hard boundaries include:
 
 - employee identity isolation and server-side `visibleFields` filtering;
+- employee salary is not readable before a successful `delivered` record exists;
 - encrypted salary storage and no sensitive values in logs, audit metadata, docs, or Git;
 - local withdrawal is not remote deletion of an already-delivered DingTalk notification;
-- archived salary is immutable through normal edit flows;
+- archived salary is immutable through normal edit/withdraw flows;
 - production SQLite uses an absolute path outside release directories;
 - no Redis/PostgreSQL/ORM/MQ/DI/Redux/React Query/new Router/Tailwind/CSS-in-JS without explicit approval.
 
@@ -40,7 +41,8 @@ Hard boundaries include:
 - Import: `apps/api/src/modules/salary/import.ts`, `apps/web/src/features/salary/ImportWizard.tsx`, `apps/web/src/features/salary/import/`
 - Salary management Web: `apps/web/src/pages/SalaryManagement.tsx`, `apps/web/src/features/salary/`
 - Persistence/encryption: `packages/db/src/store.ts`, `memory-store.ts`, `sqlite-store.ts`, `sqlite-schema.ts`, `crypto.ts`
-- Architecture checks: `scripts/architecture-rules.mjs`, `scripts/architecture-rules.test.mjs`, `deploy.sh`
+- Architecture checks: `scripts/architecture-rules.mjs`, `scripts/architecture-rules.test.mjs`
+- Deployment and release identity: `deploy.sh`, `scripts/release-version.mjs`
 
 ## Completed maintainability work
 
@@ -53,7 +55,20 @@ The remaining file-size warnings are review signals, not automatic refactor orde
 
 ## Production boundary
 
-The Phase A–D merge did not imply production deployment. Before any deploy or rollback, verify the live release, commit, SQLite path, service status, backup, readiness, homepage, and `/healthz` directly. Use the existing `deploy.sh` and keep rollback capability.
+Production deployment is a separate operation from merge.
+
+`deploy.sh` requires a production SQLite path outside the deployment directory, creates a SQLite online backup, checks `PRAGMA integrity_check`, installs production dependencies into a fresh release, performs readiness/homepage/`/healthz` checks, and retains rollback capability.
+
+Release identity is externally verifiable after a deployment that includes the production-version verification change:
+
+```text
+GET /version.json
+{"commit":"<40-char deployed git sha>"}
+```
+
+The deploy command must fail and roll back the code release if public `/version.json` does not match the exact commit being deployed. This endpoint exposes only the Git commit; it must not expose environment variables, paths, secrets, database metadata, or build-host details.
+
+Before any deploy or rollback, verify the live release, commit, SQLite path, service status, backup, readiness, homepage, `/healthz`, and `/version.json` directly.
 
 ## Change and verification discipline
 
@@ -61,4 +76,5 @@ The Phase A–D merge did not imply production deployment. Before any deploy or 
 - Keep business rules in their authoritative domain/API source; Web consumes server capabilities.
 - Behavior fixes require a failing regression test before the minimal implementation change.
 - Before merging a non-trivial branch, run the exact Quality checks: `pnpm install --frozen-lockfile`, `pnpm architecture:check`, `pnpm test`, `pnpm typecheck`, and `pnpm build`; run `git diff --check` separately.
+- `pnpm test:e2e` is available for critical salary-flow smoke coverage but is not currently part of the default GitHub Quality workflow.
 - Do not push, merge, or deploy without explicit user authorization.
