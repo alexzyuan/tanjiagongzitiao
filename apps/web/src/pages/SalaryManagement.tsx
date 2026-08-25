@@ -13,7 +13,6 @@ import { Field } from "../components/Field";
 import { FormActions } from "../components/FormActions";
 import { Modal } from "../components/Modal";
 import { ImportWizard } from "../features/salary/ImportWizard";
-import { ManualPanel } from "../features/salary/ManualPanel";
 import { SalaryBatchOverview } from "../features/salary/SalaryBatchOverview";
 import {
   SalaryEmployeeTable,
@@ -23,11 +22,9 @@ import {
 export function SalaryManagement({
   refreshKey,
   onChanged,
-  onOpenPermissions = () => undefined,
 }: {
   refreshKey: number;
   onChanged: () => void;
-  onOpenPermissions?: () => void;
 }) {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [month, setMonth] = useState(currentMonth());
@@ -38,7 +35,7 @@ export function SalaryManagement({
   const [editingItem, setEditingItem] = useState<SalaryItem>();
   const [deleteCandidate, setDeleteCandidate] = useState<Batch>();
   const [editFields, setEditFields] = useState<Record<string, string>>({});
-  const [mode, setMode] = useState<"manual" | "import">();
+  const [mode, setMode] = useState<"import">();
   const [busy, setBusy] = useState(false);
   const [, setMessage] = useState<string>();
   const [error, setError] = useState<string>();
@@ -86,13 +83,6 @@ export function SalaryManagement({
     }
     loadDetail(detailBatchId).catch((reason) => setError(errorText(reason)));
   }, [detailBatchId, loadDetail]);
-
-  const unread = detailBatchId
-    ? (detail?.items ?? []).filter((item) => !item.viewedAt).length
-    : Math.max((activeBatch?.total ?? 0) - (activeBatch?.viewed ?? 0), 0);
-  const unconfirmed = detailBatchId
-    ? (detail?.items ?? []).filter((item) => !item.confirmedAt).length
-    : Math.max((activeBatch?.total ?? 0) - (activeBatch?.confirmed ?? 0), 0);
 
   async function send(batch: Batch, action: "send" | "resend" | "withdraw") {
     setBusy(true);
@@ -251,50 +241,6 @@ export function SalaryManagement({
           敏感数据加密
         </span>
       </div>
-      <div className="salary-alert">
-        <span>📣</span>
-        <strong>
-          发送异常：{activeBatch?.state === "partially_failed" ? 1 : 0}
-        </strong>
-        <button
-          className="link-button"
-          onClick={() => setStatusFilter("failed")}
-        >
-          前往处理 ›
-        </button>
-        <span className="alert-divider" />
-        <span>
-          未查看：<strong>{unread}</strong>
-        </span>
-        <button
-          className="link-button"
-          onClick={() => setStatusFilter("unread")}
-        >
-          查看未读员工
-        </button>
-        <span>
-          未确认：<strong>{unconfirmed}</strong>
-        </span>
-        <button
-          className="link-button"
-          onClick={() => setStatusFilter("unconfirmed")}
-        >
-          查看未确认员工
-        </button>
-        <div className="manager-card">
-          <span className="avatar blue">管</span>
-          <span>
-            管理员：<strong>企业管理员</strong>
-          </span>
-          <button
-            className="icon-button"
-            aria-label="打开权限管理"
-            onClick={onOpenPermissions}
-          >
-            ›
-          </button>
-        </div>
-      </div>
       {!detailBatchId ? (
         <SalaryBatchOverview
           month={month}
@@ -302,7 +248,6 @@ export function SalaryManagement({
           busy={busy}
           onMonthChange={setMonth}
           onOpenImport={() => setMode("import")}
-          onOpenManual={() => setMode("manual")}
           onDelete={(batch) => {
             setError(undefined);
             setDeleteCandidate(batch);
@@ -386,16 +331,6 @@ export function SalaryManagement({
             </div>
           </form>
         </Modal>
-      )}
-      {mode === "manual" && (
-        <ManualPanel
-          onClose={() => setMode(undefined)}
-          onCreated={() => {
-            setMode(undefined);
-            load();
-            onChanged();
-          }}
-        />
       )}
       {mode === "import" && (
         <ImportWizard

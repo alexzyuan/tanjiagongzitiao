@@ -56,6 +56,24 @@ describe("salary management", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("removes the alert banner and manual send helper from the monthly overview", async () => {
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/v1/salary-batches") return Promise.resolve([batch]);
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+
+    render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
+
+    await screen.findByText("0/1");
+    expect(screen.queryByText(/发送异常/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "自己手发一条试试" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "打开权限管理" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("does not open the salary detail drawer when the management page first loads", async () => {
     apiMock.mockImplementation((path: string) => {
       if (path === "/v1/salary-batches") return Promise.resolve([batch]);
@@ -230,10 +248,9 @@ describe("salary management", () => {
     await user.click(await screen.findByRole("button", { name: "前往发送" }));
     expect(await screen.findByText("员工失败")).toBeInTheDocument();
     expect(screen.getByText("员工撤回")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /前往处理/ }));
+    await user.selectOptions(screen.getByRole("combobox"), "failed");
     expect(screen.getByText("员工失败")).toBeInTheDocument();
     expect(screen.queryByText("员工撤回")).not.toBeInTheDocument();
-    expect(screen.getByText(/发送异常/)).toBeInTheDocument();
   });
 
   it("loads only summaries until a batch is opened, then opens the import wizard", async () => {

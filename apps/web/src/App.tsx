@@ -107,7 +107,7 @@ function AdminApp({ impersonatedId }: { impersonatedId: string | undefined }) {
           <span className="brand-mark">
             <Icon name="wallet" size={19} />
           </span>
-          <span>薪资中心</span>
+          <span>探嘉工资条</span>
         </div>
         <div className="sidebar-caption">企业内部应用</div>
         <nav className="nav-list" aria-label="功能导航">
@@ -132,7 +132,7 @@ function AdminApp({ impersonatedId }: { impersonatedId: string | undefined }) {
       <main className="main-content">
         <header className="topbar">
           <div>
-            <div className="eyebrow">企业薪资服务</div>
+            <div className="eyebrow">探嘉工资条</div>
             <h1>{nav.find((item) => item.key === module)?.label}</h1>
           </div>
           <div className="identity">
@@ -145,7 +145,6 @@ function AdminApp({ impersonatedId }: { impersonatedId: string | undefined }) {
           {module === "salary" && (
             <SalaryManagement
               onChanged={() => setRefreshKey((value) => value + 1)}
-              onOpenPermissions={() => setModule("permissions")}
               refreshKey={refreshKey}
             />
           )}

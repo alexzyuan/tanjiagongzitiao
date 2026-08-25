@@ -128,7 +128,7 @@ describe("root route viewport split", () => {
 });
 
 describe("admin module navigation", () => {
-  it("opens permissions from the salary manager control through explicit app navigation", async () => {
+  it("opens permissions from the admin navigation", async () => {
     const user = userEvent.setup();
     ensureSessionMock.mockResolvedValue(identity);
     apiMock.mockImplementation((path: string) => {
@@ -139,12 +139,24 @@ describe("admin module navigation", () => {
     });
 
     render(<App />);
-    await user.click(
-      await screen.findByRole("button", { name: "打开权限管理" }),
-    );
+    await user.click(await screen.findByRole("button", { name: "权限管理" }));
     expect(
       await screen.findByRole("button", { name: "从企业通讯录选择人员" }),
     ).toBeInTheDocument();
+  });
+
+  it("uses 探嘉工资条 for the admin brand and service eyebrow", async () => {
+    ensureSessionMock.mockResolvedValue(identity);
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/v1/salary-batches") return Promise.resolve([]);
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+
+    render(<App />);
+
+    expect(await screen.findAllByText("探嘉工资条")).toHaveLength(2);
+    expect(screen.queryByText("薪资中心")).not.toBeInTheDocument();
+    expect(screen.queryByText("企业薪资服务")).not.toBeInTheDocument();
   });
 });
 
@@ -245,6 +257,33 @@ describe("admin module smoke tests", () => {
       "/v1/reports/employees.csv",
     );
     expect(apiMock).toHaveBeenCalledWith("/v1/reports/summary");
+  });
+
+  it("aligns report line points with bar columns without stretched SVG markers", async () => {
+    const user = userEvent.setup();
+    ensureSessionMock.mockResolvedValue(identity);
+    const chartReport = {
+      ...report,
+      monthly: [
+        { ...report.monthly[0], payrollMonth: "2026-07", net: 100, recipients: 0 },
+        { ...report.monthly[0], payrollMonth: "2026-08", net: 200, recipients: 2 },
+      ],
+    };
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/v1/salary-batches") return Promise.resolve([]);
+      if (path === "/v1/reports/summary") return Promise.resolve(chartReport);
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "报表中心" }));
+    const chart = await screen.findByLabelText("按月实发金额和工资条人数趋势");
+    const points = chart.querySelectorAll(".report-chart-point");
+
+    expect(points).toHaveLength(2);
+    expect(points[0]).toHaveStyle({ left: "25%", top: "92%" });
+    expect(points[1]).toHaveStyle({ left: "75%", top: "8%" });
+    expect(chart.querySelectorAll("circle")).toHaveLength(0);
   });
 
   it("shows a friendly validation message for a reversed report range", async () => {
