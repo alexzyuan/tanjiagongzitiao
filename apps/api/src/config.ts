@@ -6,12 +6,15 @@ const ConfigSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
   APP_BASE_URL: z.string().url().default("http://localhost:5173"),
   DINGTALK_MODE: z.enum(["mock", "http"]).default("mock"),
+  DINGTALK_NOTIFICATION_CHANNEL: z.enum(["link", "interactive_card"]).default("link"),
   DINGTALK_CLIENT_ID: z.string().min(1).default("local-development-client"),
   DINGTALK_CLIENT_SECRET: z.string().min(1).default("local-development-secret"),
   DINGTALK_CORP_ID: z.string().min(1).default("dev-corp"),
   DINGTALK_AGENT_ID: z.coerce.number().int().positive().optional(),
   DINGTALK_API_BASE_URL: z.string().url().default("https://api.dingtalk.com"),
   DINGTALK_LEGACY_API_BASE_URL: z.string().url().default("https://oapi.dingtalk.com"),
+  DINGTALK_CARD_TEMPLATE_ID: z.string().min(1).optional(),
+  DINGTALK_CARD_ROBOT_CODE: z.string().min(1).optional(),
   MAIN_ADMIN_USER_ID: z.string().min(1).default("dev-admin"),
   SESSION_SIGNING_KEY: z.string().min(16).default("local-development-session-signing-key"),
   SALARY_ENCRYPTION_KEY: z.string().regex(/^[0-9a-fA-F]{64}$/).default("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"),
@@ -36,6 +39,11 @@ if (parsed.NODE_ENV === "production") {
     if (!process.env[variable]) throw new Error(`production_requires_${variable.toLowerCase()}`);
   }
   if (parsed.DINGTALK_MODE === "mock") throw new Error("production_requires_real_dingtalk_mode");
+  if (
+    parsed.DINGTALK_NOTIFICATION_CHANNEL === "interactive_card" &&
+    !process.env.DINGTALK_CARD_TEMPLATE_ID
+  )
+    throw new Error("production_requires_dingtalk_card_template_id");
   if (new URL(parsed.APP_BASE_URL).protocol !== "https:")
     throw new Error("production_requires_https_app_base_url");
   if (
@@ -45,4 +53,9 @@ if (parsed.NODE_ENV === "production") {
     throw new Error("production_requires_absolute_salary_database_path");
 }
 if (parsed.DINGTALK_MODE === "http" && !parsed.DINGTALK_AGENT_ID) throw new Error("dingtalk_agent_id_required_for_http_mode");
+if (
+  parsed.DINGTALK_NOTIFICATION_CHANNEL === "interactive_card" &&
+  !parsed.DINGTALK_CARD_TEMPLATE_ID
+)
+  throw new Error("dingtalk_card_template_id_required");
 export const config = parsed;

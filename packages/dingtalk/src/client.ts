@@ -1,8 +1,9 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type {
   DingTalkClient,
   DingTalkIdentity,
   DirectoryUser,
+  InteractiveCardNotification,
   TodoTask,
   WorkNotification,
 } from "./types.js";
@@ -15,6 +16,8 @@ export interface HttpDingTalkConfig {
   apiBaseUrl?: string;
   legacyApiBaseUrl?: string;
   notificationPicUrl?: string;
+  cardTemplateId?: string;
+  cardRobotCode?: string;
   fetchImpl?: typeof fetch;
   onEvent?: (event: string, fields: Record<string, unknown>) => void;
 }
@@ -144,6 +147,71 @@ export class HttpDingTalkClient implements DingTalkClient {
     if (!taskId) throw new Error("dingtalk_work_notification_task_id_missing");
     this.trace("work_notification.sent", { userId: input.userId, taskId });
     return { taskId };
+  }
+
+  async sendInteractiveCard(
+    input: InteractiveCardNotification,
+  ): Promise<{ taskId: string }> {
+    if (!this.config.cardTemplateId)
+      throw new Error("dingtalk_card_template_id_missing");
+    if (!this.config.cardRobotCode)
+      throw new Error("dingtalk_card_robot_code_missing");
+    const accessToken = await this.getAppToken();
+    const outTrackId = `salary-slip-${randomUUID()}`;
+    const response = await this.requestJson(
+      "interactive_card.send",
+      `${this.apiBaseUrl}/v1.0/card/instances/createAndDeliver`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-acs-dingtalk-access-token": accessToken,
+        },
+        body: JSON.stringify({
+          userId: input.userId,
+          userIdType: 1,
+          cardTemplateId: this.config.cardTemplateId,
+          outTrackId,
+          cardData: {
+            cardParamMap: {
+              salary_period_title: input.title,
+              salary_detail_url: input.url,
+            },
+          },
+          imRobotOpenSpaceModel: {
+            supportForward: false,
+            lastMessageI18n: { ZH_CN: input.title },
+          },
+          imRobotOpenDeliverModel: {
+            spaceType: "IM_ROBOT",
+            robotCode: this.config.cardRobotCode,
+          },
+          openSpaceId: `dtv1.card//im_robot.${input.userId}`,
+        }),
+      },
+    );
+    assertDingTalkSuccess(response, "interactive_card.send");
+    const responseBody = objectValue(response, "body");
+    const success =
+      booleanValue(response, "success") ??
+      (responseBody ? booleanValue(responseBody, "success") : undefined);
+    if (success === false)
+      throw new Error("dingtalk_api_error:interactive_card.send:failed");
+    const result =
+      objectValue(response, "result") ??
+      (responseBody ? objectValue(responseBody, "result") : undefined);
+    const returnedOutTrackId = stringValue(
+      result ?? response,
+      "outTrackId",
+      "out_track_id",
+    );
+    if (!returnedOutTrackId)
+      throw new Error("dingtalk_interactive_card_id_missing");
+    this.trace("interactive_card.sent", {
+      userId: input.userId,
+      outTrackId: returnedOutTrackId,
+    });
+    return { taskId: returnedOutTrackId };
   }
 
   async createTodo(input: TodoTask): Promise<{ todoId: string }> {

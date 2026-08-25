@@ -77,7 +77,7 @@ Rules:
 
 ## 4. Send and delivery
 
-The verified salary notification channel is DingTalk work notification using the supported `asyncsend_v2` `link` message.
+The default and verified salary notification channel is DingTalk work notification using the supported `asyncsend_v2` `link` message. An explicitly configured `interactive_card` channel uses a published DingTalk card template and the supported card-instance create-and-deliver API; it carries only the existing salary-period title and detail URL, disables forwarding, does not configure a Stream callback, and its button opens the same employee detail route.
 
 Rules:
 

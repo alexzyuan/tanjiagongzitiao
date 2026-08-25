@@ -255,6 +255,88 @@ describe("salary delivery", () => {
     await app.close();
   });
 
+  it("sends the same versioned title through the interactive card channel", async () => {
+    const { app, dingtalk } = buildApp({ notificationChannel: "interactive_card" });
+    const admin = await app.inject({ method: "POST", url: "/v1/auth/dev" });
+    const cookie = admin.headers["set-cookie"]?.split(";")[0];
+    const mock = dingtalk as MockDingTalkClient;
+    const draft = await app.inject({
+      method: "POST",
+      url: "/v1/salary-batches",
+      headers: { cookie },
+      payload: {
+        payrollMonth: "2026-08",
+        title: "互动卡片版本测试",
+        rows: [{ userId: "employee-a", name: "员工A", 实发金额: 10000 }],
+      },
+    });
+    const batch = (
+      await app.inject({
+        method: "GET",
+        url: `/v1/salary-batches/${draft.json().batchId}`,
+        headers: { cookie },
+      })
+    ).json();
+    const itemId = batch.items[0].id as string;
+
+    const send = () =>
+      app.inject({
+        method: "POST",
+        url: `/v1/salary-batches/${batch.id}/items/${itemId}/send`,
+        headers: { cookie },
+        payload: {},
+      });
+    const withdraw = () =>
+      app.inject({
+        method: "POST",
+        url: `/v1/salary-batches/${batch.id}/items/${itemId}/withdraw`,
+        headers: { cookie },
+        payload: {},
+      });
+
+    expect((await send()).statusCode).toBe(200);
+    expect(mock.interactiveCards[0]?.title).toBe("2026-08工资条");
+    expect((await withdraw()).statusCode).toBe(200);
+    expect((await send()).statusCode).toBe(200);
+    expect(mock.interactiveCards[1]?.title).toBe("2026-08工资条 更新 v1");
+    await app.close();
+  });
+
+  it("uses interactive cards for batch delivery", async () => {
+    const { app, dingtalk } = buildApp({ notificationChannel: "interactive_card" });
+    const admin = await app.inject({ method: "POST", url: "/v1/auth/dev" });
+    const cookie = admin.headers["set-cookie"]?.split(";")[0];
+    const mock = dingtalk as MockDingTalkClient;
+    const draft = await app.inject({
+      method: "POST",
+      url: "/v1/salary-batches",
+      headers: { cookie },
+      payload: {
+        payrollMonth: "2026-08",
+        title: "批量互动卡片测试",
+        rows: [
+          { userId: "employee-a", name: "员工A", 实发金额: 10000 },
+          { userId: "employee-b", name: "员工B", 实发金额: 9000 },
+        ],
+      },
+    });
+    const response = await app.inject({
+      method: "POST",
+      url: `/v1/salary-batches/${draft.json().batchId}/send`,
+      headers: { cookie },
+      payload: {},
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mock.notifications).toHaveLength(0);
+    expect(mock.interactiveCards).toHaveLength(2);
+    expect(mock.interactiveCards.map((card) => card.title)).toEqual([
+      "2026-08工资条",
+      "2026-08工资条",
+    ]);
+    await app.close();
+  });
+
   it("counts unique delivered employees when duplicate delivery history exists", async () => {
     const { app, store } = buildApp();
     const auth = await app.inject({ method: "POST", url: "/v1/auth/dev" });

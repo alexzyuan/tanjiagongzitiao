@@ -11,6 +11,14 @@ export interface WorkNotification {
   url: string;
 }
 
+export interface InteractiveCardNotification {
+  userId: string;
+  title: string;
+  url: string;
+}
+
+export type DingTalkNotificationChannel = "link" | "interactive_card";
+
 export interface TodoTask {
   userId: string;
   subject: string;
@@ -28,6 +36,9 @@ export interface DirectoryUser {
 export interface DingTalkClient {
   exchangeAuthCode(code: string): Promise<DingTalkIdentity>;
   sendWorkNotification(input: WorkNotification): Promise<{ taskId: string }>;
+  sendInteractiveCard?: (
+    input: InteractiveCardNotification,
+  ) => Promise<{ taskId: string }>;
   createTodo(input: TodoTask): Promise<{ todoId: string }>;
   listDirectoryUsers(): Promise<DirectoryUser[]>;
   getDirectoryUser(userId: string): Promise<DirectoryUser | undefined>;

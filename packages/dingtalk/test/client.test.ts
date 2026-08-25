@@ -44,6 +44,74 @@ describe("HTTP DingTalk client", () => {
     await expect(client.sendWorkNotification({ userId: "employee-a", title: "工资条", body: "查看明细", url: "https://salary.example" })).rejects.toThrow("dingtalk_agent_id_missing");
   });
 
+  it("creates and delivers a non-forwardable salary card without a callback", async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const fetchImpl: typeof fetch = async (input, init = {}) => {
+      const url = String(input);
+      calls.push({ url, init });
+      if (url.includes("/gettoken")) return json({ errcode: 0, access_token: "app-token", expires_in: 7200 });
+      if (url.includes("/v1.0/card/instances/createAndDeliver"))
+        return json({ success: true, result: { outTrackId: "card-1" } });
+      throw new Error(`unexpected_url:${url}`);
+    };
+    const client = new HttpDingTalkClient({
+      clientId: "app-key",
+      clientSecret: "app-secret",
+      corpId: "corp-1",
+      cardTemplateId: "template-1",
+      cardRobotCode: "robot-1",
+      fetchImpl,
+    });
+
+    await expect(
+      client.sendInteractiveCard({
+        userId: "employee-a",
+        title: "2026年08月工资条 更新 v1",
+        url: "https://salary.example/employee/salary-slips/batch-1",
+      }),
+    ).resolves.toEqual({ taskId: "card-1" });
+
+    expect(calls.map((call) => new URL(call.url).pathname)).toEqual([
+      "/gettoken",
+      "/v1.0/card/instances/createAndDeliver",
+    ]);
+    const cardBody = JSON.parse(String(calls[1]?.init.body)) as Record<string, unknown>;
+    expect(cardBody).toMatchObject({
+      userId: "employee-a",
+      userIdType: 1,
+      cardTemplateId: "template-1",
+      openSpaceId: "dtv1.card//im_robot.employee-a",
+      cardData: {
+        cardParamMap: {
+          salary_period_title: "2026年08月工资条 更新 v1",
+          salary_detail_url: "https://salary.example/employee/salary-slips/batch-1",
+        },
+      },
+      imRobotOpenSpaceModel: { supportForward: false },
+      imRobotOpenDeliverModel: { spaceType: "IM_ROBOT", robotCode: "robot-1" },
+    });
+    expect(cardBody).not.toHaveProperty("callbackType");
+    expect(calls[1]?.init.headers).toMatchObject({
+      "x-acs-dingtalk-access-token": "app-token",
+    });
+  });
+
+  it("fails explicitly when interactive card configuration is incomplete", async () => {
+    const client = new HttpDingTalkClient({
+      clientId: "app-key",
+      clientSecret: "app-secret",
+      corpId: "corp-1",
+      fetchImpl: async () => json({}),
+    });
+    await expect(
+      client.sendInteractiveCard({
+        userId: "employee-a",
+        title: "工资条",
+        url: "https://salary.example",
+      }),
+    ).rejects.toThrow("dingtalk_card_template_id_missing");
+  });
+
   it("lists active organization users with employee numbers", async () => {
     const fetchImpl: typeof fetch = async (input, init = {}) => {
       const url = String(input);

@@ -3,12 +3,14 @@ import type {
   DingTalkClient,
   DingTalkIdentity,
   DirectoryUser,
+  InteractiveCardNotification,
   TodoTask,
   WorkNotification,
 } from "./types.js";
 
 export class MockDingTalkClient implements DingTalkClient {
   readonly notifications: WorkNotification[] = [];
+  readonly interactiveCards: InteractiveCardNotification[] = [];
   readonly todos: TodoTask[] = [];
 
   async exchangeAuthCode(code: string): Promise<DingTalkIdentity> {
@@ -21,6 +23,13 @@ export class MockDingTalkClient implements DingTalkClient {
   ): Promise<{ taskId: string }> {
     this.notifications.push(input);
     return { taskId: `mock-task-${randomUUID()}` };
+  }
+
+  async sendInteractiveCard(
+    input: InteractiveCardNotification,
+  ): Promise<{ taskId: string }> {
+    this.interactiveCards.push(input);
+    return { taskId: `mock-card-${randomUUID()}` };
   }
 
   async createTodo(input: TodoTask): Promise<{ todoId: string }> {
