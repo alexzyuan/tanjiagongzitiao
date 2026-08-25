@@ -147,4 +147,36 @@ describe("minimal sensitive salary reads", () => {
     expect(csv).toContain("employee-a,,,,1,0,9000,1,0,0");
     expect(csv).not.toContain(batch.title);
   });
+
+  it("neutralizes spreadsheet formula prefixes in employee CSV text fields", () => {
+    const store = new BoundaryStore(Buffer.alloc(32, 11));
+    store.createBatch({
+      payrollMonth: "2026-08",
+      title: "公式注入测试",
+      createdById: "admin",
+      items: [{
+        employeeUserId: "=employee-id",
+        employeeName: "=2+3",
+        employeeNo: "+001",
+        department: "-finance",
+        position: "@manager",
+        fields: { 实发金额: 1000 },
+      }],
+      displaySettings: {
+        netAmountField: "实发金额",
+        visibleFields: ["实发金额"],
+        confirmationEnabled: true,
+        hideEmptyFields: true,
+        notice: "",
+        greeting: "{name}",
+        theme: "default",
+        fieldGroups: [],
+      },
+    });
+
+    const csv = new ReportService(store).employeeCsv({ kind: "main_admin", userId: "admin" });
+
+    expect(csv).toContain("'=2+3,'+001,'-finance,'@manager");
+    expect(csv).not.toContain("=2+3,+001,-finance,@manager");
+  });
 });

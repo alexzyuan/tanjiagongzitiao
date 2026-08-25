@@ -205,6 +205,6 @@ function numberField(fields: Record<string, string | number | null>, keys: strin
 }
 
 function csvCell(value: string | number): string {
-  const text = String(value);
+  const text = String(value).replace(/^([=+\-@])/, "'$1");
   return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
