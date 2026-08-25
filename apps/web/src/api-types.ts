@@ -102,6 +102,11 @@ export interface SalaryImportPreview {
 }
 
 export interface ReportSummary {
+  filter: {
+    payrollMonth: string | null;
+    fromMonth: string | null;
+    toMonth: string | null;
+  };
   totals: {
     batches: number;
     recipients: number;
@@ -117,6 +122,28 @@ export interface ReportSummary {
       socialInsurance: number;
     };
   };
+  monthly: Array<{
+    payrollMonth: string;
+    gross: number;
+    net: number;
+    recipients: number;
+    sent: number;
+    viewed: number;
+    confirmed: number;
+  }>;
+  employees: Array<{
+    employeeUserId: string;
+    employeeName: string;
+    employeeNo?: string;
+    department?: string;
+    position?: string;
+    slips: number;
+    gross: number;
+    net: number;
+    sent: number;
+    viewed: number;
+    confirmed: number;
+  }>;
   batches: Array<Batch & { deliveryFailures: number; evidenceEvents: number }>;
 }
 

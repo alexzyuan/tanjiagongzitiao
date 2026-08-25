@@ -43,6 +43,7 @@ function createBatch(store: BoundaryStore, employeeUserId: string) {
       fieldGroups: [],
     },
   });
+  store.markSent(batch.id, employeeUserId);
   store.recordDelivery({
     batchId: batch.id,
     employeeUserId,
@@ -103,5 +104,21 @@ describe("minimal sensitive salary reads", () => {
     );
 
     expect(report.batches.map((batch) => batch.id)).toEqual([allowed.id]);
+    expect(report.monthly).toEqual([
+      expect.objectContaining({
+        payrollMonth: "2026-08",
+        recipients: 1,
+        sent: 1,
+      }),
+    ]);
+    expect(report.employees).toEqual([
+      expect.objectContaining({
+        employeeUserId: "employee-a",
+        employeeName: "employee-a",
+        slips: 1,
+        net: 9000,
+        sent: 1,
+      }),
+    ]);
   });
 });

@@ -110,6 +110,7 @@ export class EvidenceService {
     const employees = this.store.listEmployeeEvidenceSummaries(
       summaries.map((batch) => batch.id),
     );
+    if (employees.length === 0) return [];
     const directoryUsers = await this.dingtalk.listDirectoryUsers();
     const activeUserIds = new Set(directoryUsers.map((user) => user.userId));
 
@@ -144,8 +145,6 @@ export class EvidenceService {
     filters: EvidenceFilters = {},
   ): Promise<EvidenceEmployeeDetail> {
     const summaries = this.visibleBatchSummaries(access);
-    const directoryUsers = await this.dingtalk.listDirectoryUsers();
-    const activeUserIds = new Set(directoryUsers.map((user) => user.userId));
     const candidates: EvidenceCandidate[] = [];
     let employeeMetadata: StoredItemMetadata | undefined;
     let evidenceCount = 0;
@@ -189,6 +188,9 @@ export class EvidenceService {
 
     if (!employeeMetadata)
       throw new Error("salary_evidence_employee_not_found");
+
+    const directoryUsers = await this.dingtalk.listDirectoryUsers();
+    const activeUserIds = new Set(directoryUsers.map((user) => user.userId));
 
     const rows: EvidenceRow[] = [];
     for (const candidate of candidates) {

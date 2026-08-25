@@ -100,7 +100,7 @@ describe("salary management", () => {
     expect(screen.queryByText(/DING/)).not.toBeInTheDocument();
   });
 
-  it("links each employee row to a read-only employee preview", async () => {
+  it("does not show employee preview or edit for a non-withdrawn row", async () => {
     const user = userEvent.setup();
     apiMock.mockImplementation((path: string) => {
       if (path === "/v1/salary-batches") return Promise.resolve([batch]);
@@ -121,9 +121,8 @@ describe("salary management", () => {
     });
     render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
     await user.click(await screen.findByRole("button", { name: "前往发送" }));
-    const preview = await screen.findByRole("link", { name: "员工端预览" });
-    expect(preview).toHaveAttribute("href", "/employee/preview/batch-1/item-1");
-    expect(preview).toHaveAttribute("target", "_blank");
+    expect(screen.queryByRole("link", { name: "员工端预览" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "编辑" })).not.toBeInTheDocument();
   });
 
   it("renders failed and withdrawn employee delivery states", async () => {
@@ -481,7 +480,7 @@ describe("salary management", () => {
     );
     render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
     await user.click(await screen.findByRole("button", { name: "查看发送" }));
-    expect(await screen.findByRole("button", { name: "编辑" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "编辑" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "撤回" }));
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "编辑" })).toBeEnabled(),
@@ -536,7 +535,7 @@ describe("salary management", () => {
 
     render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
     await user.click(await screen.findByRole("button", { name: "查看发送" }));
-    expect(await screen.findByRole("button", { name: "编辑" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "编辑" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "重新发送" })).toBeDisabled();
   });
 });

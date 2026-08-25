@@ -135,6 +135,34 @@ describe("HTTP DingTalk client", () => {
     ]);
   });
 
+  it("records directory refresh duration for diagnosing cold-cache latency", async () => {
+    const events: Array<{ name: string; fields: Record<string, unknown> }> = [];
+    const fetchImpl: typeof fetch = async (input, init = {}) => {
+      const url = String(input);
+      if (url.includes("/gettoken")) return json({ errcode: 0, access_token: "app-token", expires_in: 7200 });
+      if (url.includes("/topapi/v2/department/listsubid")) {
+        const body = JSON.parse(String(init.body)) as { dept_id: number };
+        return json({ errcode: 0, result: { dept_id_list: body.dept_id === 1 ? [] : [] } });
+      }
+      if (url.includes("/topapi/user/listid")) return json({ errcode: 0, result: { has_more: false, userid_list: [] } });
+      throw new Error(`unexpected_url:${url}`);
+    };
+    const client = new HttpDingTalkClient({
+      clientId: "app-key",
+      clientSecret: "app-secret",
+      corpId: "corp-1",
+      fetchImpl,
+      onEvent: (name, fields) => events.push({ name, fields }),
+    });
+
+    await client.listDirectoryUsers();
+
+    const completed = events.find(
+      (event) => event.name === "directory.cache.refresh.completed",
+    );
+    expect(completed?.fields.durationMs).toEqual(expect.any(Number));
+  });
+
   it("caches the directory snapshot and coalesces concurrent refreshes", async () => {
     const calls: string[] = [];
     const fetchImpl: typeof fetch = async (input, init = {}) => {
