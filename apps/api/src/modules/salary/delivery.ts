@@ -425,14 +425,15 @@ function notificationTitle(
   deliveries: DeliveryRecord[],
   employeeUserId: string,
 ) {
+  const baseTitle = `${payrollMonth.replace("-", "年")}月工资条，请及时查看`;
   const successfulDeliveries = deliveries.filter(
     (delivery) =>
       delivery.employeeUserId === employeeUserId &&
       delivery.status === "delivered",
   ).length;
   return successfulDeliveries > 0
-    ? `${payrollMonth}工资条 更新 v${successfulDeliveries}`
-    : `${payrollMonth}工资条`;
+    ? `${baseTitle} 更新 v${successfulDeliveries}`
+    : baseTitle;
 }
 
 function salarySlipFingerprint(

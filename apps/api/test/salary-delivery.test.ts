@@ -245,13 +245,13 @@ describe("salary delivery", () => {
       });
 
     expect((await send()).statusCode).toBe(200);
-    expect(mock.notifications[0]?.title).toBe("2026-08工资条");
+    expect(mock.notifications[0]?.title).toBe("2026年08月工资条，请及时查看");
     expect((await withdraw()).statusCode).toBe(200);
     expect((await send()).statusCode).toBe(200);
-    expect(mock.notifications[1]?.title).toBe("2026-08工资条 更新 v1");
+    expect(mock.notifications[1]?.title).toBe("2026年08月工资条，请及时查看 更新 v1");
     expect((await withdraw()).statusCode).toBe(200);
     expect((await send()).statusCode).toBe(200);
-    expect(mock.notifications[2]?.title).toBe("2026-08工资条 更新 v2");
+    expect(mock.notifications[2]?.title).toBe("2026年08月工资条，请及时查看 更新 v2");
     await app.close();
   });
 
@@ -295,10 +295,10 @@ describe("salary delivery", () => {
       });
 
     expect((await send()).statusCode).toBe(200);
-    expect(mock.interactiveCards[0]?.title).toBe("2026-08工资条");
+    expect(mock.interactiveCards[0]?.title).toBe("2026年08月工资条，请及时查看");
     expect((await withdraw()).statusCode).toBe(200);
     expect((await send()).statusCode).toBe(200);
-    expect(mock.interactiveCards[1]?.title).toBe("2026-08工资条 更新 v1");
+    expect(mock.interactiveCards[1]?.title).toBe("2026年08月工资条，请及时查看 更新 v1");
     await app.close();
   });
 
@@ -331,8 +331,8 @@ describe("salary delivery", () => {
     expect(mock.notifications).toHaveLength(0);
     expect(mock.interactiveCards).toHaveLength(2);
     expect(mock.interactiveCards.map((card) => card.title)).toEqual([
-      "2026-08工资条",
-      "2026-08工资条",
+      "2026年08月工资条，请及时查看",
+      "2026年08月工资条，请及时查看",
     ]);
     await app.close();
   });
