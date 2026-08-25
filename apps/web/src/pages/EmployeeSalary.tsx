@@ -6,7 +6,7 @@ import { formatSalaryValue } from "../format";
 function EmployeeLoading() {
   return <div className="loading"><span className="spinner" />加载中</div>;
 }
-const withdrawnNotice = "工资条信息正在更新，后续将通过钉钉通知发送更新信息。如有疑问，请联系财务同事。";
+const withdrawnNotice = "工资条信息稍后更新。\n如有疑问，请联系财务同事。";
 function EmployeeFullError({ message }: { message: string }) {
   return (
     <div className="full-error">
