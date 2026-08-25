@@ -90,53 +90,6 @@
   font-size: 11px;
   padding: 6px 9px;
 }
-.salary-alert {
-  position: relative;
-  min-height: 80px;
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  flex-wrap: wrap;
-  padding: 15px 19px;
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  color: #738193;
-  font-size: 12px;
-}
-.salary-alert > strong {
-  color: #e87a4f;
-  font-weight: 700;
-}
-.salary-alert .link-button {
-  border: 0;
-  background: transparent;
-  padding: 0;
-  color: var(--blue);
-  font-weight: 680;
-  font-size: 12px;
-}
-.alert-divider {
-  height: 25px;
-  width: 1px;
-  background: var(--line);
-  margin: 0 7px;
-}
-.manager-card {
-  margin-left: auto;
-  min-width: 220px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #6c7a8a;
-}
-.manager-card strong {
-  color: var(--ink);
-}
-.manager-card .icon-button {
-  margin-left: auto;
-  font-size: 24px;
-}
 .salary-controls {
   display: flex;
   align-items: center;
@@ -145,33 +98,6 @@
 }
 .salary-controls .button.primary {
   height: 41px;
-}
-.self-send-tip {
-  min-height: 41px;
-  border: 1px solid #e0ebf8;
-  border-radius: 7px;
-  background: #fff;
-  padding: 5px 12px;
-  color: var(--blue);
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  text-align: left;
-}
-.self-send-tip strong,
-.self-send-tip span {
-  display: block;
-}
-.self-send-tip strong {
-  font-size: 12px;
-}
-.self-send-tip span {
-  color: #8b9caf;
-  font-size: 10px;
-  margin-top: 2px;
-}
-.self-send-tip svg {
-  margin-left: 4px;
 }
 .month-picker-wrap {
   position: relative;
@@ -419,30 +345,12 @@
     font-size: 0;
     padding: 6px;
   }
-  .salary-alert {
-    align-items: flex-start;
-    gap: 7px 9px;
-    padding: 13px 14px;
-  }
-  .alert-divider {
-    display: none;
-  }
-  .manager-card {
-    width: 100%;
-    margin: 4px 0 0;
-    padding-top: 10px;
-    border-top: 1px solid var(--line);
-  }
   .salary-controls {
     align-items: stretch;
   }
   .salary-controls > .button,
-  .salary-controls .self-send-tip,
   .month-picker-wrap {
     flex: 1 1 calc(50% - 5px);
-  }
-  .self-send-tip {
-    justify-content: center;
   }
   .month-picker {
     width: 100%;
@@ -501,7 +409,6 @@
   .salary-controls,
   .employee-toolbar,
   .back-button,
-  .salary-alert .manager-card,
   .salary-heading .security-badge {
     display: none !important;
   }

@@ -218,9 +218,12 @@ function MonthlyChart({ monthly }: { monthly: ReportSummary["monthly"] }) {
   if (!monthly.length) return <EmptyState label="暂无人力成本数据" />;
   const maxNet = Math.max(...monthly.map((month) => month.net), 1);
   const maxRecipients = Math.max(...monthly.map((month) => month.recipients), 1);
+  const pointFor = (index: number, value: number) => ({
+    x: ((index + 0.5) / monthly.length) * 100,
+    y: Math.min(92, Math.max(8, 100 - (value / maxRecipients) * 84 - 8)),
+  });
   const points = monthly.map((month, index) => {
-    const x = monthly.length === 1 ? 50 : (index / (monthly.length - 1)) * 100;
-    const y = 100 - (month.recipients / maxRecipients) * 84 - 8;
+    const { x, y } = pointFor(index, month.recipients);
     return `${x},${y}`;
   }).join(" ");
 
@@ -237,12 +240,19 @@ function MonthlyChart({ monthly }: { monthly: ReportSummary["monthly"] }) {
         </div>
         <svg className="report-chart-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
           <polyline points={points} fill="none" stroke="currentColor" strokeWidth="1.8" vectorEffect="non-scaling-stroke" />
-          {monthly.map((month, index) => {
-            const x = monthly.length === 1 ? 50 : (index / (monthly.length - 1)) * 100;
-            const y = 100 - (month.recipients / maxRecipients) * 84 - 8;
-            return <circle cx={x} cy={y} r="1.5" key={month.payrollMonth} />;
-          })}
         </svg>
+        <div className="report-chart-points" aria-hidden="true">
+          {monthly.map((month, index) => {
+            const { x, y } = pointFor(index, month.recipients);
+            return (
+              <span
+                className="report-chart-point"
+                key={month.payrollMonth}
+                style={{ left: `${x}%`, top: `${y}%` }}
+              />
+            );
+          })}
+        </div>
       </div>
       <div className="report-chart-axis">
         {monthly.map((month) => <span key={month.payrollMonth}>{month.payrollMonth.slice(5)}月</span>)}

@@ -123,6 +123,7 @@
   position: relative;
   height: 300px;
   padding: 12px 10px 0;
+  overflow: hidden;
 }
 .report-chart-gridline {
   position: absolute;
@@ -139,8 +140,8 @@
   z-index: 1;
   display: flex;
   align-items: flex-end;
-  justify-content: space-around;
-  gap: 14px;
+  justify-content: stretch;
+  gap: 0;
 }
 .report-chart-column {
   height: 100%;
@@ -157,18 +158,29 @@
 }
 .report-chart-line {
   z-index: 2;
-  overflow: visible;
+  overflow: hidden;
   color: #4fd4a0;
 }
-.report-chart-line circle {
+.report-chart-points {
+  position: absolute;
+  inset: 12px 10px 0;
+  z-index: 3;
+  pointer-events: none;
+}
+.report-chart-point {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  transform: translate(-50%, -50%);
+  border: 2px solid #4fd4a0;
+  border-radius: 50%;
   fill: #fff;
-  stroke: currentColor;
-  stroke-width: 1.2;
+  background: #fff;
 }
 .report-chart-axis {
   display: flex;
-  justify-content: space-around;
-  gap: 14px;
+  justify-content: stretch;
+  gap: 0;
   margin: 8px 10px 0;
   color: #8a99a9;
   font-size: 12px;

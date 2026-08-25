@@ -10,7 +10,6 @@ export function SalaryBatchOverview({
   busy,
   onMonthChange,
   onOpenImport,
-  onOpenManual,
   onDelete,
   onOpenBatch,
 }: {
@@ -19,7 +18,6 @@ export function SalaryBatchOverview({
   busy: boolean;
   onMonthChange: (month: string) => void;
   onOpenImport: () => void;
-  onOpenManual: () => void;
   onDelete: (batch: Batch) => void;
   onOpenBatch: (batch: Batch) => void;
 }) {
@@ -42,11 +40,6 @@ export function SalaryBatchOverview({
         <button className="button primary" onClick={onOpenImport}>
           <Icon name="plus" size={17} />
           上传工资表
-        </button>
-        <button className="self-send-tip" onClick={onOpenManual}>
-          <strong>自己手发一条试试</strong>
-          <span>感受上传、发送全流程</span>
-          <Icon name="send" size={17} />
         </button>
         <div className="month-picker-wrap">
           <button
