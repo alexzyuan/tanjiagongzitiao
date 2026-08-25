@@ -59,6 +59,33 @@ export function registerReportRoutes(app: FastifyInstance, deps: { sessions: Ses
     deps.audit.record({ correlationId: `report:${actor.userId}:${Date.now()}`, actorUserId: actor.userId, action: "report.export", targetType: "report", targetId: "salary-summary", outcome: "completed", metadata: { payrollMonth: query.payrollMonth ?? null, rowCount: report.batches.length } });
     return csv;
   });
+  app.get("/v1/reports/employees.csv", async (request, reply) => {
+    const actor = identity(request, deps.sessions);
+    const query = reportQuerySchema.parse(request.query);
+    const access = deps.authz.accessFor(actor.userId);
+    const csv = reports.employeeCsv(
+      access,
+      query.payrollMonth,
+      reportRange(query),
+    );
+    reply.header("content-type", "text/csv; charset=utf-8");
+    reply.header(
+      "content-disposition",
+      'attachment; filename="salary-employee-summary.csv"',
+    );
+    deps.audit.record({
+      correlationId: `report:${actor.userId}:${Date.now()}`,
+      actorUserId: actor.userId,
+      action: "report.export",
+      targetType: "report",
+      targetId: "salary-employee-summary",
+      outcome: "completed",
+      metadata: {
+        payrollMonth: query.payrollMonth ?? null,
+      },
+    });
+    return csv;
+  });
   app.get("/v1/payment-evidence", async request => {
     const actor = identity(request, deps.sessions);
     const access = deps.authz.accessFor(actor.userId);
@@ -126,7 +153,16 @@ const reportQuerySchema = z
     fromMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),
     toMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((query, context) => {
+    if (query.fromMonth && query.toMonth && query.fromMonth > query.toMonth) {
+      context.addIssue({
+        code: "custom",
+        path: ["toMonth"],
+        message: "fromMonth_must_not_exceed_toMonth",
+      });
+    }
+  });
 
 function reportRange(query: z.infer<typeof reportQuerySchema>) {
   return {

@@ -39,8 +39,20 @@ export function ReportCenter({ refreshKey }: { refreshKey: number }) {
   }, [refreshKey, reportQuery]);
 
   const csvHref = `/v1/reports/summary.csv${reportQuery}`;
+  const employeeCsvHref = `/v1/reports/employees.csv${reportQuery}`;
   const monthly = report?.monthly ?? [];
   const employees = report?.employees ?? [];
+
+  const applyScope = () => {
+    if (fromMonth && toMonth && fromMonth > toMonth) {
+      setError("统计起始月份不能晚于结束月份");
+      return;
+    }
+    setError(undefined);
+    setAppliedFromMonth(fromMonth);
+    setAppliedToMonth(toMonth);
+    setScopeOpen(false);
+  };
 
   return (
     <section className="content-section report-center">
@@ -88,11 +100,7 @@ export function ReportCenter({ refreshKey }: { refreshKey: number }) {
             <button
               className="button primary small"
               type="button"
-              onClick={() => {
-                setAppliedFromMonth(fromMonth);
-                setAppliedToMonth(toMonth);
-                setScopeOpen(false);
-              }}
+              onClick={applyScope}
             >
               应用统计范围
             </button>
@@ -143,7 +151,7 @@ export function ReportCenter({ refreshKey }: { refreshKey: number }) {
             <h3 id="report-employee-title">员工薪资汇总</h3>
           </div>
           <div className="report-panel-actions">
-            <a className="text-button" href={csvHref}><Icon name="download" size={16} />下载表格</a>
+            <a className="text-button" href={employeeCsvHref}><Icon name="download" size={16} />下载表格</a>
             <a className="text-button" href="#report-batch-details">查看详情</a>
           </div>
         </div>

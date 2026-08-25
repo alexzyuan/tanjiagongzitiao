@@ -121,4 +121,30 @@ describe("minimal sensitive salary reads", () => {
       }),
     ]);
   });
+
+  it("keeps an employee counted as sent after the latest delivery is withdrawn", () => {
+    const store = new BoundaryStore(Buffer.alloc(32, 9));
+    const batch = createBatch(store, "employee-a");
+    store.recordDelivery({
+      batchId: batch.id,
+      employeeUserId: "employee-a",
+      status: "withdrawn",
+      taskId: "task-employee-a",
+    });
+
+    const report = new ReportService(store).summary({ kind: "main_admin", userId: "admin" });
+
+    expect(report.monthly[0]?.sent).toBe(1);
+    expect(report.employees[0]?.sent).toBe(1);
+  });
+
+  it("exports employee summary rows separately from batch summary rows", () => {
+    const store = new BoundaryStore(Buffer.alloc(32, 10));
+    const batch = createBatch(store, "employee-a");
+    const csv = new ReportService(store).employeeCsv({ kind: "main_admin", userId: "admin" });
+
+    expect(csv).toContain("员工,工号,部门,职位,工资条数,应发合计,实发合计,已发送,已查看,已确认");
+    expect(csv).toContain("employee-a,,,,1,0,9000,1,0,0");
+    expect(csv).not.toContain(batch.title);
+  });
 });

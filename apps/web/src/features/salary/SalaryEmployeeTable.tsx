@@ -217,8 +217,7 @@ export function SalaryEmployeeTable({
                           撤回
                         </button>
                       )}
-                      {item.deliveryStatus === "withdrawn" &&
-                        item.canEdit === true && (
+                      {item.canEdit === true && (
                           <button
                             className="text-button"
                             disabled={busy}

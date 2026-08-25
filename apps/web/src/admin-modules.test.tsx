@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -239,7 +239,34 @@ describe("admin module smoke tests", () => {
     expect(screen.getByText("人力成本汇总")).toBeInTheDocument();
     expect(screen.getByText("员工薪资汇总")).toBeInTheDocument();
     expect(screen.getByText("员工A")).toBeInTheDocument();
+    const employeePanel = screen.getByRole("region", { name: "员工薪资汇总" });
+    expect(within(employeePanel).getByRole("link", { name: /下载表格/ })).toHaveAttribute(
+      "href",
+      "/v1/reports/employees.csv",
+    );
     expect(apiMock).toHaveBeenCalledWith("/v1/reports/summary");
+  });
+
+  it("shows a friendly validation message for a reversed report range", async () => {
+    const user = userEvent.setup();
+    ensureSessionMock.mockResolvedValue(identity);
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/v1/salary-batches") return Promise.resolve([]);
+      if (path === "/v1/reports/summary") return Promise.resolve(report);
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "报表中心" }));
+    await user.click(await screen.findByRole("button", { name: "统计范围设置" }));
+    await user.type(await screen.findByLabelText("统计起始月份"), "2026-09");
+    await user.type(await screen.findByLabelText("统计结束月份"), "2026-08");
+    await user.click(screen.getByRole("button", { name: "应用统计范围" }));
+
+    expect(await screen.findByText("统计起始月份不能晚于结束月份")).toBeInTheDocument();
+    expect(apiMock).not.toHaveBeenCalledWith(
+      "/v1/reports/summary?fromMonth=2026-09&toMonth=2026-08",
+    );
   });
 
   it("filters the report by a month range", async () => {

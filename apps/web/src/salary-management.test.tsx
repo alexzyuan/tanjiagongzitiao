@@ -125,6 +125,32 @@ describe("salary management", () => {
     expect(screen.queryByRole("button", { name: "编辑" })).not.toBeInTheDocument();
   });
 
+  it("uses the server edit capability without duplicating delivery status rules", async () => {
+    const user = userEvent.setup();
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/v1/salary-batches") return Promise.resolve([batch]);
+      if (path === "/v1/salary-batches/batch-1") {
+        return Promise.resolve({
+          ...batch,
+          items: [{
+            id: "item-capability",
+            batchId: "batch-1",
+            employeeUserId: "employee-a",
+            employeeName: "员工A",
+            fields: { 实发金额: 9000 },
+            deliveryStatus: "delivered",
+            canEdit: true,
+          }],
+        });
+      }
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+
+    render(<SalaryManagement refreshKey={0} onChanged={vi.fn()} />);
+    await user.click(await screen.findByRole("button", { name: "前往发送" }));
+    expect(await screen.findByRole("button", { name: "编辑" })).toBeInTheDocument();
+  });
+
   it("renders failed and withdrawn employee delivery states", async () => {
     const user = userEvent.setup();
     apiMock.mockImplementation((path: string) => {

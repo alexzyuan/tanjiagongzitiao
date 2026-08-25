@@ -87,6 +87,39 @@ export class ReportService {
     const rows = report.batches.map(batch => [batch.payrollMonth, batch.title, batch.state, batch.total, batch.sent, batch.viewed, batch.confirmed, batch.deliveryFailures, batch.evidenceEvents].map(csvCell).join(","));
     return [headers.join(","), ...rows].join("\n") + "\n";
   }
+
+  employeeCsv(access: Access, payrollMonth?: string, range: ReportRange = {}): string {
+    const report = this.summary(access, payrollMonth, range);
+    const headers = [
+      "员工",
+      "工号",
+      "部门",
+      "职位",
+      "工资条数",
+      "应发合计",
+      "实发合计",
+      "已发送",
+      "已查看",
+      "已确认",
+    ];
+    const rows = report.employees.map((employee) =>
+      [
+        employee.employeeName,
+        employee.employeeNo ?? "",
+        employee.department ?? "",
+        employee.position ?? "",
+        employee.slips,
+        employee.gross,
+        employee.net,
+        employee.sent,
+        employee.viewed,
+        employee.confirmed,
+      ]
+        .map(csvCell)
+        .join(","),
+    );
+    return [headers.join(","), ...rows].join("\n") + "\n";
+  }
 }
 
 function aggregateMonthly(
@@ -148,12 +181,11 @@ function aggregateEmployees(
       current.slips += 1;
       current.gross += numberField(item.fields, ["应发合计", "应发工资", "基本工资"]);
       current.net += numberField(item.fields, ["实发金额", "实发", "到手工资"]);
-      const latestDelivery = deliveriesByEmployee
-        .get(`${batch.id}:${item.employeeUserId}`)
-        ?.slice()
-        .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
-        .at(-1);
-      if (latestDelivery?.status === "delivered") current.sent += 1;
+      const deliveryHistory = deliveriesByEmployee.get(
+        `${batch.id}:${item.employeeUserId}`,
+      );
+      if (deliveryHistory?.some((delivery) => delivery.status === "delivered"))
+        current.sent += 1;
       if (item.viewedAt) current.viewed += 1;
       if (item.confirmedAt) current.confirmed += 1;
       byEmployee.set(item.employeeUserId, current);
