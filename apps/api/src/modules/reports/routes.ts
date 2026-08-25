@@ -37,18 +37,53 @@ export function registerReportRoutes(app: FastifyInstance, deps: { sessions: Ses
   const evidence = new EvidenceService(deps.store, deps.dingtalk, deps.audit);
   app.get("/v1/reports/summary", async request => {
     const actor = identity(request, deps.sessions);
-    const query = z.object({ payrollMonth: z.string().regex(/^\d{4}-\d{2}$/).optional() }).parse(request.query);
-    return reports.summary(deps.authz.accessFor(actor.userId), query.payrollMonth);
+    const query = reportQuerySchema.parse(request.query);
+    return reports.summary(
+      deps.authz.accessFor(actor.userId),
+      query.payrollMonth,
+      reportRange(query),
+    );
   });
   app.get("/v1/reports/summary.csv", async (request, reply) => {
     const actor = identity(request, deps.sessions);
-    const query = z.object({ payrollMonth: z.string().regex(/^\d{4}-\d{2}$/).optional() }).parse(request.query);
+    const query = reportQuerySchema.parse(request.query);
     const access = deps.authz.accessFor(actor.userId);
-    const report = reports.summary(access, query.payrollMonth);
+    const report = reports.summary(
+      access,
+      query.payrollMonth,
+      reportRange(query),
+    );
     reply.header("content-type", "text/csv; charset=utf-8");
     reply.header("content-disposition", 'attachment; filename="salary-report.csv"');
-    const csv = reports.csv(access, query.payrollMonth);
+    const csv = reports.csv(access, query.payrollMonth, reportRange(query));
     deps.audit.record({ correlationId: `report:${actor.userId}:${Date.now()}`, actorUserId: actor.userId, action: "report.export", targetType: "report", targetId: "salary-summary", outcome: "completed", metadata: { payrollMonth: query.payrollMonth ?? null, rowCount: report.batches.length } });
+    return csv;
+  });
+  app.get("/v1/reports/employees.csv", async (request, reply) => {
+    const actor = identity(request, deps.sessions);
+    const query = reportQuerySchema.parse(request.query);
+    const access = deps.authz.accessFor(actor.userId);
+    const csv = reports.employeeCsv(
+      access,
+      query.payrollMonth,
+      reportRange(query),
+    );
+    reply.header("content-type", "text/csv; charset=utf-8");
+    reply.header(
+      "content-disposition",
+      'attachment; filename="salary-employee-summary.csv"',
+    );
+    deps.audit.record({
+      correlationId: `report:${actor.userId}:${Date.now()}`,
+      actorUserId: actor.userId,
+      action: "report.export",
+      targetType: "report",
+      targetId: "salary-employee-summary",
+      outcome: "completed",
+      metadata: {
+        payrollMonth: query.payrollMonth ?? null,
+      },
+    });
     return csv;
   });
   app.get("/v1/payment-evidence", async request => {
@@ -110,6 +145,30 @@ export function registerReportRoutes(app: FastifyInstance, deps: { sessions: Ses
     if (deps.authz.accessFor(actor.userId).kind !== "main_admin") throw new Error("main_admin_required");
     return deps.store.listAudits();
   });
+}
+
+const reportQuerySchema = z
+  .object({
+    payrollMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+    fromMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+    toMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  })
+  .strict()
+  .superRefine((query, context) => {
+    if (query.fromMonth && query.toMonth && query.fromMonth > query.toMonth) {
+      context.addIssue({
+        code: "custom",
+        path: ["toMonth"],
+        message: "fromMonth_must_not_exceed_toMonth",
+      });
+    }
+  });
+
+function reportRange(query: z.infer<typeof reportQuerySchema>) {
+  return {
+    ...(query.fromMonth ? { fromMonth: query.fromMonth } : {}),
+    ...(query.toMonth ? { toMonth: query.toMonth } : {}),
+  };
 }
 
 function normalizeEvidenceFilters(

@@ -11,6 +11,50 @@ function cookie(response: {
 }
 
 describe("salary HTTP error boundaries", () => {
+  it("rejects a report range whose start month is after its end month", async () => {
+    const { app } = buildApp();
+    const admin = cookie(await app.inject({ method: "POST", url: "/v1/auth/dev" }));
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/reports/summary?fromMonth=2026-09&toMonth=2026-08",
+      headers: { cookie: admin },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBe("invalid_request");
+    await app.close();
+  });
+
+  it("exports employee summary rows from the dedicated report endpoint", async () => {
+    const { app } = buildApp();
+    const admin = cookie(await app.inject({ method: "POST", url: "/v1/auth/dev" }));
+    await app.inject({
+      method: "POST",
+      url: "/v1/salary-batches",
+      headers: { cookie: admin },
+      payload: {
+        payrollMonth: "2026-08",
+        title: "员工汇总导出",
+        rows: [{ userId: "employee-a", name: "员工A", 实发金额: 9000 }],
+      },
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/reports/employees.csv",
+      headers: { cookie: admin },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-disposition"]).toContain(
+      "salary-employee-summary.csv",
+    );
+    expect(response.body).toContain("员工,工号,部门,职位,工资条数,应发合计,实发合计,已发送,已查看,已确认");
+    expect(response.body).toContain("员工A");
+    await app.close();
+  });
+
   it("maps business conflicts to 409 while preserving employee withdrawal 404", async () => {
     const { app, store } = buildApp();
     const admin = cookie(await app.inject({ method: "POST", url: "/v1/auth/dev" }));

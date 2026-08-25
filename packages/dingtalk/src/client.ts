@@ -258,6 +258,7 @@ export class HttpDingTalkClient implements DingTalkClient {
     this.trace("directory.cache.refresh.started", {
       hadSnapshot: Boolean(this.directorySnapshot),
     });
+    const startedAt = Date.now();
     const refresh = this.fetchDirectoryUsers();
     this.directoryRefresh = refresh;
     void refresh.then(
@@ -269,6 +270,7 @@ export class HttpDingTalkClient implements DingTalkClient {
         this.trace("directory.cache.refresh.completed", {
           userCount: users.length,
           ttlMs: DIRECTORY_CACHE_TTL_MS,
+          durationMs: Date.now() - startedAt,
         });
         if (this.directoryRefresh === refresh) this.directoryRefresh = undefined;
       },
@@ -278,6 +280,7 @@ export class HttpDingTalkClient implements DingTalkClient {
             reason instanceof Error
               ? reason.message
               : "directory_refresh_failed",
+          durationMs: Date.now() - startedAt,
         });
         if (this.directoryRefresh === refresh) this.directoryRefresh = undefined;
       },
@@ -436,6 +439,7 @@ export class HttpDingTalkClient implements DingTalkClient {
     url: string,
     init: RequestInit,
   ): Promise<JsonObject> {
+    const startedAt = Date.now();
     this.trace("request.started", {
       operation,
       method: init.method ?? "GET",
@@ -448,6 +452,7 @@ export class HttpDingTalkClient implements DingTalkClient {
       this.trace("request.failed", {
         operation,
         reason: error instanceof Error ? error.message : "network_error",
+        durationMs: Date.now() - startedAt,
       });
       throw new Error(`dingtalk_request_failed:${operation}`);
     }
@@ -460,6 +465,7 @@ export class HttpDingTalkClient implements DingTalkClient {
         operation,
         status: response.status,
         reason: "invalid_json",
+        durationMs: Date.now() - startedAt,
       });
       throw new Error(`dingtalk_invalid_response:${operation}`);
     }
@@ -468,6 +474,7 @@ export class HttpDingTalkClient implements DingTalkClient {
         operation,
         status: response.status,
         reason: "response_not_object",
+        durationMs: Date.now() - startedAt,
       });
       throw new Error(`dingtalk_invalid_response:${operation}`);
     }
@@ -479,10 +486,15 @@ export class HttpDingTalkClient implements DingTalkClient {
         operation,
         status: response.status,
         code,
+        durationMs: Date.now() - startedAt,
       });
       throw new Error(`dingtalk_api_error:${operation}:${code}`);
     }
-    this.trace("request.completed", { operation, status: response.status });
+    this.trace("request.completed", {
+      operation,
+      status: response.status,
+      durationMs: Date.now() - startedAt,
+    });
     return body;
   }
 

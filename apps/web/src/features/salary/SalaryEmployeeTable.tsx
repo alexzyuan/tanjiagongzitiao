@@ -217,21 +217,15 @@ export function SalaryEmployeeTable({
                           撤回
                         </button>
                       )}
-                      <button
-                        className="text-button"
-                        disabled={item.canEdit !== true || busy}
-                        onClick={() => onEditItem(item)}
-                      >
-                        编辑
-                      </button>
-                      <a
-                        className="text-button"
-                        href={`/employee/preview/${batch.id}/${item.id}`}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        员工端预览
-                      </a>
+                      {item.canEdit === true && (
+                          <button
+                            className="text-button"
+                            disabled={busy}
+                            onClick={() => onEditItem(item)}
+                          >
+                            编辑
+                          </button>
+                        )}
                       {item.deliveryStatus === "withdrawn" ? (
                         <button
                           className="text-button"

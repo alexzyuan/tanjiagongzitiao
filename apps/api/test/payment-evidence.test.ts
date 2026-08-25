@@ -100,6 +100,16 @@ function directoryClient(users: DirectoryUser[]): DingTalkClient {
   };
 }
 
+function countingDirectoryClient(users: DirectoryUser[], calls: { count: number }): DingTalkClient {
+  return {
+    ...directoryClient(users),
+    listDirectoryUsers: async () => {
+      calls.count += 1;
+      return users;
+    },
+  };
+}
+
 function cookie(response: {
   headers: Record<string, string | string[] | undefined>;
 }): string {
@@ -110,6 +120,39 @@ function cookie(response: {
 }
 
 describe("payment evidence service", () => {
+  it("does not crawl the directory when the evidence employee list is empty", async () => {
+    const store = new BoundaryStore(Buffer.alloc(32, 6));
+    const calls = { count: 0 };
+    const service = new EvidenceService(
+      store,
+      countingDirectoryClient([], calls),
+      new AuditService(store),
+    );
+
+    await expect(
+      service.listEmployees({ kind: "main_admin", userId: "admin" }),
+    ).resolves.toEqual([]);
+    expect(calls.count).toBe(0);
+  });
+
+  it("does not crawl the directory when employee evidence detail is missing", async () => {
+    const store = new BoundaryStore(Buffer.alloc(32, 5));
+    const calls = { count: 0 };
+    const service = new EvidenceService(
+      store,
+      countingDirectoryClient([], calls),
+      new AuditService(store),
+    );
+
+    await expect(
+      service.getEmployeeDetail(
+        { kind: "main_admin", userId: "admin" },
+        "missing-employee",
+      ),
+    ).rejects.toThrow("salary_evidence_employee_not_found");
+    expect(calls.count).toBe(0);
+  });
+
   it("lists employee metadata without full batch reads and classifies directory status", async () => {
     const store = new BoundaryStore(Buffer.alloc(32, 7));
     createBatch(store, {
