@@ -4,7 +4,11 @@ import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import { ZodError } from "zod";
-import { MockDingTalkClient, HttpDingTalkClient } from "@salary/dingtalk";
+import {
+  MockDingTalkClient,
+  HttpDingTalkClient,
+  type DingTalkNotificationChannel,
+} from "@salary/dingtalk";
 import { SqliteSalaryStore } from "@salary/db";
 import { config } from "./config.js";
 import { SessionService } from "./modules/auth/session.js";
@@ -23,7 +27,12 @@ function isDingTalkRateLimit(message: string): boolean {
   );
 }
 
-export function buildApp(options: { databasePath?: string } = {}) {
+export function buildApp(
+  options: {
+    databasePath?: string;
+    notificationChannel?: DingTalkNotificationChannel;
+  } = {},
+) {
   const app = Fastify({
     logger: { level: process.env.LOG_LEVEL ?? "info" },
     genReqId: () => randomUUID(),
@@ -42,6 +51,10 @@ export function buildApp(options: { databasePath?: string } = {}) {
           agentId: config.DINGTALK_AGENT_ID,
           apiBaseUrl: config.DINGTALK_API_BASE_URL,
           legacyApiBaseUrl: config.DINGTALK_LEGACY_API_BASE_URL,
+          cardRobotCode: config.DINGTALK_CARD_ROBOT_CODE ?? config.DINGTALK_CLIENT_ID,
+          ...(config.DINGTALK_CARD_TEMPLATE_ID
+            ? { cardTemplateId: config.DINGTALK_CARD_TEMPLATE_ID }
+            : {}),
           notificationPicUrl: `${config.APP_BASE_URL}/salary-notification.svg`,
           onEvent: (event, fields) =>
             app.log.info({ integration: "dingtalk", ...fields }, event),
@@ -49,7 +62,13 @@ export function buildApp(options: { databasePath?: string } = {}) {
   const sessions = new SessionService(config.SESSION_SIGNING_KEY);
   const audit = new AuditService(store);
   const authz = new AuthorizationService(store);
-  const salary = new SalaryService(store, dingtalk, audit, config.APP_BASE_URL);
+  const salary = new SalaryService(
+    store,
+    dingtalk,
+    audit,
+    config.APP_BASE_URL,
+    options.notificationChannel ?? config.DINGTALK_NOTIFICATION_CHANNEL,
+  );
 
   app.register(cookie);
   app.register(cors, { origin: config.APP_BASE_URL, credentials: true });

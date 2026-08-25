@@ -1,5 +1,8 @@
-import type { DingTalkClient } from "@salary/dingtalk";
-import type { DirectoryUser } from "@salary/dingtalk";
+import type {
+  DingTalkClient,
+  DingTalkNotificationChannel,
+  DirectoryUser,
+} from "@salary/dingtalk";
 import type {
   Access,
   SalaryFieldValue,
@@ -49,12 +52,14 @@ export class SalaryService {
     private readonly dingtalk: DingTalkClient,
     private readonly audit: AuditService,
     private readonly appBaseUrl: string,
+    notificationChannel: DingTalkNotificationChannel = "link",
   ) {
     this.delivery = new SalaryDeliveryService(
       store,
       dingtalk,
       audit,
       appBaseUrl,
+      notificationChannel,
     );
     this.employee = new SalaryEmployeeService(store, audit);
   }

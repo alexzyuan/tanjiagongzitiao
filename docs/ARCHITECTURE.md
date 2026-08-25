@@ -59,7 +59,7 @@ Owns:
 
 - DingTalk authentication transport;
 - directory lookup;
-- work notification delivery;
+- work notification delivery, including the default legacy `link` channel and the explicit interactive-card channel;
 - DingTalk mock/client protocol.
 
 Must not depend on application UI, Fastify routes, or database implementation.
@@ -141,13 +141,13 @@ Client-side display restrictions are not an authorization boundary.
 
 ```text
 SalaryDeliveryService
-→ DingTalk work notification (`asyncsend_v2` link message)
+→ DingTalk notification channel (`asyncsend_v2` link by default, or explicit interactive card)
 → delivery record
 → evidence record/fingerprint
 → audit record
 ```
 
-The currently verified production notification channel is the DingTalk work-notification `link` message. The application does not use DING. Local withdrawal must not be described as remote deletion of an already-delivered DingTalk notification.
+The default and currently verified production notification channel is the DingTalk work-notification `link` message. An explicit `interactive_card` configuration uses the supported card-instance create-and-deliver API with a published template; it sends the salary-period title and detail URL, disables forwarding, and does not configure a Stream callback. The card button only opens the existing employee salary-detail route. The application does not use DING. Local withdrawal must not be described as remote deletion of an already-delivered DingTalk notification.
 
 ### Archive path
 

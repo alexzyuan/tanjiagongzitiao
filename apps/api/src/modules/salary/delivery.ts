@@ -1,4 +1,9 @@
-import type { DingTalkClient } from "@salary/dingtalk";
+import type {
+  DingTalkClient,
+  DingTalkNotificationChannel,
+  InteractiveCardNotification,
+  WorkNotification,
+} from "@salary/dingtalk";
 import type { Access, SalaryBatchState } from "@salary/domain";
 import {
   canEditSalaryItem,
@@ -20,6 +25,7 @@ export class SalaryDeliveryService {
     private readonly dingtalk: DingTalkClient,
     private readonly audit: AuditService,
     private readonly appBaseUrl: string,
+    private readonly notificationChannel: DingTalkNotificationChannel = "link",
   ) {}
 
   isItemSendInFlight(batchId: string, employeeUserId: string) {
@@ -72,7 +78,7 @@ export class SalaryDeliveryService {
       throw new Error("salary_item_send_in_progress");
     this.inFlightItemSends.add(sendKey);
     try {
-      const result = await this.dingtalk.sendWorkNotification({
+      const result = await this.sendNotification({
         userId: item.employeeUserId,
         title: notificationTitle(
           batch.payrollMonth,
@@ -328,7 +334,7 @@ export class SalaryDeliveryService {
     let failures = 0;
     for (const item of targets) {
       try {
-        const result = await this.dingtalk.sendWorkNotification({
+        const result = await this.sendNotification({
           userId: item.employeeUserId,
           title: notificationTitle(
             existing.payrollMonth,
@@ -395,6 +401,22 @@ export class SalaryDeliveryService {
       metadata: { total: existing.items.length, failures },
     });
     return batch;
+  }
+
+  private sendNotification(
+    input: WorkNotification,
+  ): Promise<{ taskId: string }> {
+    if (this.notificationChannel === "link")
+      return this.dingtalk.sendWorkNotification(input);
+    const sendInteractiveCard = this.dingtalk.sendInteractiveCard;
+    if (!sendInteractiveCard)
+      throw new Error("dingtalk_interactive_card_not_supported");
+    const cardInput: InteractiveCardNotification = {
+      userId: input.userId,
+      title: input.title,
+      url: input.url,
+    };
+    return sendInteractiveCard.call(this.dingtalk, cardInput);
   }
 }
 
