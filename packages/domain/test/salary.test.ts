@@ -112,4 +112,8 @@ describe("salary slip display settings", () => {
     expect(defaultSalarySlipDisplaySettings.visibleFields).toEqual([]);
     expect(defaultSalarySlipDisplaySettings.fieldGroups).toEqual([]);
   });
+
+  it("enables employee confirmation by default", () => {
+    expect(defaultSalarySlipDisplaySettings.confirmationEnabled).toBe(true);
+  });
 });

@@ -353,6 +353,7 @@
 }
 .full-error strong {
   color: var(--ink);
+  white-space: pre-line;
 }
 .full-error span {
   font-size: 12px;

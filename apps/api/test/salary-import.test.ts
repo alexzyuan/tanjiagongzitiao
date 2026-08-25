@@ -177,6 +177,7 @@ describe("salary draft routes", () => {
     });
     expect(legacy.statusCode).toBe(200);
     expect(legacy.json().displaySettings.visibleFields).toEqual([]);
+    expect(legacy.json().displaySettings.confirmationEnabled).toBe(true);
     await app.close();
   });
 });
