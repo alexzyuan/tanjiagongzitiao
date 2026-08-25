@@ -155,6 +155,9 @@ describe("admin module navigation", () => {
     render(<App />);
 
     expect(await screen.findAllByText("探嘉工资条")).toHaveLength(2);
+    await waitFor(() =>
+      expect(apiMock).toHaveBeenCalledWith("/v1/salary-batches"),
+    );
     expect(screen.queryByText("薪资中心")).not.toBeInTheDocument();
     expect(screen.queryByText("企业薪资服务")).not.toBeInTheDocument();
   });
