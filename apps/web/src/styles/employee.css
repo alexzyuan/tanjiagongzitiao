@@ -18,38 +18,21 @@
   background: #f4f7fb;
   padding-bottom: 30px;
 }
-.employee-top {
-  height: 64px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 max(18px, calc((100vw - 760px) / 2));
-  background: #fff;
-  border-bottom: 1px solid var(--line);
-}
-.employee-top strong,
-.employee-top small {
-  display: block;
-}
-.employee-top strong {
-  font-size: 15px;
-}
-.employee-top small {
-  color: var(--muted);
-  font-size: 11px;
-  margin-top: 2px;
-}
-.employee-security {
-  margin-left: auto;
-  color: #1b8767;
-  display: inline-flex;
-  gap: 5px;
-  align-items: center;
-  font-size: 11px;
-}
 .employee-sheet {
+  position: relative;
   width: min(560px, calc(100% - 30px));
-  margin: 18px auto 0;
+  margin: 12px auto 0;
+}
+.employee-sheet > .employee-watermark {
+  z-index: 2;
+}
+.employee-sheet > .employee-detail-hero,
+.employee-sheet > .employee-notice,
+.employee-sheet > .salary-fields,
+.employee-sheet > .employee-confirm,
+.employee-sheet > .employee-footnote {
+  position: relative;
+  z-index: 1;
 }
 .employee-detail-hero {
   position: relative;
@@ -65,29 +48,21 @@
   z-index: 1;
 }
 .employee-title {
-  padding: 20px 22px 0;
-}
-.employee-title .eyebrow {
-  color: rgb(255 255 255 / 76%);
-  margin-bottom: 4px;
+  padding: 16px 18px 0;
 }
 .employee-title h1 {
-  margin-bottom: 7px;
+  margin-bottom: 5px;
   color: #fff;
-  font-size: 22px;
-}
-.employee-title p {
-  color: rgb(255 255 255 / 78%);
-  font-size: 12px;
+  font-size: 21px;
 }
 .employee-title .employee-greeting {
-  margin-top: 10px;
+  margin: 0;
   color: rgb(255 255 255 / 92%);
-  font-size: 15px;
-  line-height: 1.5;
+  font-size: 14px;
+  line-height: 1.4;
 }
 .net-card {
-  padding: 24px 22px 27px;
+  padding: 18px 18px 21px;
   display: grid;
   justify-items: center;
   gap: 8px;
@@ -97,32 +72,29 @@
   opacity: 0.86;
 }
 .net-card strong {
-  font-size: 44px;
+  font-size: 42px;
   line-height: 1;
   letter-spacing: -0.04em;
   font-weight: 520;
   font-variant-numeric: tabular-nums;
 }
-.employee-detail-hero .employee-watermark {
-  opacity: 0.9;
-}
 .employee-notice {
   margin-top: 10px;
-  padding: 16px 18px;
+  padding: 11px 13px;
   border-radius: 8px;
   background: #fff9de;
   color: #756536;
 }
 .employee-notice strong {
   display: block;
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1.3;
 }
 .employee-notice p {
-  margin: 6px 0 0;
+  margin: 4px 0 0;
   color: #756536;
-  font-size: 14px;
-  line-height: 1.55;
+  font-size: 12px;
+  line-height: 1.45;
   white-space: pre-line;
 }
 .salary-fields {

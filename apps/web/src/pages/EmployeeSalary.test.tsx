@@ -30,7 +30,7 @@ function mockEmployeePage(displaySettings: ReturnType<typeof settings>) {
   apiMock.mockImplementation((path: string) => {
     if (path === "/v1/me/salary-slips/batch-1")
       return Promise.resolve({
-        batch: { id: "batch-1", payrollMonth: "2026-08", title: "工资条", displaySettings },
+        batch: { id: "batch-1", payrollMonth: "2026-08", title: "历史自定义标题", displaySettings },
         item: { id: "item-1", batchId: "batch-1", employeeUserId: "employee-a", employeeName: "员工A", fields: { 基本工资: 10000, 实发金额: 9000 } },
       });
     if (path === "/v1/me/salary-slips/batch-1/view") return Promise.resolve({});
@@ -116,7 +116,7 @@ describe("employee salary semantics", () => {
   it("hides confirmation control and wording when confirmation is disabled", async () => {
     mockEmployeePage(settings(false));
     render(<EmployeePage employeeId="employee-a" />);
-    await screen.findByText("员工A · employee-a");
+    await screen.findByRole("heading", { name: "2026年08月工资条" });
     expect(screen.queryByRole("button", { name: /确认已查看/ })).not.toBeInTheDocument();
     expect(screen.getByText(/查看时间将生成存证记录/)).toBeInTheDocument();
     expect(screen.queryByText(/查看和确认时间将生成存证记录/)).not.toBeInTheDocument();
@@ -125,7 +125,7 @@ describe("employee salary semantics", () => {
   it("shows confirmation control and wording when confirmation is enabled", async () => {
     mockEmployeePage(settings(true));
     render(<EmployeePage employeeId="employee-a" />);
-    await screen.findByText("员工A · employee-a");
+    await screen.findByRole("heading", { name: "2026年08月工资条" });
     const confirmationButton = screen.getByRole("button", { name: "确认已查看" });
     expect(confirmationButton).toBeInTheDocument();
     expect(confirmationButton).not.toBeDisabled();
@@ -136,8 +136,25 @@ describe("employee salary semantics", () => {
   it("renders the configured employee care greeting on the salary detail", async () => {
     mockEmployeePage({ ...settings(true), greeting: "{name}，本月辛苦啦" });
     render(<EmployeePage employeeId="employee-a" />);
-    await screen.findByText("员工A · employee-a");
+    await screen.findByRole("heading", { name: "2026年08月工资条" });
     expect(screen.getByText("员工A，本月辛苦啦")).toBeInTheDocument();
+  });
+
+  it("renders the compact branded detail without the redundant app header or employee identifier", async () => {
+    mockEmployeePage({ ...settings(true), greeting: "{name}，工作辛苦啦" });
+    render(<EmployeePage employeeId="employee-a" />);
+    expect(
+      await screen.findByRole("heading", { name: "2026年08月工资条" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("员工A，工作辛苦啦")).toBeInTheDocument();
+    expect(screen.queryByText("employee-a")).not.toBeInTheDocument();
+    expect(document.querySelector(".employee-top")).not.toBeInTheDocument();
+    expect(
+      document.querySelector(".employee-sheet > .employee-watermark"),
+    ).toBeInTheDocument();
+    expect(
+      document.querySelector(".employee-detail-hero > .employee-watermark"),
+    ).not.toBeInTheDocument();
   });
 
   it("renders the configured salary notice on the employee detail", async () => {
@@ -146,7 +163,7 @@ describe("employee salary semantics", () => {
       notice: "工资条属于敏感信息，请注意保密",
     });
     render(<EmployeePage employeeId="employee-a" />);
-    await screen.findByText("员工A · employee-a");
+    await screen.findByRole("heading", { name: "2026年08月工资条" });
     expect(screen.getByText("温馨提示")).toBeInTheDocument();
     expect(
       screen.getByText("工资条属于敏感信息，请注意保密"),
@@ -157,8 +174,8 @@ describe("employee salary semantics", () => {
   it("renders admin employee preview as read-only and does not create view activity", async () => {
     mockEmployeePreview(settings(true));
     render(<EmployeePage employeeId={undefined} preview />);
-    await screen.findByText("员工A · employee-a");
-    expect(screen.getByText("管理员预览")).toBeInTheDocument();
+    await screen.findByRole("heading", { name: "2026年08月工资条" });
+    expect(screen.getByText(/管理员预览不会记录员工查看或确认状态/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /确认已查看/ })).not.toBeInTheDocument();
     expect(apiMock).not.toHaveBeenCalledWith("/v1/me/salary-slips/batch-1/view", { method: "POST" });
     expect(apiMock).not.toHaveBeenCalledWith("/v1/me/salary-slips/batch-1/confirm", { method: "POST" });
