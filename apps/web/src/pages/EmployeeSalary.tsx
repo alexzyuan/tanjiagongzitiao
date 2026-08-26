@@ -29,10 +29,14 @@ function formatEmployeeGreeting(greeting: string, name: string) {
   if (trimmed.includes("{name}")) return trimmed.replace(/\{name\}/g, name);
   return `${name}，${trimmed}`;
 }
-function EmployeeWatermark({ name }: { name: string }) {
+function EmployeeWatermark({ name, full = false }: { name: string; full?: boolean }) {
+  const count = full ? 24 : 9;
   return (
-    <div className="employee-watermark" aria-hidden="true">
-      {Array.from({ length: 9 }, (_, index) => (
+    <div
+      className={`employee-watermark${full ? " employee-watermark--full" : ""}`}
+      aria-hidden="true"
+    >
+      {Array.from({ length: count }, (_, index) => (
         <span key={`${name}-${index}`}>{name}</span>
       ))}
     </div>
@@ -247,7 +251,7 @@ export function EmployeePage({
   return (
     <div className="employee-page">
       <main className="employee-sheet">
-        <EmployeeWatermark name={displayName} />
+        <EmployeeWatermark name={displayName} full />
         <section className="employee-detail-hero">
           <div className="employee-title">
             <h1>{formatSalaryBatchTitle(payload.batch.payrollMonth)}</h1>
@@ -278,7 +282,7 @@ export function EmployeePage({
             });
             return groupFields.length ? (
               <section className="salary-field-group" key={group.id}>
-                <h2>{group.name}</h2>
+                <h2 className="salary-field-group-title">{group.name}</h2>
                 {groupFields.map(renderField)}
               </section>
             ) : null;
