@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { SalarySlipDisplaySettings } from "../api";
 
 const { apiMock, sessionMock } = vi.hoisted(() => ({
   apiMock: vi.fn(),
@@ -13,7 +14,7 @@ vi.mock("../api", async () => {
 
 import { EmployeeHome, EmployeePage } from "./EmployeeSalary";
 
-const settings = (confirmationEnabled: boolean) => ({
+const settings = (confirmationEnabled: boolean): SalarySlipDisplaySettings => ({
   netAmountField: "实发金额",
   hideEmptyFields: true,
   confirmationEnabled,
@@ -155,6 +156,29 @@ describe("employee salary semantics", () => {
     expect(
       document.querySelector(".employee-detail-hero > .employee-watermark"),
     ).not.toBeInTheDocument();
+  });
+
+  it("covers the full salary detail with repeated employee watermarks and emphasizes group headings", async () => {
+    mockEmployeePage({
+      ...settings(true),
+      fieldGroups: [
+        { id: "attendance", name: "出勤情况", fieldKeys: ["基本工资"] },
+        { id: "payable", name: "应付工资", fieldKeys: ["基本工资"] },
+      ],
+    });
+    render(<EmployeePage employeeId="employee-a" />);
+    await screen.findByRole("heading", { name: "2026年08月工资条" });
+    expect(screen.getByRole("heading", { name: "出勤情况" })).toHaveClass(
+      "salary-field-group-title",
+    );
+    expect(screen.getByRole("heading", { name: "应付工资" })).toHaveClass(
+      "salary-field-group-title",
+    );
+    const watermark = document.querySelector(
+      ".employee-sheet > .employee-watermark.employee-watermark--full",
+    );
+    expect(watermark).toBeInTheDocument();
+    expect(watermark?.querySelectorAll("span")).toHaveLength(24);
   });
 
   it("renders the configured salary notice on the employee detail", async () => {

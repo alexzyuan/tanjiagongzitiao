@@ -104,12 +104,12 @@
   margin-top: 10px;
   padding: 5px 18px;
 }
-.salary-field-group h2 {
+.salary-field-group-title {
   margin: 12px 0 3px;
   padding: 0 4px;
-  color: #8d9aaa;
+  color: #111827;
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 700;
 }
 .salary-field {
   display: flex;
@@ -196,6 +196,10 @@
   white-space: nowrap;
   transform: rotate(-18deg);
   user-select: none;
+}
+.employee-watermark--full {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-rows: repeat(6, minmax(0, 1fr));
 }
 .employee-month-picker {
   position: relative;
