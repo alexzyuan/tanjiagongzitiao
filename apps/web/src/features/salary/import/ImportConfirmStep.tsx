@@ -8,6 +8,7 @@ import { Field } from "../../../components/Field";
 import { SalarySlipPreview } from "../SalarySlipPreview";
 
 export function ImportConfirmStep({
+  month,
   title,
   preview,
   settings,
@@ -17,10 +18,12 @@ export function ImportConfirmStep({
   error,
   settingsMessage,
   setSettings,
+  onMonthChange,
   onSaveTemplate,
   onBack,
   onComplete,
 }: {
+  month: string;
   title: string;
   preview: SalaryImportPreview;
   settings: SalarySlipDisplaySettings;
@@ -30,6 +33,7 @@ export function ImportConfirmStep({
   error: string | undefined;
   settingsMessage: string | undefined;
   setSettings: Dispatch<SetStateAction<SalarySlipDisplaySettings>>;
+  onMonthChange: (value: string) => void;
   onSaveTemplate: () => void;
   onBack: () => void;
   onComplete: () => void;
@@ -43,6 +47,17 @@ export function ImportConfirmStep({
           <div className="notice success">{settingsMessage}</div>
         )}
         <div className="settings-form">
+          <Field label="发薪月份">
+            <input
+              type="month"
+              value={month}
+              onChange={(event) => onMonthChange(event.target.value)}
+              required
+            />
+          </Field>
+          <Field label="工资条标题">
+            <input value={title} readOnly aria-readonly="true" />
+          </Field>
           <Field label="保存的模板" wide>
             <div className="template-actions">
               <select

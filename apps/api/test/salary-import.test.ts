@@ -271,4 +271,38 @@ describe("directory matched import workflow", () => {
     expect(batch.displaySettings.netAmountField).toBe("实发工资");
     await app.close();
   });
+
+  it("uses the month and generated title selected in the settings step", async () => {
+    const { app, salary } = buildApp();
+    const preview = salary.previewImport("dev-admin", {
+      payrollMonth: "2026-08",
+      title: "2026年08月工资条",
+      strategy: "name",
+      rows: [{ 姓名: "员工A", 实发工资: 10000 }],
+      directory,
+    });
+
+    const result = salary.commitImport(
+      "dev-admin",
+      preview.previewId,
+      [],
+      {
+        netAmountField: "实发工资",
+        hideEmptyFields: true,
+        confirmationEnabled: true,
+        notice: "",
+        greeting: "{name}",
+        theme: "default",
+        visibleFields: ["实发工资"],
+        fieldGroups: [],
+      },
+      { payrollMonth: "2026-09", title: "2026年09月工资条" },
+    );
+
+    expect(salary.getBatch({ kind: "main_admin", userId: "dev-admin" }, result.batchId)).toMatchObject({
+      payrollMonth: "2026-09",
+      title: "2026年09月工资条",
+    });
+    await app.close();
+  });
 });

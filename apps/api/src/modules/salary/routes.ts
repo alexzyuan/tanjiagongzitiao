@@ -42,8 +42,13 @@ const ImportCommitSchema = z.object({
   resolutions: z.array(
     z.object({ row: z.number().int().min(2), userId: z.string().min(1) }),
   ),
+  payrollMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  title: z.string().trim().min(1).optional(),
   displaySettings: SalarySlipDisplaySettingsSchema,
-});
+}).refine(
+  (value) => Boolean(value.payrollMonth) === Boolean(value.title),
+  "salary_workbook_metadata_required",
+);
 const SalaryTemplateSchema = z
   .object({
     name: z.string().trim().min(1).max(120),
@@ -157,6 +162,9 @@ export function registerSalaryRoutes(
       body.previewId,
       body.resolutions,
       body.displaySettings,
+      body.payrollMonth && body.title
+        ? { payrollMonth: body.payrollMonth, title: body.title }
+        : undefined,
     );
   });
   app.get(
