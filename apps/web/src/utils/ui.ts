@@ -21,6 +21,17 @@ export function formatSalarySlipTitle(month: string) {
   if (!/^\d{4}-\d{2}$/.test(month)) throw new Error("invalid_payroll_month");
   return `${month.slice(0, 4)}年${month.slice(5)}月工资条`;
 }
+export function salaryMonthOptions(anchor: string) {
+  const match = /^(\d{4})-(\d{2})$/.exec(anchor);
+  if (!match) return [anchor];
+  const anchorSerial = Number(match[1]) * 12 + Number(match[2]) - 1;
+  return Array.from({ length: 25 }, (_, index) => {
+    const serial = anchorSerial + index - 12;
+    const year = Math.floor(serial / 12);
+    const month = (serial % 12) + 1;
+    return `${year}-${String(month).padStart(2, "0")}`;
+  });
+}
 export function formatDate(value: string) {
   return new Intl.DateTimeFormat("zh-CN", {
     dateStyle: "short",

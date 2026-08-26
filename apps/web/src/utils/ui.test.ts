@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { formatSalarySlipTitle, parseMonthFromFilename } from "./ui";
+import {
+  formatSalarySlipTitle,
+  parseMonthFromFilename,
+  salaryMonthOptions,
+} from "./ui";
 
 describe("salary import month helpers", () => {
   it.each([
@@ -19,5 +23,11 @@ describe("salary import month helpers", () => {
 
   it("formats the title from a selected month", () => {
     expect(formatSalarySlipTitle("2026-08")).toBe("2026年08月工资条");
+  });
+
+  it("provides a selectable month window around the inferred month", () => {
+    expect(salaryMonthOptions("2026-08")).toEqual(
+      expect.arrayContaining(["2026-07", "2026-08", "2026-09"]),
+    );
   });
 });

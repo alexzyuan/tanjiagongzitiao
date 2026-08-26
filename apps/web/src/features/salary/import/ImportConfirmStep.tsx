@@ -6,6 +6,7 @@ import type {
 } from "../../../api";
 import { Field } from "../../../components/Field";
 import { SalarySlipPreview } from "../SalarySlipPreview";
+import { salaryMonthOptions } from "../../../utils/ui";
 
 export function ImportConfirmStep({
   month,
@@ -38,6 +39,7 @@ export function ImportConfirmStep({
   onBack: () => void;
   onComplete: () => void;
 }) {
+  const months = salaryMonthOptions(month);
   return (
     <div className="wizard-panel import-settings-grid">
       <div>
@@ -48,12 +50,18 @@ export function ImportConfirmStep({
         )}
         <div className="settings-form">
           <Field label="发薪月份">
-            <input
-              type="month"
+            <select
+              aria-label="发薪月份"
               value={month}
               onChange={(event) => onMonthChange(event.target.value)}
               required
-            />
+            >
+              {months.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
           </Field>
           <Field label="工资条标题">
             <input value={title} readOnly aria-readonly="true" />
