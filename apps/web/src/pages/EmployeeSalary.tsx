@@ -23,6 +23,12 @@ function formatSalaryBatchTitle(payrollMonth: string) {
   const match = /^(\d{4})-(\d{2})$/.exec(payrollMonth);
   return match ? `${match[1]}年${match[2]}月工资条` : `${payrollMonth}工资条`;
 }
+function formatEmployeeGreeting(greeting: string, name: string) {
+  const trimmed = greeting.trim();
+  if (!trimmed) return name;
+  if (trimmed.includes("{name}")) return trimmed.replace(/\{name\}/g, name);
+  return `${name}，${trimmed}`;
+}
 function EmployeeWatermark({ name }: { name: string }) {
   return (
     <div className="employee-watermark" aria-hidden="true">
@@ -240,33 +246,14 @@ export function EmployeePage({
   );
   return (
     <div className="employee-page">
-      <div className="employee-top">
-        <span className="brand-mark">
-          <Icon name="wallet" size={18} />
-        </span>
-        <div>
-          <strong>工资条</strong>
-          <small>{preview ? "管理员预览" : "仅本人可见"}</small>
-        </div>
-        <span className="employee-security">
-          <Icon name="shield" size={15} />
-          加密
-        </span>
-      </div>
       <main className="employee-sheet">
+        <EmployeeWatermark name={displayName} />
         <section className="employee-detail-hero">
           <div className="employee-title">
-            <span className="eyebrow">{payload.batch.payrollMonth}</span>
-            <h1>{payload.batch.title}</h1>
-            <p>
-              {displayName} ·{" "}
-              {payload.item.employeeNo ?? payload.item.employeeUserId}
+            <h1>{formatSalaryBatchTitle(payload.batch.payrollMonth)}</h1>
+            <p className="employee-greeting">
+              {formatEmployeeGreeting(settings.greeting, displayName)}
             </p>
-            {settings.greeting && (
-              <p className="employee-greeting">
-                {settings.greeting.replace(/\{name\}/g, displayName)}
-              </p>
-            )}
           </div>
           <div className="net-card">
             <span>实发金额（元）</span>
@@ -274,7 +261,6 @@ export function EmployeePage({
               {typeof netValue === "number" ? formatSalaryValue(netValue) : "--"}
             </strong>
           </div>
-          <EmployeeWatermark name={displayName} />
         </section>
         {settings.notice && (
           <aside className="employee-notice">
