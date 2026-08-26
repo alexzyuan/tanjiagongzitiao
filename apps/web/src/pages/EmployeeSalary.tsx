@@ -261,6 +261,11 @@ export function EmployeePage({
             {displayName} ·{" "}
             {payload.item.employeeNo ?? payload.item.employeeUserId}
           </p>
+          {settings.greeting && (
+            <p className="employee-greeting">
+              {settings.greeting.replace(/\{name\}/g, displayName)}
+            </p>
+          )}
         </div>
         <div className="net-card">
           <span>实发金额（元）</span>

@@ -55,7 +55,7 @@ describe("salary import wizard steps", () => {
     expect(screen.queryByText("匹配企业人员")).not.toBeInTheDocument();
   });
 
-  it("selects the month in settings and keeps the generated title read-only", () => {
+  it("offers a selectable month list in settings and keeps the generated title read-only", () => {
     const onMonthChange = vi.fn();
     render(
       <ImportConfirmStep
@@ -76,8 +76,9 @@ describe("salary import wizard steps", () => {
       />,
     );
 
-    const monthInput = screen.getByDisplayValue("2026-08");
-    expect(monthInput).toHaveAttribute("type", "month");
+    const monthInput = screen.getByRole("combobox", { name: "发薪月份" });
+    expect(monthInput).toHaveValue("2026-08");
+    expect(screen.getByRole("option", { name: "2026-09" })).toBeInTheDocument();
     expect(screen.getByDisplayValue("2026年08月工资条")).toHaveAttribute(
       "readonly",
     );

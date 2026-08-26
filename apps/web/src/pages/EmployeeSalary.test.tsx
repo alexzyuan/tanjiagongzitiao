@@ -133,6 +133,13 @@ describe("employee salary semantics", () => {
     expect(screen.getByText(/查看和确认时间将生成存证记录/)).toBeInTheDocument();
   });
 
+  it("renders the configured employee care greeting on the salary detail", async () => {
+    mockEmployeePage({ ...settings(true), greeting: "{name}，本月辛苦啦" });
+    render(<EmployeePage employeeId="employee-a" />);
+    await screen.findByText("员工A · employee-a");
+    expect(screen.getByText("员工A，本月辛苦啦")).toBeInTheDocument();
+  });
+
   it("renders admin employee preview as read-only and does not create view activity", async () => {
     mockEmployeePreview(settings(true));
     render(<EmployeePage employeeId={undefined} preview />);
