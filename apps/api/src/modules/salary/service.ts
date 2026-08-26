@@ -147,8 +147,13 @@ export class SalaryService {
     previewId: string,
     resolutions: Array<{ row: number; userId: string }>,
     displaySettings?: SalarySlipDisplaySettings,
+    metadata?: { payrollMonth: string; title: string },
   ): { batchId: string } {
     const stored = this.importPreviewFor(actorUserId, previewId);
+    if (metadata && !/^\d{4}-\d{2}$/.test(metadata.payrollMonth))
+      throw new Error("salary_import_payroll_month_invalid");
+    if (metadata && !metadata.title.trim())
+      throw new Error("salary_import_title_required");
     const resolutionsByRow = new Map<number, string>();
     for (const resolution of resolutions) {
       if (!stored.preview.rows.some((row) => row.row === resolution.row))
@@ -172,8 +177,8 @@ export class SalaryService {
       return resolveDirectoryUser(row.source, user);
     });
     const result = this.createDraft(actorUserId, {
-      payrollMonth: stored.payrollMonth,
-      title: stored.title,
+      payrollMonth: metadata?.payrollMonth ?? stored.payrollMonth,
+      title: metadata?.title ?? stored.title,
       rows,
       ...(displaySettings ? { displaySettings } : {}),
     });

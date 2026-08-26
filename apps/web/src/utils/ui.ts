@@ -5,6 +5,22 @@ export function currentMonth() {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
+export function parseMonthFromFilename(filename: string, fallback: string) {
+  const normalizedName = filename.replace(/\\/g, "/").split("/").pop() ?? filename;
+  const separated = normalizedName.match(
+    /(?:^|[^\d])(\d{4})[-_年](\d{1,2})(?:月)?(?:[^\d]|$)/,
+  );
+  const compact = normalizedName.match(/(?:^|[^\d])(\d{4})(\d{2})(?:[^\d]|$)/);
+  const match = separated ?? compact;
+  if (!match) return fallback;
+  const month = Number(match[2]);
+  if (!Number.isInteger(month) || month < 1 || month > 12) return fallback;
+  return `${match[1]}-${String(month).padStart(2, "0")}`;
+}
+export function formatSalarySlipTitle(month: string) {
+  if (!/^\d{4}-\d{2}$/.test(month)) throw new Error("invalid_payroll_month");
+  return `${month.slice(0, 4)}年${month.slice(5)}月工资条`;
+}
 export function formatDate(value: string) {
   return new Intl.DateTimeFormat("zh-CN", {
     dateStyle: "short",

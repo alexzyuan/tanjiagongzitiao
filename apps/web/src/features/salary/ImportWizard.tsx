@@ -8,7 +8,12 @@ import {
   type SalarySlipTemplate,
 } from "../../api";
 import { Icon } from "../../icons";
-import { currentMonth, defaultFieldGroups } from "../../utils/ui";
+import {
+  currentMonth,
+  defaultFieldGroups,
+  formatSalarySlipTitle,
+  parseMonthFromFilename,
+} from "../../utils/ui";
 import { errorText } from "../../utils/errors";
 import { ImportUploadStep } from "./import/ImportUploadStep";
 import { ImportMatchStep } from "./import/ImportMatchStep";
@@ -23,9 +28,8 @@ export function ImportWizard({
 }) {
   const [step, setStep] = useState<"upload" | "preview" | "settings">("upload");
   const [month, setMonth] = useState(currentMonth());
-  const [title, setTitle] = useState(`${currentMonth()} 工资条`);
   const [file, setFile] = useState<File>();
-  const [strategy, setStrategy] = useState<EmployeeMatchStrategy>("name");
+  const strategy: EmployeeMatchStrategy = "name";
   const [preview, setPreview] = useState<SalaryImportPreview>();
   const [resolutions, setResolutions] = useState<Record<number, DirectoryUser>>(
     {},
@@ -47,6 +51,7 @@ export function ImportWizard({
   const [error, setError] = useState<string>();
   const [settingsMessage, setSettingsMessage] = useState<string>();
   const [templates, setTemplates] = useState<SalarySlipTemplate[]>([]);
+  const title = formatSalarySlipTitle(month);
 
   const unresolved =
     preview?.rows.filter(
@@ -122,6 +127,15 @@ export function ImportWizard({
     }
   }
 
+  function handleFileChange(nextFile: File | undefined) {
+    setFile(nextFile);
+    if (nextFile) setMonth(parseMonthFromFilename(nextFile.name, currentMonth()));
+  }
+
+  function handleMonthChange(nextMonth: string) {
+    if (/^\d{4}-\d{2}$/.test(nextMonth)) setMonth(nextMonth);
+  }
+
   async function searchDirectory() {
     if (!preview || !activeRow || !directoryQuery.trim()) return;
     setBusy(true);
@@ -162,6 +176,8 @@ export function ImportWizard({
               row: Number(row),
               userId: user.userId,
             })),
+            payrollMonth: month,
+            title,
             displaySettings: settings,
           }),
         },
@@ -238,15 +254,10 @@ export function ImportWizard({
       </div>
       {step === "upload" && (
         <ImportUploadStep
-          month={month}
-          title={title}
-          strategy={strategy}
           busy={busy}
           error={error}
-          onMonthChange={setMonth}
-          onTitleChange={setTitle}
-          onStrategyChange={setStrategy}
-          onFileChange={setFile}
+          fileName={file?.name}
+          onFileChange={handleFileChange}
           onSubmit={(event) => void previewWorkbook(event)}
           onClose={onClose}
         />
@@ -274,6 +285,7 @@ export function ImportWizard({
       )}
       {step === "settings" && preview && (
         <ImportConfirmStep
+          month={month}
           title={title}
           preview={preview}
           settings={settings}
@@ -283,6 +295,7 @@ export function ImportWizard({
           error={error}
           settingsMessage={settingsMessage}
           setSettings={setSettings}
+          onMonthChange={handleMonthChange}
           onSaveTemplate={() => void saveTemplate()}
           onBack={() => setStep("preview")}
           onComplete={() => void complete()}
