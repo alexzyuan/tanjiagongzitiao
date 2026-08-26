@@ -30,7 +30,7 @@ function formatEmployeeGreeting(greeting: string, name: string) {
   return `${name}，${trimmed}`;
 }
 function EmployeeWatermark({ name, full = false }: { name: string; full?: boolean }) {
-  const count = full ? 24 : 9;
+  const count = full ? 360 : 9;
   return (
     <div
       className={`employee-watermark${full ? " employee-watermark--full" : ""}`}
