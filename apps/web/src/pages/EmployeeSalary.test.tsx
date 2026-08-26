@@ -178,7 +178,7 @@ describe("employee salary semantics", () => {
       ".employee-sheet > .employee-watermark.employee-watermark--full",
     );
     expect(watermark).toBeInTheDocument();
-    expect(watermark?.querySelectorAll("span")).toHaveLength(24);
+    expect(watermark?.querySelectorAll("span")).toHaveLength(360);
   });
 
   it("renders the configured salary notice on the employee detail", async () => {
