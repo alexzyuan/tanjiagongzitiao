@@ -254,26 +254,34 @@ export function EmployeePage({
         </span>
       </div>
       <main className="employee-sheet">
-        <div className="employee-title">
-          <span className="eyebrow">{payload.batch.payrollMonth}</span>
-          <h1>{payload.batch.title}</h1>
-          <p>
-            {displayName} ·{" "}
-            {payload.item.employeeNo ?? payload.item.employeeUserId}
-          </p>
-          {settings.greeting && (
-            <p className="employee-greeting">
-              {settings.greeting.replace(/\{name\}/g, displayName)}
+        <section className="employee-detail-hero">
+          <div className="employee-title">
+            <span className="eyebrow">{payload.batch.payrollMonth}</span>
+            <h1>{payload.batch.title}</h1>
+            <p>
+              {displayName} ·{" "}
+              {payload.item.employeeNo ?? payload.item.employeeUserId}
             </p>
-          )}
-        </div>
-        <div className="net-card">
-          <span>实发金额（元）</span>
-          <strong>
-            {typeof netValue === "number" ? formatSalaryValue(netValue) : "--"}
-          </strong>
-          <small>工资信息属于个人敏感数据，请妥善保管</small>
-        </div>
+            {settings.greeting && (
+              <p className="employee-greeting">
+                {settings.greeting.replace(/\{name\}/g, displayName)}
+              </p>
+            )}
+          </div>
+          <div className="net-card">
+            <span>实发金额（元）</span>
+            <strong>
+              {typeof netValue === "number" ? formatSalaryValue(netValue) : "--"}
+            </strong>
+          </div>
+          <EmployeeWatermark name={displayName} />
+        </section>
+        {settings.notice && (
+          <aside className="employee-notice">
+            <strong>温馨提示</strong>
+            <p>{settings.notice}</p>
+          </aside>
+        )}
         <div className="salary-fields">
           {settings.fieldGroups.map((group) => {
             const groupFields = group.fieldKeys.flatMap((key) => {

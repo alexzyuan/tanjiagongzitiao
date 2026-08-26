@@ -140,6 +140,20 @@ describe("employee salary semantics", () => {
     expect(screen.getByText("员工A，本月辛苦啦")).toBeInTheDocument();
   });
 
+  it("renders the configured salary notice on the employee detail", async () => {
+    mockEmployeePage({
+      ...settings(true),
+      notice: "工资条属于敏感信息，请注意保密",
+    });
+    render(<EmployeePage employeeId="employee-a" />);
+    await screen.findByText("员工A · employee-a");
+    expect(screen.getByText("温馨提示")).toBeInTheDocument();
+    expect(
+      screen.getByText("工资条属于敏感信息，请注意保密"),
+    ).toBeInTheDocument();
+    expect(document.querySelector(".employee-notice")).toBeInTheDocument();
+  });
+
   it("renders admin employee preview as read-only and does not create view activity", async () => {
     mockEmployeePreview(settings(true));
     render(<EmployeePage employeeId={undefined} preview />);
