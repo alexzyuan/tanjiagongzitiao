@@ -92,7 +92,7 @@ describe("minimal sensitive salary reads", () => {
     ).toBe("employee-a");
   });
 
-  it("report only calls getBatch for authorized summaries", () => {
+  it("report only calls getBatch for authorized batch-admin summaries", () => {
     const store = new BoundaryStore(Buffer.alloc(32, 8));
     const allowed = createBatch(store, "employee-a");
     const forbidden = createBatch(store, "employee-b");
@@ -100,7 +100,7 @@ describe("minimal sensitive salary reads", () => {
     const reports = new ReportService(store);
 
     const report = reports.summary(
-      { kind: "sub_admin", userId: "sub-admin", batchIds: [allowed.id] },
+      { kind: "batch_admin", userId: "batch-admin", batchIds: [allowed.id] },
     );
 
     expect(report.batches.map((batch) => batch.id)).toEqual([allowed.id]);

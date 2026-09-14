@@ -3,7 +3,7 @@ import type {
   SalaryBatchSummary,
   SalarySlipDisplaySettings,
 } from "@salary/domain";
-import { canManageBatch } from "@salary/domain";
+import { canManageBatch, isGlobalSalaryAdmin } from "@salary/domain";
 import { fingerprintSalaryPayload, type SalaryStore } from "@salary/db";
 import type { AuditService } from "../audit/service.js";
 
@@ -99,7 +99,7 @@ export class SalaryEmployeeService {
     if (!canManageBatch(access, batchId))
       throw new Error("salary_batch_access_denied");
     const batchSummary = this.store.getBatchSummary(batchId);
-    if (batchSummary.state === "archived" && access.kind !== "main_admin")
+    if (batchSummary.state === "archived" && !isGlobalSalaryAdmin(access))
       throw new Error("salary_archive_access_denied");
     const batch = this.store.getBatch(batchId);
     const item = batch.items.find((candidate) => candidate.id === itemId);

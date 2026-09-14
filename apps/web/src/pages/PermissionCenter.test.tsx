@@ -17,6 +17,23 @@ afterEach(() => {
 });
 
 describe("PermissionCenter directory picker", () => {
+  it("explains that sub-admins have global salary permissions", async () => {
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/v1/salary-batches") return Promise.resolve([]);
+      if (path === "/v1/sub-admins") return Promise.resolve([]);
+      if (path === "/v1/directory/users") return Promise.resolve([]);
+      return Promise.reject(new Error(`unexpected_request:${path}`));
+    });
+
+    render(<PermissionCenter refreshKey={0} onChanged={vi.fn()} />);
+
+    expect(
+      await screen.findByText(
+        "子管理员与企业管理员拥有相同的工资业务权限；工资表管理员仅能操作被授权批次。",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("debounces directory searches instead of requesting every keystroke", async () => {
     const user = userEvent.setup();
     apiMock.mockImplementation((path: string) => {

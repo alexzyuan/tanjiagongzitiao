@@ -109,7 +109,7 @@ export function PermissionCenter({
       <div className="section-header">
         <div>
           <h2>权限管理</h2>
-          <p>主管理员默认由企业管理员担任，其他人员按工资表手动授权。</p>
+          <p>主管理员和子管理员拥有全部工资业务权限，其他人员按工资表手动授权。</p>
         </div>
       </div>
       {message && (
@@ -226,7 +226,7 @@ export function PermissionCenter({
         <div>
           <strong>权限边界</strong>
           <span>
-            子管理员仅可发放和管理被添加的工资表；加密归档仅企业管理员可访问。
+            子管理员与企业管理员拥有相同的工资业务权限；工资表管理员仅能操作被授权批次。
           </span>
         </div>
       </div>

@@ -17,6 +17,16 @@ Use these terms consistently:
 
 Do not introduce synonyms such as wage/payroll/compensation for the same code concepts unless required by an external API.
 
+## 1.1 Permission model
+
+Salary administration has three distinct access levels:
+
+- `main_admin` is the configured enterprise administrator.
+- `sub_admin` is an assigned administrator with the same global salary-business permissions as `main_admin`, including salary batches, reports, payment evidence, settings, archives, and administrator management. The role remains distinct for audit and UI semantics.
+- `batch_admin` can operate only on explicitly assigned, non-archived batches.
+
+`employee` access is separate from salary administration and can only use the authenticated employee endpoints for the employee's own successfully delivered salary slips. The server/domain authorization helpers are the source of truth; the web UI only reflects their result.
+
 ## 2. Salary batch lifecycle
 
 Current domain states:

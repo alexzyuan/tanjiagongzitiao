@@ -11,11 +11,15 @@ vi.mock("./api", async () => {
 
 import { SalaryManagement } from "./pages/SalaryManagement";
 import { formatSalaryValue } from "./format";
+import { currentMonth, formatSalarySlipTitle } from "./utils/ui";
+
+const testPayrollMonth = currentMonth();
+const testPayrollTitle = formatSalarySlipTitle(testPayrollMonth);
 
 const batch = {
   id: "batch-1",
-  payrollMonth: "2026-08",
-  title: "2026年08月工资条",
+  payrollMonth: testPayrollMonth,
+  title: testPayrollTitle,
   state: "draft",
   total: 1,
   sent: 0,
@@ -358,7 +362,7 @@ describe("salary management", () => {
     expect(
       await screen.findByRole("heading", { name: "确认删除工资条" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("确定删除 2026年08月工资条 吗？")).toBeInTheDocument();
+    expect(screen.getByText(`确定删除 ${testPayrollTitle} 吗？`)).toBeInTheDocument();
     expect(nativeConfirm).not.toHaveBeenCalled();
     expect(apiMock).not.toHaveBeenCalledWith(
       "/v1/salary-batches/batch-1",

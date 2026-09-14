@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { isGlobalSalaryAdmin } from "@salary/domain";
 import type { SessionService } from "../auth/session.js";
 import type { AuthorizationService } from "../authorization/service.js";
 import type { AppSettings, SalaryStore } from "@salary/db";
@@ -16,7 +17,7 @@ function actor(
 ) {
   const identity = sessions.read(request.cookies.salary_session);
   const access = authz.accessFor(identity.userId);
-  if (access.kind !== "main_admin") throw new Error("main_admin_required");
+  if (!isGlobalSalaryAdmin(access)) throw new Error("main_admin_required");
   return identity;
 }
 
