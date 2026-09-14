@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { isGlobalSalaryAdmin } from "@salary/domain";
 import type { DingTalkClient } from "@salary/dingtalk";
 import type { SessionService } from "../auth/session.js";
 import type { AuthorizationService } from "../authorization/service.js";
@@ -89,7 +90,7 @@ export function registerReportRoutes(app: FastifyInstance, deps: { sessions: Ses
   app.get("/v1/payment-evidence", async request => {
     const actor = identity(request, deps.sessions);
     const access = deps.authz.accessFor(actor.userId);
-    if (access.kind !== "main_admin") throw new Error("main_admin_required");
+    if (!isGlobalSalaryAdmin(access)) throw new Error("main_admin_required");
     const query = z.object({ batchId: z.string().min(1).optional() }).parse(request.query);
     return deps.store.listEvidence(query.batchId);
   });
@@ -142,7 +143,7 @@ export function registerReportRoutes(app: FastifyInstance, deps: { sessions: Ses
   });
   app.get("/v1/audits", async request => {
     const actor = identity(request, deps.sessions);
-    if (deps.authz.accessFor(actor.userId).kind !== "main_admin") throw new Error("main_admin_required");
+    if (!isGlobalSalaryAdmin(deps.authz.accessFor(actor.userId))) throw new Error("main_admin_required");
     return deps.store.listAudits();
   });
 }

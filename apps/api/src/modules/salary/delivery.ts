@@ -9,6 +9,7 @@ import {
   canEditSalaryItem,
   canManageBatch,
   canTransition,
+  isGlobalSalaryAdmin,
 } from "@salary/domain";
 import {
   fingerprintSalaryPayload,
@@ -209,7 +210,7 @@ export class SalaryDeliveryService {
   }
 
   async processScheduled(actor: Access, now = new Date()) {
-    if (actor.kind !== "main_admin") throw new Error("main_admin_required");
+    if (!isGlobalSalaryAdmin(actor)) throw new Error("main_admin_required");
     const processed: string[] = [];
     for (const batchId of this.store.listScheduledDue(now)) {
       await this.deliver(actor.userId, batchId);

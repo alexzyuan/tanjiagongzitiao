@@ -12,6 +12,7 @@ import {
   canDeleteSalaryBatch,
   canEditSalaryItem,
   canManageBatch,
+  isGlobalSalaryAdmin,
 } from "@salary/domain";
 import type { SalaryStore } from "@salary/db";
 import type { AuditService } from "../audit/service.js";
@@ -224,7 +225,7 @@ export class SalaryService {
     actor: Access,
     query?: string,
   ): Promise<DirectoryUser[]> {
-    if (actor.kind !== "main_admin") throw new Error("main_admin_required");
+    if (!isGlobalSalaryAdmin(actor)) throw new Error("main_admin_required");
     const users = await this.dingtalk.listDirectoryUsers();
     const needle = query?.trim().toLowerCase();
     const filtered = needle
@@ -252,7 +253,7 @@ export class SalaryService {
   }
 
   async assignSubAdmin(actor: Access, userId: string) {
-    if (actor.kind !== "main_admin") throw new Error("main_admin_required");
+    if (!isGlobalSalaryAdmin(actor)) throw new Error("main_admin_required");
     const directoryUser = await this.dingtalk.getDirectoryUser(userId);
     if (!directoryUser) throw new Error("directory_user_not_found");
     const subAdmins = this.store.assignSubAdmin(userId);
@@ -276,7 +277,7 @@ export class SalaryService {
     actor: Access,
     input: { name: string; settings: SalarySlipDisplaySettings },
   ) {
-    if (actor.kind !== "main_admin") throw new Error("salary_admin_required");
+    if (!isGlobalSalaryAdmin(actor)) throw new Error("salary_admin_required");
     validateDisplaySettings(input.settings);
     const template = this.store.createSalaryTemplate(input);
     this.audit.record({
@@ -299,7 +300,7 @@ export class SalaryService {
   }
 
   removeSubAdmin(actor: Access, userId: string) {
-    if (actor.kind !== "main_admin") throw new Error("main_admin_required");
+    if (!isGlobalSalaryAdmin(actor)) throw new Error("main_admin_required");
     const subAdmins = this.store.removeSubAdmin(userId);
     this.audit.record({
       correlationId: `role:${userId}`,
@@ -327,8 +328,8 @@ export class SalaryService {
       visibleBatches.map((batch) =>
         this.withDeliverySummary(batch, deliveriesByBatch.get(batch.id) ?? []),
       );
-    if (access.kind === "main_admin") return withSummaries(batches);
-    if (access.kind === "batch_admin" || access.kind === "sub_admin")
+    if (isGlobalSalaryAdmin(access)) return withSummaries(batches);
+    if (access.kind === "batch_admin")
       return withSummaries(
         batches.filter(
           (batch) =>
@@ -346,7 +347,7 @@ export class SalaryService {
     if (!canManageBatch(access, batchId))
       throw new Error("salary_batch_access_denied");
     const batch = this.store.getBatch(batchId);
-    if (batch.state === "archived" && access.kind !== "main_admin")
+    if (batch.state === "archived" && !isGlobalSalaryAdmin(access))
       throw new Error("salary_archive_access_denied");
     return this.delivery.withDeliveryStatus(batch);
   }
@@ -444,7 +445,7 @@ export class SalaryService {
   }
 
   assignAdmin(actor: Access, batchId: string, userId: string) {
-    if (actor.kind !== "main_admin") throw new Error("main_admin_required");
+    if (!isGlobalSalaryAdmin(actor)) throw new Error("main_admin_required");
     const batch = this.store.assignAdmin(batchId, userId);
     this.audit.record({
       correlationId: `batch:${batchId}`,
@@ -459,7 +460,7 @@ export class SalaryService {
   }
 
   removeAdmin(actor: Access, batchId: string, userId: string) {
-    if (actor.kind !== "main_admin") throw new Error("main_admin_required");
+    if (!isGlobalSalaryAdmin(actor)) throw new Error("main_admin_required");
     const batch = this.store.removeAdmin(batchId, userId);
     this.audit.record({
       correlationId: `batch:${batchId}`,

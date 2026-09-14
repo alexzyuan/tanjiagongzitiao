@@ -233,7 +233,7 @@ describe("payment evidence service", () => {
     ).resolves.toEqual([]);
   });
 
-  it("only reads full batches inside a sub-admin's allowed batch scope", async () => {
+  it("only reads full batches inside a batch-admin's allowed batch scope", async () => {
     const store = new BoundaryStore(Buffer.alloc(32, 8));
     const allowed = createBatch(store, {
       employeeUserId: "employee-a",
@@ -253,7 +253,7 @@ describe("payment evidence service", () => {
     );
 
     const detail = await service.getEmployeeDetail(
-      { kind: "sub_admin", userId: "sub-admin", batchIds: [allowed.id] },
+      { kind: "batch_admin", userId: "batch-admin", batchIds: [allowed.id] },
       "employee-a",
       {},
     );
@@ -325,7 +325,7 @@ describe("payment evidence service", () => {
     expect(store.listEvidenceCalls).toBe(0);
   });
 
-  it("serves scoped employee list and detail routes to sub-admins", async () => {
+  it("serves scoped employee list and detail routes to batch-admins", async () => {
     const { app } = buildApp();
     const main = cookie(
       await app.inject({ method: "POST", url: "/v1/auth/dev" }),
@@ -366,28 +366,22 @@ describe("payment evidence service", () => {
     });
     await app.inject({
       method: "POST",
-      url: "/v1/sub-admins",
-      headers: { cookie: main },
-      payload: { userId: "hr-user" },
-    });
-    await app.inject({
-      method: "POST",
       url: `/v1/salary-batches/${allowedBatchId}/admins`,
       headers: { cookie: main },
-      payload: { userId: "hr-user" },
+      payload: { userId: "batch-user" },
     });
-    const subAdmin = cookie(
+    const batchAdmin = cookie(
       await app.inject({
         method: "POST",
         url: "/v1/auth/dev",
-        payload: { userId: "hr-user", name: "人事管理员" },
+        payload: { userId: "batch-user", name: "工资表管理员" },
       }),
     );
 
     const list = await app.inject({
       method: "GET",
       url: "/v1/payment-evidence/employees?query=%E5%91%98%E5%B7%A5A",
-      headers: { cookie: subAdmin },
+      headers: { cookie: batchAdmin },
     });
     expect(list.statusCode).toBe(200);
     expect(list.json()).toEqual([
@@ -400,7 +394,7 @@ describe("payment evidence service", () => {
     const detail = await app.inject({
       method: "GET",
       url: "/v1/payment-evidence/employees/employee-a",
-      headers: { cookie: subAdmin },
+      headers: { cookie: batchAdmin },
     });
     expect(detail.statusCode).toBe(200);
     expect(detail.json().rows).toEqual([
@@ -410,7 +404,7 @@ describe("payment evidence service", () => {
     const hiddenDetail = await app.inject({
       method: "GET",
       url: "/v1/payment-evidence/employees/former-a",
-      headers: { cookie: subAdmin },
+      headers: { cookie: batchAdmin },
     });
     expect(hiddenDetail.statusCode).toBe(404);
     await app.close();

@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { DingTalkClient } from "@salary/dingtalk";
+import { isGlobalSalaryAdmin } from "@salary/domain";
 import type { SessionService } from "../auth/session.js";
 import type { AuthorizationService } from "../authorization/service.js";
 import { SalaryService } from "./service.js";
@@ -87,7 +88,7 @@ export function registerSalaryRoutes(
   );
   app.get("/v1/salary-slip-templates", async (request) => {
     const identity = user(request, deps.sessions);
-    if (deps.authz.accessFor(identity.userId).kind !== "main_admin")
+    if (!isGlobalSalaryAdmin(deps.authz.accessFor(identity.userId)))
       throw new Error("salary_admin_required");
     return deps.salary.listTemplates();
   });
@@ -101,7 +102,7 @@ export function registerSalaryRoutes(
   app.post("/v1/salary-batches", async (request) => {
     const identity = user(request, deps.sessions);
     const access = deps.authz.accessFor(identity.userId);
-    if (access.kind !== "main_admin") throw new Error("salary_admin_required");
+    if (!isGlobalSalaryAdmin(access)) throw new Error("salary_admin_required");
     const draft = DraftSchema.parse(request.body);
     return deps.salary.createDraft(identity.userId, {
       payrollMonth: draft.payrollMonth,
@@ -115,7 +116,7 @@ export function registerSalaryRoutes(
   app.post("/v1/salary-batches/import", async (request) => {
     const identity = user(request, deps.sessions);
     const access = deps.authz.accessFor(identity.userId);
-    if (access.kind !== "main_admin") throw new Error("salary_admin_required");
+    if (!isGlobalSalaryAdmin(access)) throw new Error("salary_admin_required");
     const part = await request.file();
     if (!part) throw new Error("salary_workbook_file_required");
     const payrollMonth = multipartText(part.fields.payrollMonth);
@@ -130,7 +131,7 @@ export function registerSalaryRoutes(
   });
   app.post("/v1/salary-batches/import/preview", async (request) => {
     const identity = user(request, deps.sessions);
-    if (deps.authz.accessFor(identity.userId).kind !== "main_admin")
+    if (!isGlobalSalaryAdmin(deps.authz.accessFor(identity.userId)))
       throw new Error("salary_admin_required");
     const part = await request.file();
     if (!part) throw new Error("salary_workbook_file_required");
@@ -154,7 +155,7 @@ export function registerSalaryRoutes(
   });
   app.post("/v1/salary-batches/import/commit", async (request) => {
     const identity = user(request, deps.sessions);
-    if (deps.authz.accessFor(identity.userId).kind !== "main_admin")
+    if (!isGlobalSalaryAdmin(deps.authz.accessFor(identity.userId)))
       throw new Error("salary_admin_required");
     const body = ImportCommitSchema.parse(request.body);
     return deps.salary.commitImport(
@@ -171,7 +172,7 @@ export function registerSalaryRoutes(
     "/v1/salary-batches/import/previews/:previewId/users",
     async (request) => {
       const identity = user(request, deps.sessions);
-      if (deps.authz.accessFor(identity.userId).kind !== "main_admin")
+      if (!isGlobalSalaryAdmin(deps.authz.accessFor(identity.userId)))
         throw new Error("salary_admin_required");
       const query = z
         .object({ query: z.string().min(1) })
@@ -295,7 +296,7 @@ export function registerSalaryRoutes(
   });
   app.get("/v1/sub-admins", async (request) => {
     const identity = user(request, deps.sessions);
-    if (deps.authz.accessFor(identity.userId).kind !== "main_admin")
+    if (!isGlobalSalaryAdmin(deps.authz.accessFor(identity.userId)))
       throw new Error("main_admin_required");
     return deps.salary.listSubAdmins();
   });

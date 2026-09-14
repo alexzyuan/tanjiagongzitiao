@@ -4,6 +4,7 @@ import type {
   SalaryBatchState,
   SalaryFieldValue,
 } from "@salary/domain";
+import { isGlobalSalaryAdmin } from "@salary/domain";
 import type {
   DeliveryRecord,
   SalaryStore,
@@ -218,8 +219,8 @@ export class EvidenceService {
 
   private visibleBatchSummaries(access: Access) {
     const summaries = this.store.listBatchSummaries();
-    if (access.kind === "main_admin") return summaries;
-    if (access.kind === "sub_admin")
+    if (isGlobalSalaryAdmin(access)) return summaries;
+    if (access.kind === "batch_admin")
       return summaries.filter(
         (batch) =>
           batch.state !== "archived" && access.batchIds.includes(batch.id),

@@ -4,19 +4,28 @@ export type Access =
   | { kind: "sub_admin"; userId: string; batchIds: string[] }
   | { kind: "employee"; userId: string };
 
+/**
+ * Returns whether the access represents a global salary administrator.
+ * The role distinction is retained for audit and UI semantics, while the
+ * enterprise administrator and sub-administrators share salary permissions.
+ */
+export function isGlobalSalaryAdmin(access: Access): boolean {
+  return access.kind === "main_admin" || access.kind === "sub_admin";
+}
+
 export function canManageBatch(access: Access, batchId: string): boolean {
-  return access.kind === "main_admin" ||
-    ((access.kind === "batch_admin" || access.kind === "sub_admin") && access.batchIds.includes(batchId));
+  return isGlobalSalaryAdmin(access) ||
+    (access.kind === "batch_admin" && access.batchIds.includes(batchId));
 }
 
 export function canReadArchive(access: Access): boolean {
-  return access.kind === "main_admin";
+  return isGlobalSalaryAdmin(access);
 }
 
 export function canManageSettings(access: Access): boolean {
-  return access.kind === "main_admin";
+  return isGlobalSalaryAdmin(access);
 }
 
 export function canReadEmployeeItem(access: Access, employeeUserId: string): boolean {
-  return access.kind === "main_admin" || (access.kind === "employee" && access.userId === employeeUserId);
+  return isGlobalSalaryAdmin(access) || (access.kind === "employee" && access.userId === employeeUserId);
 }

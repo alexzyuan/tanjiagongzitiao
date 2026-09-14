@@ -484,7 +484,7 @@ describe("salary delivery", () => {
       method: "POST",
       url: `/v1/salary-batches/${batchId}/send`,
       headers: { cookie },
-      payload: { scheduledAt: "2026-09-01T10:00:00.000Z" },
+      payload: { scheduledAt: "2099-09-01T10:00:00.000Z" },
     });
     expect(scheduled.json().batch.state).toBe("scheduled");
     const beforeDue = await app.inject({
@@ -495,7 +495,7 @@ describe("salary delivery", () => {
     expect(beforeDue.json().processedBatchIds).toEqual([]);
     const afterDue = await salary.processScheduled(
       { kind: "main_admin", userId: "dev-admin" },
-      new Date("2026-09-01T10:01:00.000Z"),
+      new Date("2099-09-01T10:01:00.000Z"),
     );
     expect(afterDue.processedBatchIds).toEqual([batchId]);
     expect(
