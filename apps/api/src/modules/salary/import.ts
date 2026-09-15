@@ -36,7 +36,7 @@ export interface ImportPreview {
 
 const metadataAliases = ["userId", "钉钉用户ID", "钉钉UserID", "员工userId", "员工UserID", "employeeUserId", "employeeNo", "工号", "name", "姓名", "department", "部门", "position", "职位"];
 // Account identifiers are opaque text: coercing numeric-looking cells loses leading zeros and precision.
-const textFieldPattern = /银行卡|银行账号|银行账户|银行卡号|银行卡信息|开户|工资卡|收款卡|结算卡|卡号|账号|账户|bank|card|account/i;
+const textFieldPattern = /银行卡|银行(?:账号|账户|帐户)|开户|(?:工资|收款|结算)卡|卡号|账号|账户|帐户|bank(?:card|account)|(?:card|account)(?:number|no|id)/i;
 
 function normalizedKey(value: string): string {
   return value.trim().toLowerCase().replace(/[\s_\-:：]/g, "");
@@ -48,7 +48,8 @@ function hasAlias(key: string, aliases: string[]): boolean {
 }
 
 function shouldPreserveText(key: string): boolean {
-  return textFieldPattern.test(normalizedKey(key));
+  const normalized = normalizedKey(key);
+  return ["bank", "card", "account"].includes(normalized) || textFieldPattern.test(normalized);
 }
 
 function text(row: RawRow, keys: string[]): string | undefined {
@@ -173,8 +174,31 @@ export function parseWorkbook(buffer: Buffer): RawRow[] {
   }
   const firstDataRow = headerRowIndex + (hasSecondHeaderRow ? 2 : 1);
   return values.slice(firstDataRow)
-    .filter(row => row.some(cell => cell !== null && cell !== undefined && cell !== ""))
-    .map(row => Object.fromEntries(headers.flatMap((header, index) => header ? [[header, row[index] ?? null]] : [])));
+    .map((row, index) => ({ row, index }))
+    .filter(({ row }) => row.some(cell => cell !== null && cell !== undefined && cell !== ""))
+    .map(({ row, index }) => Object.fromEntries(headers.flatMap((header, columnIndex) => {
+      if (!header) return [];
+      const value = row[columnIndex] ?? null;
+      return [[header, workbookCellValue(sheet, firstDataRow + index, columnIndex, header, value)]];
+    })));
+}
+
+function workbookCellValue(
+  sheet: XLSX.WorkSheet,
+  rowIndex: number,
+  columnIndex: number,
+  header: string,
+  value: unknown,
+): unknown {
+  if (!shouldPreserveText(header) || typeof value !== "number") return value;
+  const cell = sheet[XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex })];
+  if (!cell || cell.t !== "n") return value;
+  if (!Number.isSafeInteger(cell.v))
+    throw new Error(`salary_workbook_bank_field_must_be_text:${header}:row${rowIndex + 1}`);
+  const formatted = typeof cell.w === "string" ? cell.w : String(cell.v);
+  if (/e[+-]?\d+$/i.test(formatted))
+    throw new Error(`salary_workbook_bank_field_must_be_text:${header}:row${rowIndex + 1}`);
+  return formatted;
 }
 
 function stringCell(value: unknown): string | undefined {

@@ -34,6 +34,46 @@ describe("salary draft routes", () => {
     expect(typeof fields?.实发金额).toBe("number");
   });
 
+  it("uses a numeric cell's formatted text when it safely represents a bank account", () => {
+    const worksheet = XLSX.utils.aoa_to_sheet([
+      ["userId", "姓名", "银行卡号", "实发金额"],
+      ["employee-a", "员工A", 123456789, "8888.50"]
+    ]);
+    const bankCell = worksheet["C2"];
+    if (!bankCell) throw new Error("test_bank_cell_missing");
+    bankCell.z = "000000000000000000";
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "工资表");
+
+    const rows = parseWorkbook(XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }));
+
+    expect(rows[0]?.银行卡号).toBe("000000000123456789");
+  });
+
+  it("rejects an unsafe numeric bank account cell instead of storing a corrupted value", () => {
+    const worksheet = XLSX.utils.aoa_to_sheet([
+      ["userId", "姓名", "银行账号", "实发金额"],
+      ["employee-a", "员工A", 6222021234567890123, "8888.50"]
+    ]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "工资表");
+
+    expect(() => parseWorkbook(XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }))).toThrow(
+      "salary_workbook_bank_field_must_be_text"
+    );
+  });
+
+  it("still normalizes a salary amount whose label mentions bank payment", () => {
+    const result = validateRows([{
+      userId: "employee-a",
+      name: "员工A",
+      银行代发金额: "8888.50"
+    }]);
+
+    expect(result.errors).toEqual([]);
+    expect(result.items[0]?.fields.银行代发金额).toBe(8888.5);
+  });
+
   it("keeps bank account text unchanged through salary draft storage", async () => {
     const { app } = buildApp();
     const cookie = await cookieFor(app);
