@@ -35,6 +35,8 @@ export interface ImportPreview {
 }
 
 const metadataAliases = ["userId", "钉钉用户ID", "钉钉UserID", "员工userId", "员工UserID", "employeeUserId", "employeeNo", "工号", "name", "姓名", "department", "部门", "position", "职位"];
+// Account identifiers are opaque text: coercing numeric-looking cells loses leading zeros and precision.
+const textFieldPattern = /银行卡|银行账号|银行账户|银行卡号|银行卡信息|开户|工资卡|收款卡|结算卡|卡号|账号|账户|bank|card|account/i;
 
 function normalizedKey(value: string): string {
   return value.trim().toLowerCase().replace(/[\s_\-:：]/g, "");
@@ -43,6 +45,10 @@ function normalizedKey(value: string): string {
 function hasAlias(key: string, aliases: string[]): boolean {
   const normalized = normalizedKey(key);
   return aliases.some(alias => normalizedKey(alias) === normalized);
+}
+
+function shouldPreserveText(key: string): boolean {
+  return textFieldPattern.test(normalizedKey(key));
 }
 
 function text(row: RawRow, keys: string[]): string | undefined {
@@ -59,6 +65,7 @@ function normalizedFields(row: RawRow): Record<string, string | number | null> {
   for (const [key, value] of Object.entries(row)) {
     if (hasAlias(key, metadataAliases)) continue;
     if (value === undefined || value === null || value === "") { fields[key] = null; continue; }
+    if (shouldPreserveText(key)) { fields[key] = String(value); continue; }
     if (typeof value === "number") { fields[key] = value; continue; }
     const numeric = Number(String(value).replaceAll(",", ""));
     fields[key] = Number.isFinite(numeric) && String(value).trim() !== "" ? numeric : String(value);

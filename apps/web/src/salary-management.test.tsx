@@ -97,6 +97,10 @@ describe("salary management", () => {
     expect(formatSalaryValue(1.005)).toBe("1.01");
   });
 
+  it("leaves bank account text unchanged instead of applying amount formatting", () => {
+    expect(formatSalaryValue("001234567890123456")).toBe("001234567890123456");
+  });
+
   it("labels the per-employee action as a work notification send without DING", async () => {
     const user = userEvent.setup();
     apiMock.mockImplementation((path: string) => {
