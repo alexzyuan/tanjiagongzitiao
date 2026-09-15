@@ -63,15 +63,37 @@ describe("salary draft routes", () => {
     );
   });
 
-  it("still normalizes a salary amount whose label mentions bank payment", () => {
+  it("rejects a numeric bank account cell beyond Excel's fifteen-digit precision", () => {
+    const worksheet = XLSX.utils.aoa_to_sheet([
+      ["userId", "姓名", "银行账号", "实发金额"],
+      ["employee-a", "员工A", 1234567890123456, "8888.50"]
+    ]);
+    const bankCell = worksheet["C2"];
+    if (!bankCell) throw new Error("test_bank_cell_missing");
+    bankCell.z = "0000000000000000";
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "工资表");
+
+    expect(() => parseWorkbook(XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }))).toThrow(
+      "salary_workbook_bank_field_must_be_text"
+    );
+  });
+
+  it("still normalizes amount fields whose labels mention bank or account terms", () => {
     const result = validateRows([{
       userId: "employee-a",
       name: "员工A",
-      银行代发金额: "8888.50"
+      银行代发金额: "8888.50",
+      银行卡代发金额: "7777.25",
+      账户余额: "10.50",
+      银行卡余额: "11.75"
     }]);
 
     expect(result.errors).toEqual([]);
     expect(result.items[0]?.fields.银行代发金额).toBe(8888.5);
+    expect(result.items[0]?.fields.银行卡代发金额).toBe(7777.25);
+    expect(result.items[0]?.fields.账户余额).toBe(10.5);
+    expect(result.items[0]?.fields.银行卡余额).toBe(11.75);
   });
 
   it("keeps bank account text unchanged through salary draft storage", async () => {

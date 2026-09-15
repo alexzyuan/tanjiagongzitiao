@@ -36,7 +36,7 @@ export interface ImportPreview {
 
 const metadataAliases = ["userId", "钉钉用户ID", "钉钉UserID", "员工userId", "员工UserID", "employeeUserId", "employeeNo", "工号", "name", "姓名", "department", "部门", "position", "职位"];
 // Account identifiers are opaque text: coercing numeric-looking cells loses leading zeros and precision.
-const textFieldPattern = /银行卡|银行(?:账号|账户|帐户)|开户|(?:工资|收款|结算)卡|卡号|账号|账户|帐户|bank(?:card|account)|(?:card|account)(?:number|no|id)/i;
+const textFieldPattern = /^(?:银行(?:名称|名|账号|账户|帐户)?|银行卡(?:信息|号|号码)?|开户(?:行|银行|支行)|(?:工资|收款|结算)卡(?:信息|号|号码)?|(?:银行)?(?:账号|账户|帐户)|卡(?:号|号码)|bank(?:card|account)(?:number|no|id|name)?|(?:card|account)(?:number|no|id|name))$/i;
 
 function normalizedKey(value: string): string {
   return value.trim().toLowerCase().replace(/[\s_\-:：]/g, "");
@@ -193,12 +193,17 @@ function workbookCellValue(
   if (!shouldPreserveText(header) || typeof value !== "number") return value;
   const cell = sheet[XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex })];
   if (!cell || cell.t !== "n") return value;
-  if (!Number.isSafeInteger(cell.v))
+  if (!Number.isSafeInteger(cell.v) || significantDigits(cell.v) > 15)
     throw new Error(`salary_workbook_bank_field_must_be_text:${header}:row${rowIndex + 1}`);
   const formatted = typeof cell.w === "string" ? cell.w : String(cell.v);
   if (/e[+-]?\d+$/i.test(formatted))
     throw new Error(`salary_workbook_bank_field_must_be_text:${header}:row${rowIndex + 1}`);
   return formatted;
+}
+
+function significantDigits(value: number): number {
+  const coefficient = Math.abs(value).toExponential().split("e")[0] ?? "";
+  return coefficient.replace(".", "").replace(/^0+/, "").length;
 }
 
 function stringCell(value: unknown): string | undefined {
