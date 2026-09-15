@@ -35,6 +35,8 @@ export interface ImportPreview {
 }
 
 const metadataAliases = ["userId", "钉钉用户ID", "钉钉UserID", "员工userId", "员工UserID", "employeeUserId", "employeeNo", "工号", "name", "姓名", "department", "部门", "position", "职位"];
+// Account identifiers are opaque text: coercing numeric-looking cells loses leading zeros and precision.
+const textFieldPattern = /^(?:银行(?:名称|名|账号|账户|帐户)?|银行卡(?:信息|号|号码)?|开户(?:行|银行|支行)|(?:工资|收款|结算)卡(?:信息|号|号码)?|(?:银行)?(?:账号|账户|帐户)|卡(?:号|号码)|bank(?:card|account)(?:number|no|id|name)?|(?:card|account)(?:number|no|id|name))$/i;
 
 function normalizedKey(value: string): string {
   return value.trim().toLowerCase().replace(/[\s_\-:：]/g, "");
@@ -43,6 +45,11 @@ function normalizedKey(value: string): string {
 function hasAlias(key: string, aliases: string[]): boolean {
   const normalized = normalizedKey(key);
   return aliases.some(alias => normalizedKey(alias) === normalized);
+}
+
+function shouldPreserveText(key: string): boolean {
+  const normalized = normalizedKey(key);
+  return ["bank", "card", "account"].includes(normalized) || textFieldPattern.test(normalized);
 }
 
 function text(row: RawRow, keys: string[]): string | undefined {
@@ -59,6 +66,7 @@ function normalizedFields(row: RawRow): Record<string, string | number | null> {
   for (const [key, value] of Object.entries(row)) {
     if (hasAlias(key, metadataAliases)) continue;
     if (value === undefined || value === null || value === "") { fields[key] = null; continue; }
+    if (shouldPreserveText(key)) { fields[key] = String(value); continue; }
     if (typeof value === "number") { fields[key] = value; continue; }
     const numeric = Number(String(value).replaceAll(",", ""));
     fields[key] = Number.isFinite(numeric) && String(value).trim() !== "" ? numeric : String(value);
@@ -166,8 +174,36 @@ export function parseWorkbook(buffer: Buffer): RawRow[] {
   }
   const firstDataRow = headerRowIndex + (hasSecondHeaderRow ? 2 : 1);
   return values.slice(firstDataRow)
-    .filter(row => row.some(cell => cell !== null && cell !== undefined && cell !== ""))
-    .map(row => Object.fromEntries(headers.flatMap((header, index) => header ? [[header, row[index] ?? null]] : [])));
+    .map((row, index) => ({ row, index }))
+    .filter(({ row }) => row.some(cell => cell !== null && cell !== undefined && cell !== ""))
+    .map(({ row, index }) => Object.fromEntries(headers.flatMap((header, columnIndex) => {
+      if (!header) return [];
+      const value = row[columnIndex] ?? null;
+      return [[header, workbookCellValue(sheet, firstDataRow + index, columnIndex, header, value)]];
+    })));
+}
+
+function workbookCellValue(
+  sheet: XLSX.WorkSheet,
+  rowIndex: number,
+  columnIndex: number,
+  header: string,
+  value: unknown,
+): unknown {
+  if (!shouldPreserveText(header) || typeof value !== "number") return value;
+  const cell = sheet[XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex })];
+  if (!cell || cell.t !== "n") return value;
+  if (!Number.isSafeInteger(cell.v) || significantDigits(cell.v) > 15)
+    throw new Error(`salary_workbook_bank_field_must_be_text:${header}:row${rowIndex + 1}`);
+  const formatted = typeof cell.w === "string" ? cell.w : String(cell.v);
+  if (/e[+-]?\d+$/i.test(formatted))
+    throw new Error(`salary_workbook_bank_field_must_be_text:${header}:row${rowIndex + 1}`);
+  return formatted;
+}
+
+function significantDigits(value: number): number {
+  const coefficient = Math.abs(value).toExponential().split("e")[0] ?? "";
+  return coefficient.replace(".", "").replace(/^0+/, "").length;
 }
 
 function stringCell(value: unknown): string | undefined {

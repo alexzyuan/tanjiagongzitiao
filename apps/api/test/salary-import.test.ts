@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
 import { buildApp } from "../src/server.js";
-import { parseWorkbook, previewRows } from "../src/modules/salary/import.js";
+import { parseWorkbook, previewRows, validateRows } from "../src/modules/salary/import.js";
 
 async function cookieFor(app: ReturnType<typeof buildApp>["app"]) {
   const response = await app.inject({ method: "POST", url: "/v1/auth/dev" });
@@ -9,6 +9,128 @@ async function cookieFor(app: ReturnType<typeof buildApp>["app"]) {
 }
 
 describe("salary draft routes", () => {
+  it("preserves bank account text while normalizing salary amounts", () => {
+    const worksheet = XLSX.utils.aoa_to_sheet([
+      ["userId", "姓名", "银行卡信息", "银行账号", "开户支行", "实发金额", "出勤天数"],
+      ["employee-a", "员工A", "001234567890123456", "6222021234567890123", "招商银行浦东支行", "8888.50", "25"]
+    ]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "工资表");
+
+    const rows = parseWorkbook(XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }));
+    const result = validateRows(rows);
+    const fields = result.items[0]?.fields;
+
+    expect(result.errors).toEqual([]);
+    expect(fields).toMatchObject({
+      银行卡信息: "001234567890123456",
+      银行账号: "6222021234567890123",
+      开户支行: "招商银行浦东支行",
+      实发金额: 8888.5,
+      出勤天数: 25
+    });
+    expect(typeof fields?.银行卡信息).toBe("string");
+    expect(typeof fields?.银行账号).toBe("string");
+    expect(typeof fields?.实发金额).toBe("number");
+  });
+
+  it("uses a numeric cell's formatted text when it safely represents a bank account", () => {
+    const worksheet = XLSX.utils.aoa_to_sheet([
+      ["userId", "姓名", "银行卡号", "实发金额"],
+      ["employee-a", "员工A", 123456789, "8888.50"]
+    ]);
+    const bankCell = worksheet["C2"];
+    if (!bankCell) throw new Error("test_bank_cell_missing");
+    bankCell.z = "000000000000000000";
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "工资表");
+
+    const rows = parseWorkbook(XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }));
+
+    expect(rows[0]?.银行卡号).toBe("000000000123456789");
+  });
+
+  it("rejects an unsafe numeric bank account cell instead of storing a corrupted value", () => {
+    const worksheet = XLSX.utils.aoa_to_sheet([
+      ["userId", "姓名", "银行账号", "实发金额"],
+      ["employee-a", "员工A", 6222021234567890123, "8888.50"]
+    ]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "工资表");
+
+    expect(() => parseWorkbook(XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }))).toThrow(
+      "salary_workbook_bank_field_must_be_text"
+    );
+  });
+
+  it("rejects a numeric bank account cell beyond Excel's fifteen-digit precision", () => {
+    const worksheet = XLSX.utils.aoa_to_sheet([
+      ["userId", "姓名", "银行账号", "实发金额"],
+      ["employee-a", "员工A", 1234567890123456, "8888.50"]
+    ]);
+    const bankCell = worksheet["C2"];
+    if (!bankCell) throw new Error("test_bank_cell_missing");
+    bankCell.z = "0000000000000000";
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "工资表");
+
+    expect(() => parseWorkbook(XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }))).toThrow(
+      "salary_workbook_bank_field_must_be_text"
+    );
+  });
+
+  it("still normalizes amount fields whose labels mention bank or account terms", () => {
+    const result = validateRows([{
+      userId: "employee-a",
+      name: "员工A",
+      银行代发金额: "8888.50",
+      银行卡代发金额: "7777.25",
+      账户余额: "10.50",
+      银行卡余额: "11.75"
+    }]);
+
+    expect(result.errors).toEqual([]);
+    expect(result.items[0]?.fields.银行代发金额).toBe(8888.5);
+    expect(result.items[0]?.fields.银行卡代发金额).toBe(7777.25);
+    expect(result.items[0]?.fields.账户余额).toBe(10.5);
+    expect(result.items[0]?.fields.银行卡余额).toBe(11.75);
+  });
+
+  it("keeps bank account text unchanged through salary draft storage", async () => {
+    const { app } = buildApp();
+    const cookie = await cookieFor(app);
+    const create = await app.inject({
+      method: "POST",
+      url: "/v1/salary-batches",
+      headers: { cookie },
+      payload: {
+        payrollMonth: "2026-08",
+        title: "2026年08月工资条",
+        rows: [{
+          userId: "employee-a",
+          name: "员工A",
+          银行卡号: "001234567890123456",
+          银行账号: "6222021234567890123",
+          实发金额: "8888.50"
+        }]
+      }
+    });
+    const batchId = create.json().batchId as string;
+    const detail = await app.inject({
+      method: "GET",
+      url: `/v1/salary-batches/${batchId}`,
+      headers: { cookie }
+    });
+
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json().items[0].fields).toMatchObject({
+      银行卡号: "001234567890123456",
+      银行账号: "6222021234567890123",
+      实发金额: 8888.5
+    });
+    await app.close();
+  });
+
   it("parses a merged two-row header workbook without treating the title as a header", () => {
     const worksheet = XLSX.utils.aoa_to_sheet([
       ["2026年7月工资表"],

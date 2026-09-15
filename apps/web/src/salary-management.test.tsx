@@ -10,6 +10,7 @@ vi.mock("./api", async () => {
 });
 
 import { SalaryManagement } from "./pages/SalaryManagement";
+import { SalarySlipPreview } from "./features/salary/SalarySlipPreview";
 import { formatSalaryValue } from "./format";
 import { currentMonth, formatSalarySlipTitle } from "./utils/ui";
 
@@ -34,7 +35,7 @@ const batch = {
     confirmationEnabled: false,
     notice: "",
     greeting: "",
-    theme: "default",
+    theme: "default" as const,
     visibleFields: [],
     fieldGroups: [],
   },
@@ -95,6 +96,23 @@ describe("salary management", () => {
   it("rounds displayed salary numbers to two decimal places", () => {
     expect(formatSalaryValue(23.9333333333333)).toBe("23.93");
     expect(formatSalaryValue(1.005)).toBe("1.01");
+  });
+
+  it("leaves bank account text unchanged instead of applying amount formatting", () => {
+    expect(formatSalaryValue("001234567890123456")).toBe("001234567890123456");
+  });
+
+  it("renders bank account text unchanged in the salary slip preview", () => {
+    render(
+      <SalarySlipPreview
+        title="2026年08月工资条"
+        settings={batch.displaySettings}
+        fields={["银行卡号", "实发金额"]}
+        sample={{ 银行卡号: "001234567890123456", 实发金额: 8888.5 }}
+      />,
+    );
+
+    expect(screen.getByText("001234567890123456")).toBeInTheDocument();
   });
 
   it("labels the per-employee action as a work notification send without DING", async () => {
